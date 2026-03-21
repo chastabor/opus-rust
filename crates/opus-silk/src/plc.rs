@@ -5,10 +5,8 @@ use crate::*;
 const BWE_COEF_Q16: i32 = 64881; // 0.99 in Q16
 const V_PITCH_GAIN_START_MIN_Q14: i32 = 11469;
 const V_PITCH_GAIN_START_MAX_Q14: i32 = 15565;
-const MAX_PITCH_LAG_MS: i32 = 18;
 const RAND_BUF_SIZE: usize = 128;
 const RAND_BUF_MASK: usize = RAND_BUF_SIZE - 1;
-const PITCH_DRIFT_FAC_Q16: i32 = 655;
 
 const HARM_ATT_Q15: [i16; 2] = [32440, 31130];
 const PLC_RAND_ATTENUATE_V_Q15: [i16; 2] = [31130, 26214];

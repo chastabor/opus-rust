@@ -142,17 +142,14 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
     let mut pos: usize = 1;
     let mut remaining = data.len() as i32 - 1;
     let mut sizes: Vec<i16> = Vec::new();
-    let count: i32;
 
     match toc & 0x3 {
         // One frame
         0 => {
-            count = 1;
             sizes.push(remaining as i16);
         }
         // Two CBR frames
         1 => {
-            count = 2;
             if remaining & 1 != 0 {
                 return Err(OpusError::InvalidPacket);
             }
@@ -162,7 +159,6 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
         }
         // Two VBR frames
         2 => {
-            count = 2;
             let (sz, bytes) = parse_size(&data[pos..])?;
             pos += bytes;
             remaining -= bytes as i32;
@@ -181,7 +177,7 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
             let ch = data[pos];
             pos += 1;
             remaining -= 1;
-            count = (ch & 0x3F) as i32;
+            let count = (ch & 0x3F) as i32;
             if count <= 0 || framesize as i64 * count as i64 > 5760 {
                 return Err(OpusError::InvalidPacket);
             }
@@ -208,7 +204,7 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
             if !cbr {
                 // VBR
                 let mut last_size = remaining;
-                for i in 0..(count - 1) as usize {
+                for _ in 0..(count - 1) as usize {
                     let (sz, bytes) = parse_size(&data[pos..])?;
                     pos += bytes;
                     remaining -= bytes as i32;

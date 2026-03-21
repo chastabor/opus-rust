@@ -251,7 +251,6 @@ impl OpusDecoder {
                 if silk_ret != 0 && !has_data {
                     // PLC failure: fill with silence
                     silk_out_i16.fill(0);
-                    silk_frame_size = frame_size;
                 }
             } else {
                 // PLC with no range coder - create a dummy one
@@ -267,7 +266,6 @@ impl OpusDecoder {
                 );
                 if silk_ret != 0 {
                     silk_out_i16.fill(0);
-                    silk_frame_size = frame_size;
                 }
             }
 
@@ -280,7 +278,6 @@ impl OpusDecoder {
 
         // === Redundancy detection ===
         let mut redundancy = false;
-        let mut redundancy_bytes: i32 = 0;
         let mut celt_to_silk = false;
         let mut start_band: i32 = 0;
         let mut data_len = if has_data {
@@ -301,7 +298,7 @@ impl OpusDecoder {
                     }
                     if redundancy {
                         celt_to_silk = ec.dec_bit_logp(1);
-                        redundancy_bytes = if mode == MODE_HYBRID {
+                        let redundancy_bytes = if mode == MODE_HYBRID {
                             ec.dec_uint(256) as i32 + 2
                         } else {
                             data_len - ((ec.tell() + 7) >> 3)
@@ -309,7 +306,6 @@ impl OpusDecoder {
                         data_len -= redundancy_bytes;
                         if data_len * 8 < ec.tell() {
                             data_len = 0;
-                            redundancy_bytes = 0;
                             redundancy = false;
                         } else {
                             ec.storage -= redundancy_bytes as u32;

@@ -5,7 +5,6 @@ use crate::rate::{init_caps, clt_compute_allocation};
 use crate::quant_energy::{unquant_coarse_energy, unquant_fine_energy, unquant_energy_finalise};
 use crate::bands::{denormalise_bands, anti_collapse, quant_all_bands};
 use crate::pitch::comb_filter_inplace;
-use crate::mathops::celt_lcg_rand;
 use opus_range_coder::EcCtx;
 
 const DECODE_BUFFER_SIZE: usize = DEC_PITCH_BUF_SIZE;
@@ -354,8 +353,6 @@ impl CeltDecoder {
             &mut pulses_vec,
             short_blocks,
             spread_decision,
-            dual_stereo,
-            intensity,
             &tf_res,
             len as i32 * (8 << BITRES) - anti_collapse_rsv,
             balance,
@@ -363,7 +360,6 @@ impl CeltDecoder {
             lm,
             coded_bands,
             &mut self.rng,
-            self.disable_inv,
         );
 
 

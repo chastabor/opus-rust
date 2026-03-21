@@ -31,19 +31,14 @@ pub fn denormalise_bands(
         return;
     }
 
-    // f pointer tracks output position, x pointer tracks input position
-    let mut f_idx = 0usize;
     let mut x_idx = mm * m.ebands[start] as usize;
 
     // Zero up to the start band
     if start != 0 {
         let start_pos = mm * m.ebands[start] as usize;
-        for _ in 0..start_pos {
-            freq[f_idx] = 0.0;
-            f_idx += 1;
+        for j in 0..start_pos {
+            freq[j] = 0.0;
         }
-    } else {
-        f_idx = mm * m.ebands[start] as usize;
     }
 
     for i in start..end {
@@ -57,7 +52,6 @@ pub fn denormalise_bands(
             x_idx += 1;
             j += 1;
         }
-        f_idx = band_end;
     }
 
     // Zero from bound to end
@@ -189,31 +183,6 @@ fn deinterleave_hadamard(x: &mut [f32], n0: usize, stride: usize, hadamard: bool
 
 // =========================================================================
 // Stereo merge
-// =========================================================================
-fn stereo_merge(x: &mut [f32], y: &mut [f32], mid: f32, n: usize) {
-    let mut xp = 0.0f32;
-    let mut side = 0.0f32;
-    for j in 0..n {
-        xp += y[j] * x[j];
-        side += y[j] * y[j];
-    }
-    xp *= mid;
-    let el = mid * mid * 0.125 + side - 2.0 * xp;
-    let er = mid * mid * 0.125 + side + 2.0 * xp;
-    if er < 6e-4 || el < 6e-4 {
-        y[..n].copy_from_slice(&x[..n]);
-        return;
-    }
-    let lgain = 1.0 / el.sqrt();
-    let rgain = 1.0 / er.sqrt();
-    for j in 0..n {
-        let l = mid * x[j];
-        let r = y[j];
-        x[j] = lgain * (l - r);
-        y[j] = rgain * (l + r);
-    }
-}
-
 // =========================================================================
 // compute_qn for theta quantization
 // =========================================================================
@@ -436,7 +405,7 @@ fn quant_partition(
         let imid;
         let iside;
         let delta;
-        let mut b_left = b - qalloc;
+        let b_left = b - qalloc;
         if itheta == 0 {
             imid = 32767i32;
             iside = 0i32;
@@ -705,8 +674,6 @@ pub fn quant_all_bands(
     pulses: &mut [i32],
     short_blocks: i32,
     spread: i32,
-    dual_stereo: i32,
-    intensity: i32,
     tf_res: &[i32],
     total_bits: i32,
     balance: i32,
@@ -714,7 +681,6 @@ pub fn quant_all_bands(
     lm: i32,
     coded_bands: usize,
     seed: &mut u32,
-    disable_inv: bool,
 ) {
     let mm = 1usize << lm;
     let b_short = if short_blocks != 0 { mm } else { 1usize };
@@ -728,11 +694,10 @@ pub fn quant_all_bands(
 
     let mut lowband_offset = 0usize;
     let mut update_lowband = true;
-    let mut ctx_seed = *seed;
 
     let mut ctx = BandCtx {
         spread,
-        seed: ctx_seed,
+        seed: *seed,
         remaining_bits: total_bits,
         avoid_split_noise: b_short > 1,
         tf_change: 0,
@@ -843,7 +808,6 @@ pub fn quant_all_bands(
         };
 
         // Save remaining_bits for tf_change
-        let saved_remaining = ctx.remaining_bits;
 
         // Decode band (mono path)
         let norm_off_band = (mm * m.ebands[i] as usize).saturating_sub(norm_offset);

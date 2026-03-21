@@ -5,4 +5,4 @@ members = [
     "crates/opus-silk",
     "crates/opus",
 ]
-resolver = "2"
+resolver = "3"

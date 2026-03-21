@@ -111,10 +111,6 @@ pub fn clt_compute_allocation(
     let mut thresh = vec![0i32; len];
     let mut trim_offset = vec![0i32; len];
 
-    let log_m = lm << BITRES;
-    let stereo = if c > 1 { 1i32 } else { 0i32 };
-    let alloc_floor = c << BITRES;
-
     for j in start..end {
         thresh[j] = (c << BITRES)
             .max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
