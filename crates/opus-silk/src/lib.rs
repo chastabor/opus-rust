@@ -284,18 +284,36 @@ pub fn silk_div32_varq(a: i32, b: i32, q_res: i32) -> i32 {
     (a64 / b as i64) as i32
 }
 
-/// silk_lin2log: Convert input to a log scale
+/// silk_CLZ_FRAC: get leading zeros and 7-bit fraction
+#[inline(always)]
+fn silk_clz_frac(input: i32) -> (i32, i32) {
+    let lzeros = silk_clz32(input);
+    // silk_ROR32(in, 24 - lzeros) & 0x7f
+    let shift = 24 - lzeros;
+    let rotated = if shift >= 0 && shift < 32 {
+        ((input as u32).wrapping_shr(shift as u32) | (input as u32).wrapping_shl((32 - shift) as u32)) as i32
+    } else if shift < 0 {
+        let neg_shift = (-shift) as u32;
+        ((input as u32).wrapping_shl(neg_shift) | (input as u32).wrapping_shr((32 - neg_shift) as u32)) as i32
+    } else {
+        input
+    };
+    (lzeros, rotated & 0x7f)
+}
+
+/// silk_lin2log: Approximation of 128 * log2() (very close inverse of silk_log2lin())
 #[inline(always)]
 pub fn silk_lin2log(in_lin: i32) -> i32 {
     if in_lin <= 0 {
         return 0;
     }
-    let lz = (in_lin as u32).leading_zeros() as i32;
-    let frac_q7 = ((in_lin << lz) >> 24) & 0x7F; // approximate
-    ((31 - lz) << 7) + frac_q7
+    let (lz, frac_q7) = silk_clz_frac(in_lin);
+    // silk_ADD_LSHIFT32(silk_SMLAWB(frac_Q7, silk_MUL(frac_Q7, 128 - frac_Q7), 179), 31 - lz, 7)
+    let parabolic = silk_smlawb(frac_q7, frac_q7.wrapping_mul(128 - frac_q7), 179);
+    parabolic + ((31 - lz) << 7)
 }
 
-/// silk_log2lin: Convert from log to linear scale
+/// silk_log2lin: Approximation of 2^() (very close inverse of silk_lin2log())
 #[inline(always)]
 pub fn silk_log2lin(in_log_q7: i32) -> i32 {
     if in_log_q7 < 0 {
@@ -304,34 +322,43 @@ pub fn silk_log2lin(in_log_q7: i32) -> i32 {
     if in_log_q7 >= 3967 {
         return i32::MAX;
     }
+
     let int_part = in_log_q7 >> 7;
     let frac_q7 = in_log_q7 & 0x7F;
-    // Linear interpolation: (128 + frac) << int_part >> 7
-    if int_part < 7 {
-        ((128 + frac_q7) << int_part) >> 7
+    let mut out = 1i32 << int_part;
+
+    // Piece-wise parabolic approximation
+    // frac_correction = silk_SMLAWB(frac_Q7, silk_SMULBB(frac_Q7, 128 - frac_Q7), -174)
+    let frac_correction = silk_smlawb(frac_q7, frac_q7.wrapping_mul(128 - frac_q7), -174);
+
+    if in_log_q7 < 2048 {
+        // out = silk_ADD_RSHIFT32(out, silk_MUL(out, frac_correction), 7)
+        // silk_ADD_RSHIFT32(a, b, c) = a + (b >> c)
+        out = out + (out.wrapping_mul(frac_correction) >> 7);
     } else {
-        (128 + frac_q7) << (int_part - 7)
+        // out = silk_MLA(out, silk_RSHIFT(out, 7), frac_correction)
+        // silk_MLA(a, b, c) = a + b * c
+        out = out + (out >> 7).wrapping_mul(frac_correction);
     }
+    out
 }
 
-/// silk_SQRT_APPROX: approximate integer square root
+/// silk_SQRT_APPROX: approximate integer square root (matching C reference)
 #[inline(always)]
 pub fn silk_sqrt_approx(x: i32) -> i32 {
     if x <= 0 { return 0; }
-    let x = x as u32;
-    let lz = x.leading_zeros();
-    // Shift to get in [0.25, 1) range (Q30)
-    let _y = if lz & 1 != 0 { x << lz >> 1 } else { x << lz };
-    // rough sqrt approx: result is roughly x^0.5
-    let shift = if lz & 1 != 0 { (31 - lz) >> 1 } else { (32 - lz) >> 1 };
-    // Use lookup or simple Newton
-    let mut r = 1u32 << shift;
-    // Two Newton iterations
-    if r > 0 {
-        r = (r + x / r) >> 1;
-        r = (r + x / r) >> 1;
-    }
-    r as i32
+    let (lz, frac_q7) = silk_clz_frac(x);
+
+    let mut y = if lz & 1 != 0 { 32768i32 } else { 46214i32 };
+
+    // get scaling right
+    y >>= lz >> 1;
+
+    // increment using fractional part of input
+    // silk_SMLAWB(y, y, silk_SMULBB(213, frac_Q7))
+    y = silk_smlawb(y, y, 213i32.wrapping_mul(frac_q7));
+
+    y
 }
 
 /// Saturating add for i16

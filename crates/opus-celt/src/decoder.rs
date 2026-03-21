@@ -4,7 +4,7 @@ use crate::mdct::{MdctLookup, clt_mdct_backward};
 use crate::rate::{init_caps, clt_compute_allocation};
 use crate::quant_energy::{unquant_coarse_energy, unquant_fine_energy, unquant_energy_finalise};
 use crate::bands::{denormalise_bands, anti_collapse, quant_all_bands};
-use crate::pitch::comb_filter;
+use crate::pitch::comb_filter_inplace;
 use crate::mathops::celt_lcg_rand;
 use opus_range_coder::EcCtx;
 
@@ -73,16 +73,18 @@ impl CeltDecoder {
         let mem_size = channels * (DECODE_BUFFER_SIZE + overlap);
         let decode_mem = vec![0.0f32; mem_size];
         let old_band_e = vec![0.0f32; 2 * nb_ebands];
-        let mut old_log_e = vec![-28.0f32; 2 * nb_ebands];
-        let mut old_log_e2 = vec![-28.0f32; 2 * nb_ebands];
-        let mut background_log_e = vec![-28.0f32; 2 * nb_ebands];
+        let old_log_e = vec![-28.0f32; 2 * nb_ebands];
+        let old_log_e2 = vec![-28.0f32; 2 * nb_ebands];
+        let background_log_e = vec![-28.0f32; 2 * nb_ebands];
         let lpc = vec![0.0f32; channels * CELT_LPC_ORDER];
 
-        // Create MDCT
-        let mdct_n = mode.short_mdct_size * 2; // 240 for 120 short
+        // Create MDCT: N = 2 * shortMdctSize * nbShortMdcts
+        // For 48kHz: 2 * 120 * 8 = 1920
+        let nb_short_mdcts = 1usize << mode.max_lm;
+        let mdct_n = 2 * mode.short_mdct_size * nb_short_mdcts;
         let mdct = MdctLookup::new(mdct_n, mode.max_lm);
 
-        let mut dec = CeltDecoder {
+        let dec = CeltDecoder {
             channels,
             stream_channels: channels,
             downsample,
@@ -117,10 +119,6 @@ impl CeltDecoder {
     }
 
     /// Decode a CELT frame.
-    /// `data`: compressed bytes (or empty/None for PLC).
-    /// `pcm`: output interleaved float samples.
-    /// `frame_size`: number of samples per channel to decode.
-    /// `ec`: optional external entropy coder state.
     pub fn decode_with_ec(
         &mut self,
         data: &[u8],
@@ -270,7 +268,7 @@ impl CeltDecoder {
         tell = dec.tell_frac() as i32;
         for i in start..end {
             let width = c as i32 * (mode.ebands[i + 1] - mode.ebands[i]) as i32 * mm as i32;
-            let quanta = width.min((6i32 << BITRES).max(width));
+            let quanta = (width << BITRES).min((6i32 << BITRES).max(width));
             let mut dynalloc_loop_logp = dynalloc_logp;
             let mut boost = 0i32;
             while (tell + (dynalloc_loop_logp << BITRES)) < total_bits_shifted && boost < cap[i] {
@@ -311,6 +309,7 @@ impl CeltDecoder {
         let mut intensity = 0i32;
         let mut dual_stereo = 0i32;
 
+
         let coded_bands = clt_compute_allocation(
             mode,
             start,
@@ -330,6 +329,7 @@ impl CeltDecoder {
             dec,
         );
 
+
         unquant_fine_energy(mode, start, end, &mut self.old_band_e, &fine_quant, dec, c);
 
         // Allocate normalized MDCTs
@@ -343,11 +343,7 @@ impl CeltDecoder {
 
         // Decode fixed codebook
         let mut collapse_masks = vec![0u8; c * nb_ebands];
-        let y_opt: Option<&mut [f32]> = if c == 2 {
-            None // Simplified: handle stereo through x_norm directly
-        } else {
-            None
-        };
+
 
         quant_all_bands(
             mode,
@@ -370,6 +366,7 @@ impl CeltDecoder {
             &mut self.rng,
             self.disable_inv,
         );
+
 
         // Anti-collapse
         let anti_collapse_on = if anti_collapse_rsv > 0 {
@@ -415,19 +412,55 @@ impl CeltDecoder {
         }
 
         // Synthesis
-        self.celt_synthesis(mode, &x_norm, start, eff_end, c, cc, is_transient, lm, n);
+        self.celt_synthesis(mode, &x_norm, start, eff_end, c, cc, is_transient, lm, n, silence);
 
-        // Comb filter
+        // Comb filter (postfilter)
         for ch in 0..cc {
             let buf_base = ch * (DECODE_BUFFER_SIZE + overlap);
             let out_start = buf_base + DECODE_BUFFER_SIZE - n;
-            self.postfilter_period = self.postfilter_period.max(COMBFILTER_MINPERIOD);
-            self.postfilter_period_old = self.postfilter_period_old.max(COMBFILTER_MINPERIOD);
 
-            // Apply old->new postfilter transition
-            {
-                let (left, right) = self.decode_mem.split_at_mut(out_start + mode.short_mdct_size);
-                // Simplified: skip comb filter for now to avoid complex borrow issues
+            let pf_period = self.postfilter_period.max(COMBFILTER_MINPERIOD);
+            let pf_period_old = self.postfilter_period_old.max(COMBFILTER_MINPERIOD);
+
+            // Apply comb filter: old parameters transition to new
+            // We need to work on the output buffer in-place.
+            // The comb filter reads from x[offset - period..] so we need history.
+            // The decode_mem buffer has the full history.
+            //
+            // First segment: overlap transition from old to new parameters
+            // Second segment: new parameters only
+            let nb = mode.short_mdct_size;
+
+            // Apply comb filter in-place: transition from old to current state parameters
+            comb_filter_inplace(
+                &mut self.decode_mem,
+                out_start,
+                pf_period_old,
+                pf_period,
+                nb,
+                self.postfilter_gain_old,
+                self.postfilter_gain,
+                self.postfilter_tapset_old,
+                self.postfilter_tapset,
+                mode.window,
+                overlap,
+            );
+
+            // Apply transition from current state to new bitstream parameters
+            if lm != 0 {
+                comb_filter_inplace(
+                    &mut self.decode_mem,
+                    out_start + nb,
+                    pf_period,
+                    postfilter_pitch.max(COMBFILTER_MINPERIOD),
+                    n - nb,
+                    self.postfilter_gain,
+                    postfilter_gain,
+                    self.postfilter_tapset,
+                    postfilter_tapset,
+                    mode.window,
+                    overlap,
+                );
             }
         }
 
@@ -501,6 +534,7 @@ impl CeltDecoder {
     }
 
     /// Synthesis: denormalize + IMDCT + overlap-add.
+    /// Matches C celt_synthesis() for the normal mono/stereo case.
     fn celt_synthesis(
         &mut self,
         mode: &CeltMode,
@@ -512,6 +546,7 @@ impl CeltDecoder {
         is_transient: bool,
         lm: i32,
         n: usize,
+        silence: bool,
     ) {
         let overlap = mode.overlap;
         let mm = 1usize << lm;
@@ -537,10 +572,13 @@ impl CeltDecoder {
                 eff_end,
                 mm,
                 self.downsample,
-                false,
+                silence,
             );
 
             // IMDCT for each short block
+            // C: clt_mdct_backward(&mode->mdct, &freq[blk], out_syn[c]+NB*blk, window, overlap, shift, B)
+            // freq[blk] means starting at index blk, with stride B
+            // out_syn[c]+NB*blk means output at position NB*blk within the channel output
             let buf_base = ch * (DECODE_BUFFER_SIZE + overlap);
             let out_start = buf_base + DECODE_BUFFER_SIZE - n;
             for blk in 0..b {
@@ -551,7 +589,7 @@ impl CeltDecoder {
                     mode.window,
                     overlap,
                     shift,
-                    b,
+                    b,  // stride = B
                 );
             }
         }
@@ -560,7 +598,7 @@ impl CeltDecoder {
         if cc == 2 && c == 1 {
             let base0 = DECODE_BUFFER_SIZE - n;
             let base1 = (DECODE_BUFFER_SIZE + overlap) + DECODE_BUFFER_SIZE - n;
-            for i in 0..n {
+            for i in 0..(n + overlap) {
                 self.decode_mem[base1 + i] = self.decode_mem[base0 + i];
             }
         }
@@ -577,11 +615,15 @@ impl CeltDecoder {
     }
 
     /// De-emphasis filter and write to PCM output.
+    /// Matches C deemphasis() for float: applies IIR filter and SIG2RES scaling.
     fn deemphasis(&mut self, pcm: &mut [f32], n: usize, cc: usize) {
         let mode = CeltMode::get_mode();
         let coef0 = mode.preemph[0];
         let nd = n / self.downsample;
         let overlap = mode.overlap;
+        // C float uses SIG2RES(a) = (1/CELT_SIG_SCALE)*a = a/32768
+        const CELT_SIG_SCALE: f32 = 32768.0;
+        let sig2res = 1.0 / CELT_SIG_SCALE;
 
         for ch in 0..cc {
             let buf_base = ch * (DECODE_BUFFER_SIZE + overlap);
@@ -593,7 +635,7 @@ impl CeltDecoder {
                 for j in 0..n {
                     let tmp = (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
                     m = coef0 * tmp;
-                    scratch[j] = tmp;
+                    scratch[j] = sig2res * tmp;
                 }
                 for j in 0..nd {
                     pcm[j * cc + ch] = scratch[j * self.downsample];
@@ -602,7 +644,7 @@ impl CeltDecoder {
                 for j in 0..n {
                     let tmp = (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
                     m = coef0 * tmp;
-                    pcm[j * cc + ch] = tmp;
+                    pcm[j * cc + ch] = sig2res * tmp;
                 }
             }
             self.preemph_mem[ch] = m;

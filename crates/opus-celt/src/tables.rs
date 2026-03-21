@@ -322,7 +322,12 @@ pub const BIT_DEINTERLEAVE_TABLE: [u8; 16] = [
 /// Maximum pseudo pulses.
 pub const MAX_PSEUDO: usize = 40;
 
-/// Get number of pulses from K.
-pub fn get_pulses(k: i32) -> i32 {
-    (2 * k - 1).max(0)
+/// Get number of pulses from pseudo-pulse index.
+/// Matches C rate.h get_pulses().
+pub fn get_pulses(i: i32) -> i32 {
+    if i < 8 {
+        i
+    } else {
+        (8 + (i & 7)) << ((i >> 3) - 1)
+    }
 }

@@ -73,7 +73,9 @@ fn nlsf_residual_dequant(
 ) {
     let mut out_q10: i32 = 0;
     for i in (0..order).rev() {
-        let pred_q10 = (out_q10 as i64 * pred_coef_q8[i] as i64 >> 8) as i32;
+        // C: pred_Q10 = silk_RSHIFT(silk_SMULBB(out_Q10, (opus_int16)pred_coef_Q8[i]), 8);
+        // silk_SMULBB takes lower 16 bits of both operands
+        let pred_q10 = ((out_q10 as i16 as i32) * (pred_coef_q8[i] as i32)) >> 8;
         out_q10 = (indices[i] as i32) << 10;
         if out_q10 > 0 {
             out_q10 -= NLSF_QUANT_LEVEL_ADJ_Q10;
@@ -352,21 +354,31 @@ pub fn silk_lpc_inverse_pred_gain(a_q12: &[i16], order: usize) -> i32 {
     inv_gain_q30
 }
 
-/// Bandwidth expander for i16 coefficients
+/// Bandwidth expander for i16 coefficients (matching C reference exactly)
+/// NB: Uses silk_RSHIFT_ROUND(silk_MUL(...), 16) instead of silk_SMULWB
+/// to avoid bias that can lead to unstable filters.
 pub fn silk_bwexpander(ar: &mut [i16], d: usize, chirp_q16: i32) {
     let mut chirp = chirp_q16;
-    for i in 0..d {
-        ar[i] = silk_smulwb(chirp, ar[i] as i32) as i16;
-        chirp = silk_smulwb(chirp, chirp_q16);
+    let chirp_minus_one_q16 = chirp_q16 - 65536;
+    for i in 0..d.saturating_sub(1) {
+        ar[i] = silk_rshift_round(chirp.wrapping_mul(ar[i] as i32), 16) as i16;
+        chirp += silk_rshift_round(chirp.wrapping_mul(chirp_minus_one_q16), 16);
+    }
+    if d > 0 {
+        ar[d - 1] = silk_rshift_round(chirp.wrapping_mul(ar[d - 1] as i32), 16) as i16;
     }
 }
 
 /// Bandwidth expander for i32 coefficients
 pub fn silk_bwexpander_32(ar: &mut [i32], d: usize, chirp_q16: i32) {
     let mut chirp = chirp_q16;
-    for i in 0..d {
+    let chirp_minus_one_q16 = chirp_q16 - 65536;
+    for i in 0..d.saturating_sub(1) {
         ar[i] = silk_smulww_correct(chirp, ar[i]);
-        chirp = silk_smulwb(chirp, chirp_q16);
+        chirp += silk_rshift_round(chirp.wrapping_mul(chirp_minus_one_q16), 16);
+    }
+    if d > 0 {
+        ar[d - 1] = silk_smulww_correct(chirp, ar[d - 1]);
     }
 }
 

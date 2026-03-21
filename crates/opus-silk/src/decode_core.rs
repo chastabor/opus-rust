@@ -52,10 +52,20 @@ pub fn silk_decode_core(
     let mut pxq_offset = 0usize;
     let mut s_ltp_buf_idx = ltp_mem_length;
 
+    // Local copies for pitch parameters that may be modified during PLC transition
+    let mut pitch_l = ps_dec_ctrl.pitch_l;
+    let mut ltp_coef_q14 = [0i16; LTP_ORDER * MAX_NB_SUBFR];
+    ltp_coef_q14[..LTP_ORDER * ps_dec.nb_subfr as usize]
+        .copy_from_slice(&ps_dec_ctrl.ltp_coef_q14[..LTP_ORDER * ps_dec.nb_subfr as usize]);
+
     // Loop over subframes
+    let mut lag = 0i32;
     for k in 0..ps_dec.nb_subfr as usize {
         let a_q12 = &ps_dec_ctrl.pred_coef_q12[k >> 1];
-        let b_q14 = &ps_dec_ctrl.ltp_coef_q14[k * LTP_ORDER..(k + 1) * LTP_ORDER];
+        let mut a_q12_tmp = [0i16; MAX_LPC_ORDER];
+        a_q12_tmp[..lpc_order].copy_from_slice(&a_q12[..lpc_order]);
+
+        let b_q14_base = k * LTP_ORDER;
         let mut signal_type = ps_dec.indices.signal_type as i32;
 
         let gain_q10 = ps_dec_ctrl.gains_q16[k] >> 6;
@@ -75,53 +85,60 @@ pub fn silk_decode_core(
         ps_dec.prev_gain_q16 = ps_dec_ctrl.gains_q16[k];
 
         // Avoid abrupt transition from voiced PLC to unvoiced normal decoding
-        let mut b_q14_local = [0i16; LTP_ORDER];
-        b_q14_local.copy_from_slice(&b_q14[..LTP_ORDER]);
-
         if ps_dec.loss_cnt > 0 && ps_dec.prev_signal_type == TYPE_VOICED
             && ps_dec.indices.signal_type as i32 != TYPE_VOICED
             && k < MAX_NB_SUBFR / 2
         {
-            b_q14_local.fill(0);
-            b_q14_local[LTP_ORDER / 2] = (0.25f64 * 16384.0) as i16; // SILK_FIX_CONST(0.25, 14)
+            for i in 0..LTP_ORDER {
+                ltp_coef_q14[b_q14_base + i] = 0;
+            }
+            ltp_coef_q14[b_q14_base + LTP_ORDER / 2] = (0.25f64 * 16384.0) as i16;
             signal_type = TYPE_VOICED;
+            pitch_l[k] = ps_dec.lag_prev;
         }
 
-        let mut lag = 0i32;
-
         if signal_type == TYPE_VOICED {
-            lag = ps_dec_ctrl.pitch_l[k];
+            lag = pitch_l[k];
 
             // Re-whitening
             if k == 0 || (k == 2 && nlsf_interpolation_flag) {
-                let start_idx = ltp_mem_length as i32 - lag - ps_dec.lpc_order - (LTP_ORDER as i32) / 2;
-                let start_idx = start_idx.max(0) as usize;
+                let start_idx = (ltp_mem_length as i32 - lag - ps_dec.lpc_order - (LTP_ORDER as i32) / 2)
+                    .max(0) as usize;
 
                 if k == 2 {
-                    let src_start = ltp_mem_length;
+                    // Copy decoded samples so far into outBuf for rewhitening
+                    let dst_start = ltp_mem_length;
                     for i in 0..2 * subfr_length {
-                        if src_start + i < ps_dec.out_buf.len() {
-                            ps_dec.out_buf[src_start + i] = xq[i];
+                        if dst_start + i < ps_dec.out_buf.len() {
+                            ps_dec.out_buf[dst_start + i] = xq[i];
                         }
                     }
                 }
 
                 // LPC analysis filter
-                nlsf::silk_lpc_analysis_filter(
+                // C: silk_LPC_analysis_filter(&sLTP[start_idx], &psDec->outBuf[start_idx + k * subfr_length], ...)
+                // The C function writes to sLTP starting at start_idx, reading from outBuf at the same-offset range.
+                // Our Rust function writes to out[d..d+len]. We need it to write to s_ltp[start_idx..].
+                let filter_len = ltp_mem_length - start_idx;
+                let out_buf_offset = start_idx + k * subfr_length;
+                silk_lpc_analysis_filter_offset(
                     &mut s_ltp,
-                    &ps_dec.out_buf[k * subfr_length..],
-                    a_q12,
-                    ltp_mem_length - start_idx,
+                    start_idx,
+                    &ps_dec.out_buf,
+                    out_buf_offset,
+                    &a_q12_tmp,
+                    filter_len,
                     lpc_order,
                 );
 
                 let mut inv_gain_for_ltp = inv_gain_q31;
                 if k == 0 {
+                    // Do LTP downscaling to reduce inter-packet dependency
                     inv_gain_for_ltp = (silk_smulwb(inv_gain_for_ltp, ps_dec_ctrl.ltp_scale_q14 as i32)) << 2;
                 }
 
                 let lag_plus = lag as usize + LTP_ORDER / 2;
-                for i in 0..lag_plus.min(ltp_mem_length) {
+                for i in 0..lag_plus.min(ltp_mem_length).min(s_ltp_buf_idx) {
                     let src_idx = ltp_mem_length - i - 1;
                     s_ltp_q15[s_ltp_buf_idx - i - 1] = silk_smulwb(inv_gain_for_ltp, s_ltp[src_idx] as i32);
                 }
@@ -141,16 +158,13 @@ pub fn silk_decode_core(
             let pred_lag_base = s_ltp_buf_idx as i32 - lag + (LTP_ORDER as i32) / 2;
             for i in 0..subfr_length {
                 let pred_idx = (pred_lag_base + i as i32) as usize;
-                let mut ltp_pred_q13: i32 = 2; // bias
 
-                // Check bounds before accessing
-                if pred_idx >= 4 {
-                    ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx], b_q14_local[0] as i32);
-                    ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 1], b_q14_local[1] as i32);
-                    ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 2], b_q14_local[2] as i32);
-                    ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 3], b_q14_local[3] as i32);
-                    ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 4], b_q14_local[4] as i32);
-                }
+                let mut ltp_pred_q13: i32 = 2; // bias
+                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx], ltp_coef_q14[b_q14_base + 0] as i32);
+                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 1], ltp_coef_q14[b_q14_base + 1] as i32);
+                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 2], ltp_coef_q14[b_q14_base + 2] as i32);
+                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 3], ltp_coef_q14[b_q14_base + 3] as i32);
+                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 4], ltp_coef_q14[b_q14_base + 4] as i32);
 
                 res_q14[i] = ps_dec.exc_q14[pexc_offset + i].wrapping_add(ltp_pred_q13 << 1);
                 s_ltp_q15[s_ltp_buf_idx] = res_q14[i] << 1;
@@ -161,13 +175,14 @@ pub fn silk_decode_core(
         // Short-term prediction (LPC synthesis)
         let use_res = signal_type == TYPE_VOICED;
         for i in 0..subfr_length {
-            let mut lpc_pred_q10: i32 = lpc_order as i32 >> 1; // bias
+            // Bias: silk_RSHIFT(psDec->LPC_order, 1)
+            let mut lpc_pred_q10: i32 = lpc_order as i32 >> 1;
 
             for j in 0..lpc_order.min(10) {
                 lpc_pred_q10 = silk_smlawb(
                     lpc_pred_q10,
                     s_lpc_q14[MAX_LPC_ORDER + i - 1 - j],
-                    a_q12[j] as i32,
+                    a_q12_tmp[j] as i32,
                 );
             }
             if lpc_order == 16 {
@@ -175,7 +190,7 @@ pub fn silk_decode_core(
                     lpc_pred_q10 = silk_smlawb(
                         lpc_pred_q10,
                         s_lpc_q14[MAX_LPC_ORDER + i - 1 - j],
-                        a_q12[j] as i32,
+                        a_q12_tmp[j] as i32,
                     );
                 }
             }
@@ -196,4 +211,37 @@ pub fn silk_decode_core(
 
     // Save LPC state
     ps_dec.s_lpc_q14_buf.copy_from_slice(&s_lpc_q14[..MAX_LPC_ORDER]);
+}
+
+/// LPC analysis filter with explicit offsets matching C behavior
+/// C: silk_LPC_analysis_filter(&sLTP[start_idx], &psDec->outBuf[start_idx + k*subfr_length], A_Q12, len, order)
+/// Writes to out[out_offset + d .. out_offset + d + len]
+/// Reads from input[in_offset .. in_offset + len]  (needs in_offset - d .. in_offset + len accessible)
+fn silk_lpc_analysis_filter_offset(
+    out: &mut [i16],
+    out_offset: usize,
+    input: &[i16],
+    in_offset: usize,
+    b_q12: &[i16],
+    len: usize,
+    d: usize,
+) {
+    for ix in d..len {
+        let in_ix = in_offset + ix;
+        let mut out32_q12: i32 = if in_ix < input.len() {
+            (input[in_ix] as i32) << 12
+        } else {
+            0
+        };
+        for j in 0..d {
+            let in_j = in_offset + ix - j - 1;
+            if in_j < input.len() {
+                out32_q12 -= (b_q12[j] as i32) * (input[in_j] as i32);
+            }
+        }
+        let out_ix = out_offset + ix;
+        if out_ix < out.len() {
+            out[out_ix] = silk_sat16(silk_rshift_round(out32_q12, 12));
+        }
+    }
 }

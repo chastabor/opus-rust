@@ -4,25 +4,27 @@ use crate::mathops::celt_udiv;
 use opus_range_coder::EcCtx;
 
 /// Look up the number of pulses for a given number of bits.
+/// Matches C rate.h bits2pulses() exactly.
 pub fn bits2pulses(m: &CeltMode, band: usize, lm: i32, b: i32) -> i32 {
     let cache_idx = m.cache.index[((lm + 1) as usize) * m.nb_ebands + band];
     if cache_idx < 0 {
         return 0;
     }
     let cache = &m.cache.bits[cache_idx as usize..];
-    let lo = 0i32;
-    let hi = cache[0] as i32;
-    let mut lo = lo;
-    let mut hi = hi;
+    let mut lo = 0i32;
+    let mut hi = cache[0] as i32;
+    let bits = b - 1; // C does bits-- before the search
     for _ in 0..6 {
-        let mid = (lo + hi) >> 1;
-        if cache[mid as usize] as i32 >= b {
+        let mid = (lo + hi + 1) >> 1; // C uses (lo+hi+1)>>1
+        if cache[mid as usize] as i32 >= bits {
             hi = mid;
         } else {
             lo = mid;
         }
     }
-    if lo > 0 && (b - cache[lo as usize] as i32) <= (cache[hi as usize] as i32 - b) {
+    // C: bits- (lo == 0 ? -1 : (int)cache[lo]) <= (int)cache[hi]-bits
+    let lo_val = if lo == 0 { -1i32 } else { cache[lo as usize] as i32 };
+    if bits - lo_val <= cache[hi as usize] as i32 - bits {
         lo
     } else {
         hi
@@ -291,8 +293,10 @@ fn interp_bits2pulses(
         let bw = (m.ebands[coded_bands] - m.ebands[j]) as i32;
         let band_bits = bits[j] + percoeff * bw + rem;
 
+
         if band_bits >= thresh[j].max(alloc_floor + (1 << BITRES)) {
-            if ec.dec_bit_logp(1) {
+            let flag = ec.dec_bit_logp(1);
+            if flag {
                 break;
             }
             psum += 1 << BITRES;

@@ -1,7 +1,22 @@
 /// Float exp2 approximation: 2^x
+/// Matches C celt mathops.h celt_exp2() exactly.
 #[inline]
 pub fn celt_exp2(x: f32) -> f32 {
-    (x * core::f32::consts::LN_2).exp()
+    let integer = x.floor() as i32;
+    if integer < -50 {
+        return 0.0;
+    }
+    let frac = x - integer as f32;
+    const A0: f32 = 9.999999403953552246093750000000e-01;
+    const A1: f32 = 6.931530833244323730468750000000e-01;
+    const A2: f32 = 2.401536107063293457031250000000e-01;
+    const A3: f32 = 5.582631751894950866699218750000e-02;
+    const A4: f32 = 8.989339694380760192871093750000e-03;
+    const A5: f32 = 1.877576694823801517486572265625e-03;
+    let poly = A0 + frac * (A1 + frac * (A2 + frac * (A3 + frac * (A4 + frac * A5))));
+    let bits = poly.to_bits();
+    let result_bits = ((bits as i32).wrapping_add(integer << 23)) as u32 & 0x7fffffff;
+    f32::from_bits(result_bits)
 }
 
 /// Float log2 approximation: log2(x)

@@ -1,4 +1,4 @@
-use crate::fft::{KissFftCpx, KissFftState, opus_fft};
+use crate::fft::{KissFftCpx, KissFftState, opus_fft_impl};
 
 /// MDCT lookup structure.
 pub struct MdctLookup {
@@ -10,6 +10,8 @@ pub struct MdctLookup {
 
 impl MdctLookup {
     /// Create a new MDCT lookup for size N with maxshift levels.
+    /// Trig table: trig[i] = cos(2*PI*(i+0.125)/N) for i=0..N/2-1
+    /// at each shift level.
     pub fn new(n: usize, max_shift: usize) -> Self {
         let mut kfft = Vec::new();
         let mut trig = Vec::new();
@@ -17,9 +19,10 @@ impl MdctLookup {
         for _s in 0..=max_shift {
             kfft.push(KissFftState::new(cur_n >> 2));
             let n2 = cur_n >> 1;
+            let pi: f64 = std::f64::consts::PI;
             for i in 0..n2 {
-                let phase = 2.0 * std::f32::consts::PI * (i as f32 + 0.125) / cur_n as f32;
-                trig.push(phase.cos());
+                let phase = 2.0 * pi * (i as f64 + 0.125) / cur_n as f64;
+                trig.push(phase.cos() as f32);
             }
             cur_n >>= 1;
         }
@@ -33,8 +36,14 @@ impl MdctLookup {
 }
 
 /// MDCT backward (inverse) transform.
-/// Reads from `input` with given stride, adds overlap to `output`.
-/// `window` is the TDAC window, `overlap` is the window length.
+/// Matches clt_mdct_backward_c in celt/mdct.c for the float case.
+///
+/// `input`: frequency-domain data (read with stride)
+/// `output`: time-domain output buffer
+/// `window`: TDAC window of length `overlap`
+/// `overlap`: overlap length
+/// `shift`: shift level (0 = full size, 1 = half, etc.)
+/// `stride`: interleave stride for short blocks (B)
 pub fn clt_mdct_backward(
     l: &MdctLookup,
     input: &[f32],
@@ -56,84 +65,82 @@ pub fn clt_mdct_backward(
     let trig = &l.trig[trig_offset..];
     let st = &l.kfft[shift];
 
-    // Pre-rotate: interleave input into complex pairs
-    let mut f2 = vec![KissFftCpx::default(); n4];
+    // === Pre-rotation ===
+    // C code writes directly to out+(overlap>>1) at bitrev positions.
+    let yp_base = overlap >> 1;
     {
-        let mut xp1_idx = 0;
-        let mut xp2_idx = n2 - 1;
+        let mut xp1_idx = 0usize;
+        let mut xp2_idx = stride * (n2 - 1);
+        let bitrev = &st.bitrev;
         for i in 0..n4 {
-            let x1 = input[xp1_idx * stride];
-            let x2 = input[xp2_idx * stride];
+            let rev = bitrev[i];
+            let x1 = if xp1_idx < input.len() { input[xp1_idx] } else { 0.0 };
+            let x2 = if xp2_idx < input.len() { input[xp2_idx] } else { 0.0 };
             let t0 = trig[i];
             let t1 = trig[n4 + i];
             let yr = x2 * t0 + x1 * t1;
             let yi = x1 * t0 - x2 * t1;
-            // Swap real/imag for FFT instead of IFFT
-            f2[i] = KissFftCpx { r: yi, i: yr };
-            xp1_idx += 2;
-            xp2_idx = xp2_idx.wrapping_sub(2);
+            // We swap real and imag because we use an FFT instead of an IFFT.
+            output[yp_base + 2 * rev + 1] = yr;
+            output[yp_base + 2 * rev] = yi;
+            xp1_idx += 2 * stride;
+            xp2_idx = xp2_idx.wrapping_sub(2 * stride);
         }
     }
 
-    // N/4 complex FFT
-    let mut f2_out = vec![KissFftCpx::default(); n4];
-    opus_fft(st, &f2, &mut f2_out);
-
-    // Post-rotate and de-shuffle
+    // === N/4-point complex FFT in-place ===
     {
-        let mut yp0 = vec![0.0f32; n2];
+        let mut f2 = vec![KissFftCpx::default(); n4];
         for i in 0..n4 {
-            let re = f2_out[i].i; // swapped
-            let im = f2_out[i].r;
-            let t0 = trig[i];
-            let t1 = trig[n4 + i];
-            yp0[2 * i] = re * t0 + im * t1;
-            yp0[2 * i + 1] = re * t1 - im * t0;
+            f2[i].r = output[yp_base + 2 * i];
+            f2[i].i = output[yp_base + 2 * i + 1];
         }
-        // Second pass: mirror from both ends
+        opus_fft_impl(st, &mut f2);
+        for i in 0..n4 {
+            output[yp_base + 2 * i] = f2[i].r;
+            output[yp_base + 2 * i + 1] = f2[i].i;
+        }
+    }
+
+    // === Post-rotate and de-shuffle from both ends simultaneously (in-place) ===
+    {
         let half = (n4 + 1) >> 1;
         for i in 0..half {
-            let a = yp0[2 * i + 1];
-            let b = yp0[2 * i];
-            let c_idx = n2 - 2 - 2 * i;
-            let c = yp0[c_idx + 1];
-            let d = yp0[c_idx];
+            let yp0 = yp_base + 2 * i;
+            let yp1 = yp_base + n2 - 2 - 2 * i;
 
+            let re0 = output[yp0 + 1];
+            let im0 = output[yp0];
             let t0 = trig[i];
             let t1 = trig[n4 + i];
-            let yr1 = a * t0 + b * t1;
-            let yi1 = a * t1 - b * t0;
+            let yr0 = re0 * t0 + im0 * t1;
+            let yi0 = re0 * t1 - im0 * t0;
+
+            let re1 = output[yp1 + 1];
+            let im1 = output[yp1];
+
+            output[yp0] = yr0;
+            output[yp1 + 1] = yi0;
 
             let t0b = trig[n4 - i - 1];
             let t1b = trig[n2 - i - 1];
-            let yr2 = c * t0b + d * t1b;
-            let yi2 = c * t1b - d * t0b;
+            let yr1 = re1 * t0b + im1 * t1b;
+            let yi1 = re1 * t1b - im1 * t0b;
 
-            yp0[2 * i] = yr1;
-            yp0[2 * i + 1] = yi1;
-            yp0[c_idx] = yr2;
-            yp0[c_idx + 1] = yi2;
-        }
-
-        // Write to output with TDAC window overlap
-        let out_base = overlap >> 1;
-        // Write the middle part
-        for i in 0..n2 {
-            output[out_base + i] = 2.0 * yp0[i];
+            output[yp1] = yr1;
+            output[yp0 + 1] = yi1;
         }
     }
 
-    // Mirror on both sides for TDAC
-    {
-        for i in 0..(overlap / 2) {
-            let xp1_idx = overlap - 1 - i;
-            let yp1_idx = i;
-            let x1 = output[xp1_idx];
-            let x2 = output[yp1_idx];
-            let wp1 = window[i];
-            let wp2 = window[overlap - 1 - i];
-            output[yp1_idx] = x2 * wp2 - x1 * wp1;
-            output[xp1_idx] = x2 * wp1 + x1 * wp2;
-        }
+    // === Mirror for TDAC windowing ===
+    for i in 0..(overlap / 2) {
+        let xp1_idx = overlap - 1 - i;
+        let yp1_idx = i;
+        let x1 = output[xp1_idx];
+        let x2 = output[yp1_idx];
+        let wp1 = window[i];
+        let wp2 = window[overlap - 1 - i];
+        output[yp1_idx] = x2 * wp2 - x1 * wp1;
+        output[xp1_idx] = x2 * wp1 + x1 * wp2;
     }
 }
