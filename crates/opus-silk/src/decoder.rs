@@ -189,7 +189,7 @@ impl SilkDecoder {
                             let fl = self.channel_state[n].frame_length;
                             let sig_type = self.channel_state[n].indices.signal_type as i32;
                             let qot = self.channel_state[n].indices.quant_offset_type as i32;
-                            let mut dummy_pulses = vec![0i16; fl as usize];
+                            let mut dummy_pulses = [0i16; MAX_FRAME_LENGTH];
                             decode_pulses::silk_decode_pulses(
                                 ps_range_dec, &mut dummy_pulses, sig_type, qot, fl
                             );

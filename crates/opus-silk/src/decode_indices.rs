@@ -3,6 +3,7 @@
 use opus_range_coder::EcCtx;
 use crate::*;
 use crate::tables::*;
+use crate::nlsf::nlsf_unpack;
 
 /// Decode side-information parameters from payload
 pub fn silk_decode_indices(
@@ -123,21 +124,3 @@ pub fn silk_decode_indices(
     ps_dec.indices.seed = ps_range_dec.dec_icdf(&SILK_UNIFORM4_ICDF, 8) as i8;
 }
 
-/// Unpack predictor values and indices for entropy coding tables
-fn nlsf_unpack(
-    ec_ix: &mut [i16; MAX_LPC_ORDER],
-    pred_q8: &mut [u8; MAX_LPC_ORDER],
-    cb: &NlsfCbStruct,
-    cb1_index: usize,
-) {
-    let order = cb.order as usize;
-    let ec_sel_offset = cb1_index * order / 2;
-
-    for i in (0..order).step_by(2) {
-        let entry = cb.ec_sel[ec_sel_offset + i / 2];
-        ec_ix[i] = (((entry >> 1) & 7) as i16) * (2 * NLSF_QUANT_MAX_AMPLITUDE as i16 + 1);
-        pred_q8[i] = cb.pred_q8[i + ((entry & 1) as usize) * (order - 1)];
-        ec_ix[i + 1] = (((entry >> 5) & 7) as i16) * (2 * NLSF_QUANT_MAX_AMPLITUDE as i16 + 1);
-        pred_q8[i + 1] = cb.pred_q8[i + (((entry >> 4) & 1) as usize) * (order - 1) + 1];
-    }
-}

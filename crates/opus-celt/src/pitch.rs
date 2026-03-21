@@ -79,25 +79,3 @@ pub fn comb_filter_inplace(
     }
 }
 
-/// Legacy comb_filter with separate x/y buffers (kept for compatibility).
-pub fn comb_filter(
-    y: &mut [f32],
-    x: &[f32],
-    y_offset: usize,
-    x_offset: usize,
-    t0: usize,
-    t1: usize,
-    n: usize,
-    g0: f32,
-    g1: f32,
-    tapset0: usize,
-    tapset1: usize,
-    window: &[f32],
-    overlap: usize,
-) {
-    // Copy x to y first, then apply in-place
-    for i in 0..n {
-        y[y_offset + i] = x[x_offset + i];
-    }
-    comb_filter_inplace(y, y_offset, t0, t1, n, g0, g1, tapset0, tapset1, window, overlap);
-}

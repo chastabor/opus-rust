@@ -46,7 +46,7 @@ pub fn silk_nlsf_decode(
     silk_nlsf_stabilize(p_nlsf_q15, cb.delta_min_q15, order);
 }
 
-fn nlsf_unpack(
+pub(crate) fn nlsf_unpack(
     ec_ix: &mut [i16; MAX_LPC_ORDER],
     pred_q8: &mut [u8; MAX_LPC_ORDER],
     cb: &NlsfCbStruct,

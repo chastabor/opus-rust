@@ -66,14 +66,14 @@ impl EcCtx {
     pub fn decode(&mut self, ft: u32) -> u32 {
         self.ext = self.rng / ft;
         let s = self.val / self.ext;
-        ft - ec_mini(s + 1, ft)
+        ft - (s + 1).min(ft)
     }
 
     /// Binary version of decode for ft = 1 << bits.
     pub fn decode_bin(&mut self, bits: u32) -> u32 {
         self.ext = self.rng >> bits;
         let s = self.val / self.ext;
-        (1u32 << bits) - ec_mini(s + 1, 1u32 << bits)
+        (1u32 << bits) - (s + 1).min(1u32 << bits)
     }
 
     /// Advance the decoder past a symbol with cumulative frequency range [fl, fh) out of ft.

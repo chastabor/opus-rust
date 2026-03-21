@@ -50,7 +50,7 @@ pub fn denormalise_bands(
         let j_start = mm * m.ebands[i] as usize;
         let band_end = mm * m.ebands[i + 1] as usize;
         let lg = band_log_e[i] + E_MEANS[i];
-        let g = celt_exp2_db(lg.min(32.0));
+        let g = celt_exp2(lg.min(32.0));
         let mut j = j_start;
         while j < band_end {
             freq[j] = x[x_idx] * g;
@@ -98,7 +98,7 @@ pub fn anti_collapse(
                 prev2 = prev2.max(prev2_log_e[m.nb_ebands + i]);
             }
             let ediff = (log_e[ch * m.nb_ebands + i] - prev1.min(prev2)).max(0.0);
-            let mut r = 2.0 * celt_exp2_db(-ediff);
+            let mut r = 2.0 * celt_exp2(-ediff);
             if lm == 3 {
                 r *= 1.41421356;
             }
@@ -701,7 +701,6 @@ pub fn quant_all_bands(
     start: usize,
     end: usize,
     x: &mut [f32],
-    _y_opt: Option<&mut [f32]>,
     collapse_masks: &mut [u8],
     pulses: &mut [i32],
     short_blocks: i32,

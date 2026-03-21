@@ -122,12 +122,6 @@ pub fn ec_ilog(v: u32) -> u32 {
     }
 }
 
-/// Branchless minimum.
-#[inline]
-pub fn ec_mini(a: u32, b: u32) -> u32 {
-    a.min(b)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,12 +136,5 @@ mod tests {
         assert_eq!(ec_ilog(255), 8);
         assert_eq!(ec_ilog(256), 9);
         assert_eq!(ec_ilog(0xFFFFFFFF), 32);
-    }
-
-    #[test]
-    fn test_ec_mini() {
-        assert_eq!(ec_mini(5, 3), 3);
-        assert_eq!(ec_mini(3, 5), 3);
-        assert_eq!(ec_mini(0, 0), 0);
     }
 }

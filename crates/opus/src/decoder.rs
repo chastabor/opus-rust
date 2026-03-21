@@ -19,6 +19,8 @@ pub struct OpusDecoder {
     celt_dec: CeltDecoder,
     /// Decode gain in Q8 dB.
     decode_gain: i32,
+    /// Cached linear gain computed from decode_gain.
+    decode_gain_float: f32,
     /// Number of channels in the stream.
     stream_channels: i32,
     /// Current bandwidth.
@@ -68,6 +70,7 @@ impl OpusDecoder {
             silk_control,
             celt_dec,
             decode_gain: 0,
+            decode_gain_float: 1.0,
             stream_channels: channels,
             bandwidth: 0,
             mode: 0,
@@ -81,8 +84,9 @@ impl OpusDecoder {
     }
 
     /// Reset the decoder state.
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<(), OpusError> {
         self.decode_gain = 0;
+        self.decode_gain_float = 1.0;
         self.stream_channels = self.channels;
         self.bandwidth = 0;
         self.mode = 0;
@@ -94,11 +98,9 @@ impl OpusDecoder {
         self.range_final = 0;
         self.silk_dec.reset();
         self.celt_dec =
-            CeltDecoder::new(self.fs, self.channels as usize).unwrap_or_else(|_| {
-                // Should never fail since we validated in new()
-                panic!("Failed to reinitialize CELT decoder")
-            });
+            CeltDecoder::new(self.fs, self.channels as usize).map_err(|_| OpusError::InternalError)?;
         self.celt_dec.signalling = false;
+        Ok(())
     }
 
     pub fn sample_rate(&self) -> i32 {
@@ -115,6 +117,8 @@ impl OpusDecoder {
 
     pub fn set_gain(&mut self, gain_q8: i32) {
         self.decode_gain = gain_q8;
+        let db = gain_q8 as f32 / 256.0;
+        self.decode_gain_float = 10.0f32.powf(db / 20.0);
     }
 
     pub fn get_gain(&self) -> i32 {
@@ -371,8 +375,7 @@ impl OpusDecoder {
 
         // === Apply decode gain ===
         if self.decode_gain != 0 {
-            let db = self.decode_gain as f32 / 256.0;
-            let gain = 10.0f32.powf(db / 20.0);
+            let gain = self.decode_gain_float;
             let n = frame_size as usize * self.channels as usize;
             for s in pcm[..n].iter_mut() {
                 *s *= gain;
@@ -612,7 +615,7 @@ mod tests {
     fn test_decoder_reset() {
         let mut dec = OpusDecoder::new(48000, 1).unwrap();
         dec.set_gain(100);
-        dec.reset();
+        dec.reset().unwrap();
         assert_eq!(dec.get_gain(), 0);
     }
 

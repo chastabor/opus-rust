@@ -25,12 +25,6 @@ pub fn celt_log2(x: f32) -> f32 {
     x.log2()
 }
 
-/// Float exp2 in dB domain (for denormalize_bands): 2^x but used as energy scale.
-#[inline]
-pub fn celt_exp2_db(x: f32) -> f32 {
-    celt_exp2(x)
-}
-
 /// Float sqrt.
 #[inline]
 pub fn celt_sqrt(x: f32) -> f32 {

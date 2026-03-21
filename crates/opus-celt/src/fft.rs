@@ -173,7 +173,8 @@ pub fn opus_fft_impl(st: &KissFftState, fout: &mut [KissFftCpx]) {
     let num_stages = st.factors.len() / 2;
 
     // Compute fstride array: fstride[0]=1, fstride[i+1]=fstride[i]*p[i]
-    let mut fstride_arr = vec![1usize; num_stages + 1];
+    assert!(num_stages <= 8, "FFT requires at most 8 stages");
+    let mut fstride_arr = [1usize; 9]; // max 8 stages + 1
     for i in 0..num_stages {
         let p = st.factors[2 * i] as usize;
         fstride_arr[i + 1] = fstride_arr[i] * p;

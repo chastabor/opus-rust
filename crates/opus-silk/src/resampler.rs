@@ -143,16 +143,11 @@ pub fn resampler_init(s: &mut ResamplerState, fs_hz_in: i32, fs_hz_out: i32, _fo
 
     // Round up: while silk_SMULWW(invRatio_Q16, Fs_Hz_out) < (Fs_Hz_in << up2x)
     let target = fs_hz_in << up2x;
-    while smulww(s.inv_ratio_q16, fs_hz_out) < target {
+    while crate::silk_smulww_correct(s.inv_ratio_q16, fs_hz_out) < target {
         s.inv_ratio_q16 += 1;
     }
 
     s.delay_buf.resize(s.fs_in_khz.max(1) as usize, 0);
-}
-
-// silk_SMULWW: full 32x32 multiply, result = (a*b) >> 16
-fn smulww(a: i32, b: i32) -> i32 {
-    ((a as i64 * b as i64) >> 16) as i32
 }
 
 /// Resampler: convert from one sampling rate to another

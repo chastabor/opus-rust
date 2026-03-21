@@ -125,18 +125,6 @@ pub fn silk_smlawb(a: i32, b: i32, c: i32) -> i32 {
     a.wrapping_add(((b as i64 * c as i64) >> 16) as i32)
 }
 
-/// Full-width signed multiply: (a * b) >> 16 (both 32-bit)
-#[inline(always)]
-pub fn silk_smulww(a: i32, b: i32) -> i32 {
-    // silk_SMULWW = silk_MLA_ovflw(silk_SMULWB(a, b), a, silk_RSHIFT_ROUND(b, 16))
-    // But simpler: ((a as i64 * b as i64) >> 16) as i32 - but that's SMULWB
-    // silk_SMULWW actually does the full 32x32->32 multiply with rounding
-    let t = a as i64 * b as i64;
-    ((t >> 16) as i32).wrapping_add(a.wrapping_mul(((b >> 15) + 1) >> 1))
-        // Actually let's use the simple approach matching the C macro exactly
-}
-
-// Let me use a simpler, correct approach:
 /// silk_SMULWW: multiply two 32-bit numbers, return bits [47:16]
 #[inline(always)]
 pub fn silk_smulww_correct(a: i32, b: i32) -> i32 {

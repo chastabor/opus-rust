@@ -350,7 +350,6 @@ impl CeltDecoder {
             start,
             end,
             &mut x_norm,
-            None,
             &mut collapse_masks,
             &mut pulses_vec,
             short_blocks,
