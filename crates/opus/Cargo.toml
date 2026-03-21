@@ -1,0 +1,10 @@
+[package]
+name = "opus"
+version = "0.1.0"
+edition = "2021"
+description = "Opus audio codec decoder in pure Rust"
+
+[dependencies]
+opus-range-coder = { path = "../opus-range-coder" }
+opus-celt = { path = "../opus-celt" }
+opus-silk = { path = "../opus-silk" }

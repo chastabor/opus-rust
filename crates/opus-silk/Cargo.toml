@@ -1,0 +1,8 @@
+[package]
+name = "opus-silk"
+version = "0.1.0"
+edition = "2021"
+description = "SILK decoder for Opus audio codec"
+
+[dependencies]
+opus-range-coder = { path = "../opus-range-coder" }

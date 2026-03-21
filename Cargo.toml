@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/opus-range-coder",
+    "crates/opus-celt",
+    "crates/opus-silk",
+    "crates/opus",
+]
+resolver = "2"
