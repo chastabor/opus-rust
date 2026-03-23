@@ -1,4 +1,4 @@
-// SILK decoder crate for Opus audio codec
+// SILK codec crate for Opus audio codec
 // Ported from the C reference implementation
 
 pub mod tables;
@@ -13,8 +13,21 @@ pub mod resampler;
 pub mod stereo;
 pub mod decoder;
 
+// Encoder modules
+pub mod gain_quant;
+pub mod encode_indices;
+pub mod encode_pulses;
+pub mod nsq;
+pub mod nlsf_encode;
+pub mod lpc_analysis;
+pub mod pitch_analysis;
+pub mod encoder;
+
 // Re-export the main decoder
 pub use decoder::{SilkDecoder, SilkDecControl};
+
+// Re-export the main encoder
+pub use encoder::SilkEncoder;
 
 // ---- Constants (from silk/define.h) ----
 
