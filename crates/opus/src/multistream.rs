@@ -17,7 +17,7 @@ pub struct ChannelLayout {
 
 impl ChannelLayout {
     /// Validate that the channel layout is consistent.
-    fn validate(&self) -> bool {
+    pub(crate) fn validate(&self) -> bool {
         let max_channel = self.nb_streams + self.nb_coupled_streams;
         if max_channel > 255 {
             return false;

@@ -4,6 +4,9 @@ pub mod decoder;
 pub mod encoder;
 pub mod repacketizer;
 pub mod multistream;
+pub mod multistream_encoder;
+pub mod projection;
+pub mod extensions;
 
 pub use error::OpusError;
 pub use decoder::OpusDecoder;
@@ -13,6 +16,12 @@ pub use encoder::{
     OPUS_SIGNAL_VOICE, OPUS_SIGNAL_MUSIC, OPUS_AUTO, OPUS_BITRATE_MAX,
 };
 pub use multistream::OpusMSDecoder;
+pub use multistream_encoder::OpusMSEncoder;
+pub use projection::{OpusProjectionEncoder, MappingMatrix};
+pub use extensions::{
+    opus_packet_extensions_parse, opus_packet_extensions_generate,
+    OpusExtensionData, OPUS_MAX_EXTENSIONS,
+};
 pub use packet::{
     opus_packet_get_bandwidth, opus_packet_get_mode, opus_packet_get_nb_channels,
     opus_packet_get_nb_frames, opus_packet_get_nb_samples, opus_packet_get_samples_per_frame,
