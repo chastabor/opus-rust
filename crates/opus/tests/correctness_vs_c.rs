@@ -4,6 +4,9 @@
 //! Test B — Encode comparison: same PCM → both encoders → compare packets/decoded PCM
 //! Test C — Round-trip comparison: full encode→decode pipeline of each implementation
 
+mod common;
+
+use common::{gen_sine, gen_stereo_sine};
 use opus::decoder::OpusDecoder;
 use opus::encoder::{OpusEncoder, OPUS_APPLICATION_AUDIO, OPUS_APPLICATION_VOIP};
 use opus::packet::*;
@@ -14,29 +17,6 @@ const FRAME_SIZE: i32 = 960; // 20ms at 48kHz
 const N_WARMUP: usize = 5;
 const N_FRAMES: usize = N_WARMUP + 1;
 const MAX_PACKET: usize = 4000;
-
-// ── Signal generation (matches gen_test_vectors.c exactly) ──
-
-fn gen_sine(buf: &mut [f32], samples: usize, offset: usize, freq: f32, amp: f32) {
-    for i in 0..samples {
-        buf[i] = amp * (2.0 * std::f32::consts::PI * freq * (i + offset) as f32 / SAMPLE_RATE as f32).sin();
-    }
-}
-
-fn gen_stereo_sine(
-    buf: &mut [f32],
-    samples: usize,
-    offset: usize,
-    freq_l: f32,
-    freq_r: f32,
-    amp: f32,
-) {
-    for i in 0..samples {
-        let t = (i + offset) as f32 / SAMPLE_RATE as f32;
-        buf[i * 2] = amp * (2.0 * std::f32::consts::PI * freq_l * t).sin();
-        buf[i * 2 + 1] = amp * (2.0 * std::f32::consts::PI * freq_r * t).sin();
-    }
-}
 
 fn gen_silence(buf: &mut [f32]) {
     buf.fill(0.0);
@@ -61,7 +41,7 @@ fn generate_frames(cfg: &TestConfig) -> Vec<Vec<f32>> {
                     cfg.amp,
                 );
             } else {
-                gen_sine(&mut buf, FRAME_SIZE as usize, offset, cfg.freq_l, cfg.amp);
+                gen_sine(&mut buf, offset, cfg.freq_l, cfg.amp);
             }
             buf
         })

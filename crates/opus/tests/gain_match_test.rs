@@ -1,8 +1,11 @@
 //! Test that Rust opus encode→decode roundtrip gain matches C reference.
 //!
-//! Encodes a 440Hz sine wave and verifies that the decoded RMS level matches
-//! the C reference implementation within tight tolerance.
+//! Encodes a 440Hz sine wave in CELT mode and verifies that the decoded RMS
+//! level matches the C reference implementation within 6dB.
 
+mod common;
+
+use common::{gen_sine, rms};
 use opus::decoder::OpusDecoder;
 use opus::encoder::{OpusEncoder, OPUS_APPLICATION_RESTRICTED_LOWDELAY};
 use opus_ffi::{COpusDecoder, COpusEncoder};
@@ -12,19 +15,6 @@ const FRAME_SIZE: i32 = 960; // 20ms at 48kHz
 const MAX_PACKET: usize = 4000;
 const BITRATE: i32 = 32000;
 const N_WARMUP: usize = 10;
-
-fn gen_sine(buf: &mut [f32], offset: usize, freq: f32, amp: f32) {
-    for i in 0..buf.len() {
-        buf[i] = amp
-            * (2.0 * std::f32::consts::PI * freq * (i + offset) as f32 / SAMPLE_RATE as f32)
-                .sin();
-    }
-}
-
-fn rms(buf: &[f32]) -> f64 {
-    let sum: f64 = buf.iter().map(|&x| (x as f64) * (x as f64)).sum();
-    (sum / buf.len() as f64).sqrt()
-}
 
 #[test]
 fn gain_match_celt_mode() {

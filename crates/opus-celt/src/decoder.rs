@@ -590,7 +590,7 @@ impl CeltDecoder {
             let out_start = buf_base + DECODE_BUFFER_SIZE - n;
             for blk in 0..b {
                 clt_mdct_backward(
-                    &self.mdct,
+                    &mut self.mdct,
                     &freq[blk..],
                     &mut self.decode_mem[out_start + nb * blk..],
                     mode.window,

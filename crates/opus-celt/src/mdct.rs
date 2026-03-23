@@ -1,11 +1,15 @@
 use crate::fft::{KissFftCpx, KissFftState, opus_fft_impl};
 
-/// MDCT lookup structure.
+/// MDCT lookup structure with pre-allocated scratch buffers.
 pub struct MdctLookup {
     pub n: usize,
     pub max_shift: usize,
     pub kfft: Vec<KissFftState>,
     pub trig: Vec<f32>,
+    /// Scratch buffer for forward MDCT fold output (max N/2 floats).
+    fwd_buf: Vec<f32>,
+    /// Scratch buffer for FFT complex data (max N/4 complex values).
+    fft_buf: Vec<KissFftCpx>,
 }
 
 impl MdctLookup {
@@ -31,6 +35,8 @@ impl MdctLookup {
             max_shift,
             kfft,
             trig,
+            fwd_buf: vec![0.0f32; n >> 1],
+            fft_buf: vec![KissFftCpx::default(); n >> 2],
         }
     }
 }
@@ -45,7 +51,7 @@ impl MdctLookup {
 /// `shift`: shift level (0 = full size, 1 = half, etc.)
 /// `stride`: interleave stride for short blocks (B)
 pub fn clt_mdct_forward(
-    l: &MdctLookup,
+    l: &mut MdctLookup,
     input: &[f32],
     output: &mut [f32],
     window: &[f32],
@@ -62,9 +68,9 @@ pub fn clt_mdct_forward(
     let n2 = n >> 1;
     let n4 = n >> 2;
 
-    let trig = &l.trig[trig_offset..];
-    let st = &l.kfft[shift];
-    let scale = st.scale;
+    // Copy immutable data we need before taking mutable scratch borrows.
+    let scale = l.kfft[shift].scale;
+    let bitrev = &l.kfft[shift].bitrev;
 
     // === Phase 1: Window, shuffle, fold → f[0..N2-1] ===
     // Matches C clt_mdct_forward_c exactly: three regions with windowed folding.
@@ -72,7 +78,7 @@ pub fn clt_mdct_forward(
     debug_assert!(input.len() >= n2 + overlap);
     debug_assert!(window.len() >= overlap);
 
-    let mut f_buf = vec![0.0f32; n2];
+    let f_buf = &mut l.fwd_buf[..n2];
     {
         // Use isize for pointers that decrement past zero (matching C pointer arithmetic)
         let mut xp1 = (overlap >> 1) as isize;
@@ -122,8 +128,10 @@ pub fn clt_mdct_forward(
         }
     }
 
-    // === Phase 2: Pre-rotation with scale → f2[bitrev[i]] ===
-    let mut f2 = vec![KissFftCpx::default(); n4];
+    // Phases 2-4 use trig and fft_buf as disjoint borrows from l.
+    let (trig, fft_buf, kfft) = (&l.trig[trig_offset..], &mut l.fft_buf[..n4], &l.kfft[shift]);
+
+    // === Phase 2: Pre-rotation with scale → fft_buf[bitrev[i]] ===
     {
         let mut yp = 0usize;
         for i in 0..n4 {
@@ -134,25 +142,23 @@ pub fn clt_mdct_forward(
             let t1 = trig[n4 + i];
             let yr = re * t0 - im * t1;
             let yi = im * t0 + re * t1;
-            f2[st.bitrev[i]].r = yr * scale;
-            f2[st.bitrev[i]].i = yi * scale;
+            fft_buf[bitrev[i]].r = yr * scale;
+            fft_buf[bitrev[i]].i = yi * scale;
         }
     }
 
     // === Phase 3: N/4-point complex FFT in-place ===
-    opus_fft_impl(st, &mut f2);
+    opus_fft_impl(kfft, fft_buf);
 
     // === Phase 4: Post-rotation → output with stride ===
-    // C: yr = fp->i*t1 - fp->r*t0;  yi = fp->r*t1 + fp->i*t0
-    // where t0 = t[i], t1 = t[N4+i]
     {
-        let mut yp1 = 0usize; // C: yp1 = out
-        let mut yp2 = stride * (n2 - 1); // C: yp2 = out + stride*(N2-1)
+        let mut yp1 = 0usize;
+        let mut yp2 = stride * (n2 - 1);
         for i in 0..n4 {
             let t0 = trig[i];
             let t1 = trig[n4 + i];
-            let yr = f2[i].i * t1 - f2[i].r * t0;
-            let yi = f2[i].r * t1 + f2[i].i * t0;
+            let yr = fft_buf[i].i * t1 - fft_buf[i].r * t0;
+            let yi = fft_buf[i].r * t1 + fft_buf[i].i * t0;
             if yp1 < output.len() {
                 output[yp1] = yr;
             }
@@ -175,7 +181,7 @@ pub fn clt_mdct_forward(
 /// `shift`: shift level (0 = full size, 1 = half, etc.)
 /// `stride`: interleave stride for short blocks (B)
 pub fn clt_mdct_backward(
-    l: &MdctLookup,
+    l: &mut MdctLookup,
     input: &[f32],
     output: &mut [f32],
     window: &[f32],
@@ -192,16 +198,13 @@ pub fn clt_mdct_backward(
     let n2 = n >> 1;
     let n4 = n >> 2;
 
-    let trig = &l.trig[trig_offset..];
-    let st = &l.kfft[shift];
-
     // === Pre-rotation ===
-    // C code writes directly to out+(overlap>>1) at bitrev positions.
     let yp_base = overlap >> 1;
     {
+        let trig = &l.trig[trig_offset..];
+        let bitrev = &l.kfft[shift].bitrev;
         let mut xp1_idx = 0usize;
         let mut xp2_idx = stride * (n2 - 1);
-        let bitrev = &st.bitrev;
         for i in 0..n4 {
             let rev = bitrev[i];
             let x1 = if xp1_idx < input.len() { input[xp1_idx] } else { 0.0 };
@@ -210,7 +213,6 @@ pub fn clt_mdct_backward(
             let t1 = trig[n4 + i];
             let yr = x2 * t0 + x1 * t1;
             let yi = x1 * t0 - x2 * t1;
-            // We swap real and imag because we use an FFT instead of an IFFT.
             output[yp_base + 2 * rev + 1] = yr;
             output[yp_base + 2 * rev] = yi;
             xp1_idx += 2 * stride;
@@ -220,12 +222,12 @@ pub fn clt_mdct_backward(
 
     // === N/4-point complex FFT in-place ===
     {
-        let mut f2 = vec![KissFftCpx::default(); n4];
+        let f2 = &mut l.fft_buf[..n4];
         for i in 0..n4 {
             f2[i].r = output[yp_base + 2 * i];
             f2[i].i = output[yp_base + 2 * i + 1];
         }
-        opus_fft_impl(st, &mut f2);
+        opus_fft_impl(&l.kfft[shift], f2);
         for i in 0..n4 {
             output[yp_base + 2 * i] = f2[i].r;
             output[yp_base + 2 * i + 1] = f2[i].i;
@@ -234,6 +236,7 @@ pub fn clt_mdct_backward(
 
     // === Post-rotate and de-shuffle from both ends simultaneously (in-place) ===
     {
+        let trig = &l.trig[trig_offset..];
         let half = (n4 + 1) >> 1;
         for i in 0..half {
             let yp0 = yp_base + 2 * i;

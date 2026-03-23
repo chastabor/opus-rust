@@ -3,6 +3,8 @@
 // Tests the Opus encoder and decoder stereo paths at 16kHz VOIP mode:
 //   - Decode C reference stereo packets with the Rust decoder
 //   - Encode stereo signals with the Rust encoder at VOIP mode
+
+mod common;
 //   - Decode and verify valid stereo output
 //   - Test that stereo packets differ from mono packets
 //   - Test L/R channel separation (left-only and right-only signals)
@@ -184,13 +186,7 @@ fn total_energy(pcm: &[f32]) -> f64 {
 }
 
 /// Compute RMS energy of a PCM buffer.
-fn rms_energy(pcm: &[f32]) -> f64 {
-    if pcm.is_empty() {
-        return 0.0;
-    }
-    let sum: f64 = pcm.iter().map(|&x| x as f64 * x as f64).sum();
-    (sum / pcm.len() as f64).sqrt()
-}
+use common::rms as rms_energy;
 
 /// Extract left-channel samples from interleaved stereo PCM.
 fn left_channel(pcm: &[f32]) -> Vec<f32> {

@@ -156,7 +156,7 @@ fn compute_mdcts(
     cc: usize,
     lm: i32,
     upsample: usize,
-    mdct: &MdctLookup,
+    mdct: &mut MdctLookup,
 ) {
     let overlap = mode.overlap;
     let (b, nb, shift) = if short_blocks != 0 {
@@ -1306,7 +1306,7 @@ impl CeltEncoder {
             cc,
             lm,
             self.upsample,
-            &self.mdct,
+            &mut self.mdct,
         );
 
         // -----------------------------------------------------------------

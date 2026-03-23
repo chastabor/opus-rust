@@ -3,6 +3,8 @@
 // Tests the SILK encoder's pitch analysis by encoding various signal types
 // at 16kHz mono, VOIP mode and verifying that:
 //   - The Rust decoder can decode C reference SILK packets without errors
+
+mod common;
 //   - The Rust encoder produces valid SILK packets for voiced/unvoiced signals
 //   - Voiced signals (200Hz, 300Hz tones) produce different packets than unvoiced (noise)
 //   - Encode-decode roundtrips produce audio with correct energy characteristics
@@ -88,13 +90,7 @@ fn generate_noise(amplitude: f32, num_samples: usize, seed: u32) -> Vec<f32> {
 }
 
 /// Compute the RMS energy of a PCM buffer.
-fn rms_energy(pcm: &[f32]) -> f64 {
-    if pcm.is_empty() {
-        return 0.0;
-    }
-    let sum: f64 = pcm.iter().map(|&x| x as f64 * x as f64).sum();
-    (sum / pcm.len() as f64).sqrt()
-}
+use common::rms as rms_energy;
 
 /// Compute the total energy of a PCM buffer.
 fn total_energy(pcm: &[f32]) -> f64 {
