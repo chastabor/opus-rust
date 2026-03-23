@@ -21,7 +21,10 @@ pub mod nsq;
 pub mod nlsf_encode;
 pub mod lpc_analysis;
 pub mod pitch_analysis;
+pub mod noise_shape_analysis;
 pub mod encoder;
+pub mod signal_processing;
+pub mod vad;
 
 // Re-export the main decoder
 pub use decoder::{SilkDecoder, SilkDecControl};

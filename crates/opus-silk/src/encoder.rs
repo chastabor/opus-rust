@@ -12,6 +12,8 @@ use crate::nlsf_encode;
 use crate::lpc_analysis;
 use crate::pitch_analysis;
 use crate::nsq::{self, NsqState, MAX_SHAPE_LPC_ORDER};
+use crate::vad;
+use crate::noise_shape_analysis;
 
 /// Encoder control parameters (from API)
 #[derive(Clone)]
@@ -69,6 +71,17 @@ struct EncChannelState {
     // NSQ state
     nsq_state: NsqState,
 
+    // VAD state
+    vad_state: vad::VadState,
+    speech_activity_q8: i32,
+    snr_db_q7: i32,
+
+    // Noise shape state (smoothing across frames)
+    prev_tilt_smth_q16: i32,
+    prev_harm_smth_q16: i32,
+    shaping_lpc_order: i32,
+    warping_q16: i32,
+
     // Input buffer (for LPC analysis history)
     input_buf: Vec<i16>,
     input_buf_idx: usize,
@@ -97,6 +110,13 @@ impl EncChannelState {
             first_frame_after_reset: true,
             indices: SideInfoIndices::default(),
             nsq_state: NsqState::new(),
+            vad_state: vad::VadState::default(),
+            speech_activity_q8: 128,
+            snr_db_q7: 0,
+            prev_tilt_smth_q16: 0,
+            prev_harm_smth_q16: 0,
+            shaping_lpc_order: 16,
+            warping_q16: 0,
             input_buf: vec![0i16; MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH],
             input_buf_idx: 0,
             n_frames_encoded: 0,
@@ -144,6 +164,11 @@ impl EncChannelState {
             12 => PitchLagLowBitsSel::Uniform6,
             _ => PitchLagLowBitsSel::Uniform4,
         };
+
+        // Shaping LPC order based on complexity (from silk/control_codec.c)
+        // and warping for bilinear transform
+        self.shaping_lpc_order = 16; // default, updated in encode() based on complexity
+        self.warping_q16 = 0;        // default, updated based on complexity >= 4
     }
 }
 
@@ -256,12 +281,26 @@ impl SilkEncoder {
 
         let nlsf_cb = get_nlsf_cb(cs.nlsf_cb_sel);
         cs.indices.nlsf_indices = [0i8; MAX_LPC_ORDER + 1];
+        // NLSF mu from C reference: 6 for voiced, 4 for unvoiced (scaled by 2^20)
+        // Use previous signal type since pitch analysis hasn't run yet for this frame
+        let prev_voiced = cs.prev_signal_type == TYPE_VOICED;
+        let nlsf_mu_q20 = if prev_voiced { 6 << 20 >> 2 } else { 4 << 20 >> 2 };
+        // Number of NLSF survivors based on complexity (from silk/control_codec.c)
+        let nlsf_survivors = match control.complexity {
+            0 => 2,
+            1 => 3,
+            2 => 2,
+            3 => 4,
+            4 | 5 => 6,
+            6 | 7 => 8,
+            _ => 16,
+        };
         nlsf_encode::silk_nlsf_encode(
             &mut cs.indices.nlsf_indices,
             &mut nlsf_q15,
             nlsf_cb,
             &w_q2,
-            0, 1,
+            nlsf_mu_q20, nlsf_survivors,
             cs.indices.signal_type as i32,
         );
 
@@ -366,12 +405,62 @@ impl SilkEncoder {
             }
         }
 
-        // Prepare noise shaping parameters (simplified: use flat shaping)
-        let ar_q13 = vec![0i16; nb_subfr * MAX_SHAPE_LPC_ORDER];
-        let harm_shape_gain_q14 = vec![0i32; nb_subfr];
-        let tilt_q14 = vec![0i32; nb_subfr];
-        let lf_shp_q14 = vec![0i32; nb_subfr];
-        let lambda_q10 = 1024i32; // Moderate lambda
+        // Set complexity-dependent shaping parameters
+        cs.shaping_lpc_order = match control.complexity {
+            0 => 12,
+            1 => 14,
+            2 | 3 => if control.complexity >= 3 { 14 } else { 12 },
+            4 | 5 => 16,
+            6 | 7 => 20,
+            _ => 24,
+        };
+        cs.warping_q16 = if control.complexity >= 4 {
+            ((0.015 * cs.fs_khz as f64) * 65536.0) as i32
+        } else {
+            0
+        };
+
+        // Run VAD for speech activity estimation
+        let mut quality_bands_q15 = [0i32; 4];
+        let mut tilt_q15 = 0i32;
+        vad::silk_vad_get_sa_q8(
+            &mut cs.vad_state,
+            &mut cs.speech_activity_q8,
+            &mut cs.snr_db_q7,
+            &mut quality_bands_q15,
+            &mut tilt_q15,
+            &samples[..frame_length],
+            cs.frame_length,
+        );
+
+        // Noise shape analysis: compute spectral shaping filter parameters
+        let shape_result = noise_shape_analysis::silk_noise_shape_analysis(
+            &samples[..frame_length],
+            &pitch_lags,
+            voiced,
+            &mut cs.prev_tilt_smth_q16,
+            &mut cs.prev_harm_smth_q16,
+            cs.fs_khz,
+            cs.nb_subfr,
+            cs.subfr_length,
+            cs.frame_length,
+            cs.lpc_order,
+            cs.shaping_lpc_order,
+            cs.warping_q16,
+            cs.speech_activity_q8,
+            10000, // coding_quality_q14 (moderate default)
+            cs.snr_db_q7,
+        );
+
+        // Use noise shape results
+        let ar_q13 = shape_result.ar_q13;
+        let harm_shape_gain_q14: Vec<i32> = shape_result.harm_shape_gain_q14[..nb_subfr].to_vec();
+        let tilt_q14: Vec<i32> = shape_result.tilt_q14[..nb_subfr].to_vec();
+        let lf_shp_q14: Vec<i32> = shape_result.lf_shp_q14[..nb_subfr].to_vec();
+        let lambda_q10 = shape_result.lambda_q10;
+
+        // Use noise shape analysis quant offset type
+        cs.indices.quant_offset_type = shape_result.quant_offset_type;
 
         let ltp_scale_q14 = if cond_coding == CODE_INDEPENDENTLY {
             SILK_LTP_SCALES_TABLE_Q14[cs.indices.ltp_scale_index as usize] as i32
