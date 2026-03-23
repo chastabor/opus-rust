@@ -301,9 +301,13 @@ pub fn pitch_search(
     let len2 = len >> 1;
     let max_pitch2 = max_pitch >> 1;
 
-    let mut x_lp4 = vec![0.0f32; len4];
-    let mut y_lp4 = vec![0.0f32; lag4];
-    let mut xcorr = vec![0.0f32; max_pitch2];
+    // Stack arrays (bounded by COMBFILTER_MAXPERIOD/2 = 512 max each)
+    let mut x_lp4_buf = [0.0f32; COMBFILTER_MAXPERIOD / 4 + 1];
+    let mut y_lp4_buf = [0.0f32; COMBFILTER_MAXPERIOD + 1];
+    let mut xcorr_buf = [0.0f32; COMBFILTER_MAXPERIOD / 2 + 1];
+    let x_lp4 = &mut x_lp4_buf[..len4];
+    let y_lp4 = &mut y_lp4_buf[..lag4];
+    let xcorr = &mut xcorr_buf[..max_pitch2];
 
     for j in 0..len4 {
         x_lp4[j] = x_lp[2 * j];
@@ -313,7 +317,7 @@ pub fn pitch_search(
     }
 
     // Coarse search with 4x decimation
-    celt_pitch_xcorr(&x_lp4, &y_lp4, &mut xcorr, len4, max_pitch4);
+    celt_pitch_xcorr(&x_lp4, &y_lp4, xcorr, len4, max_pitch4);
 
     let mut best_pitch = [0usize; 2];
     find_best_pitch(&xcorr, &y_lp4, len4, max_pitch4, &mut best_pitch);
@@ -399,8 +403,9 @@ pub fn remove_doubling(
         xy += x[base + j] * x[base + j - t0_val];
     }
 
-    // Build yy_lookup table
-    let mut yy_lookup = vec![0.0f32; maxperiod + 1];
+    // Build yy_lookup table (stack array, max COMBFILTER_MAXPERIOD/2 + 1 = 513)
+    let mut yy_lookup_buf = [0.0f32; COMBFILTER_MAXPERIOD / 2 + 1];
+    let yy_lookup = &mut yy_lookup_buf[..maxperiod + 1];
     yy_lookup[0] = xx;
     let mut yy = xx;
     for i in 1..=maxperiod {

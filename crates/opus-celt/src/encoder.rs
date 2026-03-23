@@ -8,6 +8,16 @@ use crate::pitch::{pitch_downsample, pitch_search, remove_doubling, comb_filter}
 use crate::mathops::ec_ilog;
 use opus_range_coder::EcCtx;
 
+// Maximum sizes for scratch buffers (48kHz, stereo, 20ms frame)
+const MAX_ENCODE_N: usize = 960;     // max frame length = shortMdctSize << maxLM = 120 << 3
+const MAX_OVERLAP: usize = 120;
+const MAX_CC: usize = 2;
+const MAX_INP_SIZE: usize = MAX_CC * (MAX_ENCODE_N + MAX_OVERLAP);  // 2160
+const MAX_FREQ_SIZE: usize = MAX_CC * MAX_ENCODE_N;                  // 1920
+const MAX_PRE_SIZE: usize = MAX_CC * (MAX_ENCODE_N + COMBFILTER_MAXPERIOD); // 3968
+const MAX_PITCH_BUF: usize = (COMBFILTER_MAXPERIOD + MAX_ENCODE_N) / 2;    // 992
+const MAX_TRANSIENT_TMP: usize = MAX_ENCODE_N + MAX_OVERLAP;                // 1080
+
 /// CELT encoder state.
 pub struct CeltEncoder {
     pub channels: usize,
@@ -40,7 +50,6 @@ pub struct CeltEncoder {
     pub prefilter_tapset: usize,
     pub consec_transient: i32,
     pub preemph_mem_e: [f32; 2],
-    pub preemph_mem_d: [f32; 2],
     // VBR state
     pub vbr_reservoir: i32,
     pub vbr_drift: i32,
@@ -49,8 +58,7 @@ pub struct CeltEncoder {
     pub overlap_max: f32,
     pub stereo_saving: f32,
     pub intensity: i32,
-    pub spec_avg: f32,
-    // Memory buffers
+    // Memory buffers (persistent state)
     pub in_mem: Vec<f32>,
     pub prefilter_mem: Vec<f32>,
     pub old_band_e: Vec<f32>,
@@ -59,6 +67,20 @@ pub struct CeltEncoder {
     pub energy_error: Vec<f32>,
     // MDCT lookup
     pub mdct: MdctLookup,
+    // Scratch buffers (reused across frames, avoid per-frame heap allocation)
+    pub scratch: EncoderScratch,
+}
+
+/// Pre-allocated scratch buffers for per-frame encoding.
+/// Separated from CeltEncoder to allow simultaneous mutable borrows.
+#[derive(Default)]
+pub struct EncoderScratch {
+    pub inp: Vec<f32>,
+    pub freq: Vec<f32>,
+    pub x_norm: Vec<f32>,
+    pub pre: Vec<f32>,
+    pub pitch_buf: Vec<f32>,
+    pub transient_tmp: Vec<f32>,
 }
 
 /// Pre-emphasis filter (float path).
@@ -241,6 +263,7 @@ fn transient_analysis(
     len: usize,
     cc: usize,
     allow_weak_transients: bool,
+    tmp: &mut [f32],
 ) -> (bool, f32, bool) {
     static INV_TABLE: [u8; 128] = [
         255,255,156,110, 86, 70, 59, 51, 45, 40, 37, 33, 31, 28, 26, 25,
@@ -256,8 +279,8 @@ fn transient_analysis(
     let forward_decay: f32 = if allow_weak_transients { 0.03125 } else { 0.0625 };
     let len2 = len / 2;
     let mut mask_metric = 0i32;
-    let mut tf_chan = 0;
-    let mut tmp = vec![0.0f32; len];
+    // tmp must be at least `len` elements; caller provides scratch buffer.
+    // No zeroing needed — the HP filter loop below writes every element.
 
     for c in 0..cc {
         // High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
@@ -316,16 +339,12 @@ fn transient_analysis(
         unmask = (64.0 * unmask as f32 * 4.0 / (6.0 * n_steps)) as i32;
 
         if unmask > mask_metric {
-            tf_chan = c;
             mask_metric = unmask;
         }
     }
-    let _ = tf_chan;
 
-    let is_transient = mask_metric > 200;
+    let mut is_transient = mask_metric > 200;
     let mut weak_transient = false;
-
-    let mut is_transient = is_transient;
     if allow_weak_transients && is_transient && mask_metric < 600 {
         is_transient = false;
         weak_transient = true;
@@ -527,8 +546,8 @@ fn dynalloc_analysis(
         return -31.9;
     }
 
-    // Compute noise floor
-    let mut noise_floor = vec![0.0f32; nb_ebands];
+    // Compute noise floor (use stack array since nb_ebands = NB_EBANDS = 21)
+    let mut noise_floor = [0.0f32; NB_EBANDS];
     for i in 0..end {
         noise_floor[i] = 0.0625 * log_n[i] as f32 + 0.5
             + (9 - lsb_depth) as f32
@@ -545,7 +564,7 @@ fn dynalloc_analysis(
     }
 
     // Compute follower (simplified: use max of bandLogE vs noise_floor per band)
-    let mut follower = vec![0.0f32; nb_ebands];
+    let mut follower = [0.0f32; NB_EBANDS];
     for i in start..end {
         let mut max_e = band_log_e[i];
         if c == 2 {
@@ -739,13 +758,15 @@ fn run_prefilter(
     tf_estimate: f32,
     nb_available_bytes: usize,
     loss_rate: i32,
+    pre_scratch: &mut [f32],
+    pitch_buf_scratch: &mut [f32],
 ) -> (bool, usize, f32, i32) {
     let max_period = COMBFILTER_MAXPERIOD;
     let min_period = COMBFILTER_MINPERIOD;
 
     // Build pre[] buffer: [history | current_frame] per channel
     let pre_len = n + max_period;
-    let mut pre = vec![0.0f32; cc * pre_len];
+    let pre = &mut pre_scratch[..cc * pre_len];
     for ch in 0..cc {
         // Copy history from prefilter memory
         let mem_base = ch * max_period;
@@ -764,13 +785,14 @@ fn run_prefilter(
 
     if complexity >= 5 {
         let half_len = (max_period + n) >> 1;
-        let mut pitch_buf = vec![0.0f32; half_len];
+        let pitch_buf = &mut pitch_buf_scratch[..half_len];
 
         // Build references to each channel's pre buffer for pitch_downsample
-        let channel_refs: Vec<&[f32]> = (0..cc)
-            .map(|ch| &pre[ch * pre_len..ch * pre_len + 2 * half_len])
-            .collect();
-        pitch_downsample(&channel_refs, &mut pitch_buf, half_len, cc);
+        // Use stack array (cc is at most MAX_CC = 2)
+        let ch0 = &pre[0..2 * half_len];
+        let ch1 = if cc == 2 { &pre[pre_len..pre_len + 2 * half_len] } else { &pre[0..0] };
+        let channel_refs: [&[f32]; 2] = [ch0, ch1];
+        pitch_downsample(&channel_refs[..cc], pitch_buf, half_len, cc);
 
         // Search for pitch
         let mut pi = 0usize;
@@ -1004,7 +1026,6 @@ impl CeltEncoder {
             prefilter_tapset: 0,
             consec_transient: 0,
             preemph_mem_e: [0.0; 2],
-            preemph_mem_d: [0.0; 2],
             vbr_reservoir: 0,
             vbr_drift: 0,
             vbr_offset: 0,
@@ -1012,7 +1033,6 @@ impl CeltEncoder {
             overlap_max: 0.0,
             stereo_saving: 0.0,
             intensity: 0,
-            spec_avg: 0.0,
             in_mem,
             prefilter_mem,
             old_band_e,
@@ -1020,6 +1040,14 @@ impl CeltEncoder {
             old_log_e2,
             energy_error,
             mdct,
+            scratch: EncoderScratch {
+                inp: vec![0.0f32; MAX_INP_SIZE],
+                freq: vec![0.0f32; MAX_FREQ_SIZE],
+                x_norm: vec![0.0f32; MAX_FREQ_SIZE],
+                pre: vec![0.0f32; MAX_PRE_SIZE],
+                pitch_buf: vec![0.0f32; MAX_PITCH_BUF],
+                transient_tmp: vec![0.0f32; MAX_TRANSIENT_TMP],
+            },
         };
 
         Ok(enc)
@@ -1127,12 +1155,14 @@ impl CeltEncoder {
         let total_bits = nb_compressed_bytes as i32 * 8;
         let mut tell = enc.tell();
 
+        // Take scratch buffers out of self to avoid borrow conflicts
+        let mut scratch = std::mem::take(&mut self.scratch);
+
         // -----------------------------------------------------------------
         // 3. Pre-emphasis
         // -----------------------------------------------------------------
-        // Allocate the working buffer: CC * (N + overlap)
         let buf_size = cc * (n + overlap);
-        let mut inp = vec![0.0f32; buf_size];
+        let inp = &mut scratch.inp[..buf_size];
 
         // Compute sample_max for silence detection
         let sample_max = {
@@ -1191,7 +1221,7 @@ impl CeltEncoder {
         // 5. Transient analysis
         // -----------------------------------------------------------------
         let (mut is_transient, tf_estimate, _weak_transient) = if self.complexity >= 1 && !self.lfe {
-            transient_analysis(&inp, n + overlap, cc, false)
+            transient_analysis(inp, n + overlap, cc, false, &mut scratch.transient_tmp)
         } else {
             (false, 0.0f32, false)
         };
@@ -1199,19 +1229,20 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 5b. Prefilter (pitch search + comb filter)
         // -----------------------------------------------------------------
-        let enabled = (self.lfe && nb_available_bytes > 3)
-            || (nb_available_bytes > 12 * c)
+        let enabled = ((self.lfe && nb_available_bytes > 3)
+            || nb_available_bytes > 12 * c)
             && !silence
             && !self.disable_pf;
         tell = enc.tell();
         let (pf_on, pitch_index, gain1, qg) = if enabled && start == 0 && tell + 16 <= total_bits {
             run_prefilter(
-                &mut inp,
+                inp,
                 &mut self.prefilter_mem,
                 &mut self.in_mem,
                 cc, n, overlap, mode.window,
                 self.prefilter_period, self.prefilter_gain, self.prefilter_tapset,
                 self.complexity, tf_estimate, nb_available_bytes, self.loss_rate,
+                &mut scratch.pre, &mut scratch.pitch_buf,
             )
         } else {
             (false, COMBFILTER_MINPERIOD, 0.0, 0)
@@ -1251,13 +1282,13 @@ impl CeltEncoder {
         // 7. Compute MDCTs
         // -----------------------------------------------------------------
         let freq_size = c * n;
-        let mut freq = vec![0.0f32; freq_size.max(1)];
+        let freq = &mut scratch.freq[..freq_size.max(1)];
 
         compute_mdcts(
             mode,
             short_blocks,
-            &inp,
-            &mut freq,
+            inp,
+            freq,
             c,
             cc,
             lm,
@@ -1268,8 +1299,8 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 8. Compute band energies and normalize
         // -----------------------------------------------------------------
-        let mut band_e = vec![0.0f32; c * nb_ebands];
-        let mut band_log_e = vec![0.0f32; c * nb_ebands];
+        let mut band_e = [0.0f32; MAX_CC * NB_EBANDS];
+        let mut band_log_e = [0.0f32; MAX_CC * NB_EBANDS];
 
         compute_band_energies(mode, &freq, &mut band_e, eff_end, c, lm);
 
@@ -1286,8 +1317,10 @@ impl CeltEncoder {
         amp2_log2(mode, eff_end, end, &band_e, &mut band_log_e, c);
 
         // Normalize bands (creates normalized MDCTs in x_norm)
-        let mut x_norm = vec![0.0f32; c * n];
-        normalise_bands(mode, &freq, &mut x_norm, &band_e, eff_end, c, mm);
+        let x_norm = &mut scratch.x_norm[..c * n];
+        // Zero the full buffer to avoid stale data for bands beyond eff_end
+        for v in x_norm.iter_mut() { *v = 0.0; }
+        normalise_bands(mode, freq, x_norm, &band_e, eff_end, c, mm);
 
         // -----------------------------------------------------------------
         // 9. Energy error bias
@@ -1304,7 +1337,7 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 10. Coarse energy quantization
         // -----------------------------------------------------------------
-        let mut error = vec![0.0f32; c * nb_ebands];
+        let mut error = [0.0f32; MAX_CC * NB_EBANDS];
         quant_coarse_energy(
             mode,
             start,
@@ -1328,7 +1361,7 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 11. TF encode (all zeros for simplified encoder)
         // -----------------------------------------------------------------
-        let mut tf_res = vec![0i32; nb_ebands];
+        let mut tf_res = [0i32; NB_EBANDS];
         for i in 0..nb_ebands {
             tf_res[i] = if is_transient { 1 } else { 0 };
         }
@@ -1371,10 +1404,10 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 13. Dynamic allocation
         // -----------------------------------------------------------------
-        let mut cap = vec![0i32; nb_ebands];
+        let mut cap = [0i32; NB_EBANDS];
         init_caps(mode, &mut cap, lm, c as i32);
 
-        let mut offsets = vec![0i32; nb_ebands];
+        let mut offsets = [0i32; NB_EBANDS];
         let effective_bytes = nb_available_bytes as i32;
         let mut tot_boost = 0i32;
         let max_depth = dynalloc_analysis(
@@ -1488,9 +1521,9 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 15. Bit allocation
         // -----------------------------------------------------------------
-        let mut fine_quant = vec![0i32; nb_ebands];
-        let mut pulses = vec![0i32; nb_ebands];
-        let mut fine_priority = vec![0i32; nb_ebands];
+        let mut fine_quant = [0i32; NB_EBANDS];
+        let mut pulses = [0i32; NB_EBANDS];
+        let mut fine_priority = [0i32; NB_EBANDS];
         let mut balance = 0i32;
 
         let mut bits =
@@ -1589,7 +1622,7 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 17. Band quantization (quant_all_bands_enc)
         // -----------------------------------------------------------------
-        let mut collapse_masks = vec![0u8; c * nb_ebands];
+        let mut collapse_masks = [0u8; MAX_CC * NB_EBANDS];
 
         // Split x_norm into X and Y for stereo (safe disjoint borrows via split_at_mut)
         let (x_ref, y_ref): (&mut [f32], Option<&mut [f32]>) = if c == 2 {
@@ -1737,6 +1770,7 @@ impl CeltEncoder {
         enc.enc_done();
 
         if enc.get_error() {
+            self.scratch = scratch;
             return Err(-3); // OPUS_INTERNAL_ERROR
         }
 
@@ -1746,6 +1780,9 @@ impl CeltEncoder {
             compressed[..encoded_len]
                 .copy_from_slice(&enc.buf[..encoded_len]);
         }
+
+        // Put scratch buffers back
+        self.scratch = scratch;
 
         Ok(nb_compressed_bytes)
     }

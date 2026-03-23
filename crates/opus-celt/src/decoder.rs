@@ -344,19 +344,10 @@ impl CeltDecoder {
         let mut collapse_masks = vec![0u8; c * nb_ebands];
 
 
-        // Split x_norm into X and Y for stereo
-        let y_norm = if c == 2 {
+        // Split x_norm into X and Y for stereo (safe disjoint borrows via split_at_mut)
+        let (x_ref, y_ref): (&mut [f32], Option<&mut [f32]>) = if c == 2 {
             let (x_part, y_part) = x_norm.split_at_mut(n);
-            Some((x_part as *mut [f32], y_part as *mut [f32]))
-        } else {
-            None
-        };
-
-        // SAFETY: x_part and y_part are non-overlapping slices from x_norm
-        let (x_ref, y_ref) = if let Some((x_ptr, y_ptr)) = y_norm {
-            unsafe {
-                (&mut *x_ptr, Some(&mut *y_ptr))
-            }
+            (x_part, Some(y_part))
         } else {
             (&mut x_norm[..], None)
         };
