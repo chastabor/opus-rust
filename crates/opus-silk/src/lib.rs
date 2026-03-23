@@ -129,16 +129,20 @@ pub const MAX_PREDICTION_POWER_GAIN: f32 = 1e4;
 
 // ---- Fixed-point macros as inline functions ----
 
-/// Signed multiply, keep top bits: (a * b) >> 16
+/// Signed multiply, keep top bits: (a * (i16)b) >> 16
+/// Matches C: silk_SMULWB(a32, b32) = (a32 * (opus_int64)(opus_int16)(b32)) >> 16
+/// The b argument is truncated to 16 bits (sign-extended).
 #[inline(always)]
 pub fn silk_smulwb(a: i32, b: i32) -> i32 {
-    ((a as i64 * b as i64) >> 16) as i32
+    ((a as i64 * (b as i16) as i64) >> 16) as i32
 }
 
-/// Signed multiply-accumulate, keep top: a + (b * c) >> 16
+/// Signed multiply-accumulate, keep top: a + (b * (i16)c) >> 16
+/// Matches C: silk_SMLAWB(a32, b32, c32) = a32 + ((b32 * (opus_int64)(opus_int16)(c32)) >> 16)
+/// The c argument is truncated to 16 bits (sign-extended).
 #[inline(always)]
 pub fn silk_smlawb(a: i32, b: i32, c: i32) -> i32 {
-    a.wrapping_add(((b as i64 * c as i64) >> 16) as i32)
+    a.wrapping_add(((b as i64 * (c as i16) as i64) >> 16) as i32)
 }
 
 /// silk_SMULWW: multiply two 32-bit numbers, return bits [47:16]
@@ -151,16 +155,20 @@ pub fn silk_smulww_correct(a: i32, b: i32) -> i32 {
     ((a as i64 * b as i64) >> 16) as i32
 }
 
-/// Signed multiply, both 16-bit: a * b
+/// Signed multiply, both 16-bit: (i16)a * (i16)b
+/// Matches C: silk_SMULBB(a32, b32) = (opus_int16)(a32) * (opus_int16)(b32)
+/// Both arguments truncated to 16 bits (sign-extended).
 #[inline(always)]
 pub fn silk_smulbb(a: i32, b: i32) -> i32 {
-    a.wrapping_mul(b)
+    (a as i16 as i32).wrapping_mul(b as i16 as i32)
 }
 
-/// Multiply-accumulate: a + b * c (all treated as integers, may overflow)
+/// Multiply-accumulate with 16-bit operands: a + (i16)b * (i16)c
+/// Matches C: silk_SMLABB(a32, b32, c32) = a32 + (opus_int16)(b32) * (opus_int16)(c32)
+/// The b and c arguments are truncated to 16 bits (sign-extended).
 #[inline(always)]
 pub fn silk_smlabb(a: i32, b: i32, c: i32) -> i32 {
-    a.wrapping_add(b.wrapping_mul(c))
+    a.wrapping_add((b as i16 as i32).wrapping_mul(c as i16 as i32))
 }
 
 /// Signed multiply high: (a * b) >> 32
