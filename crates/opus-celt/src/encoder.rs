@@ -231,44 +231,492 @@ fn tf_encode(
     }
 }
 
-/// Simplified spreading decision.
-/// For complexity < 3 or short blocks, return SPREAD_NORMAL.
-/// Otherwise, analyze spectral shape (simplified version).
+/// Transient analysis: detect transients via forward/backward masking.
+/// Returns (is_transient, tf_estimate, weak_transient).
+#[allow(clippy::too_many_arguments)]
+fn transient_analysis(
+    inp: &[f32],
+    len: usize,
+    cc: usize,
+    allow_weak_transients: bool,
+) -> (bool, f32, bool) {
+    static INV_TABLE: [u8; 128] = [
+        255,255,156,110, 86, 70, 59, 51, 45, 40, 37, 33, 31, 28, 26, 25,
+         23, 22, 21, 20, 19, 18, 17, 16, 16, 15, 15, 14, 13, 13, 12, 12,
+         12, 12, 11, 11, 11, 10, 10, 10,  9,  9,  9,  9,  9,  9,  8,  8,
+          8,  8,  8,  7,  7,  7,  7,  7,  7,  6,  6,  6,  6,  6,  6,  6,
+          6,  6,  6,  6,  6,  6,  6,  6,  6,  5,  5,  5,  5,  5,  5,  5,
+          5,  5,  5,  5,  5,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
+          4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  3,  3,
+          3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  2,
+    ];
+
+    let forward_decay: f32 = if allow_weak_transients { 0.03125 } else { 0.0625 };
+    let len2 = len / 2;
+    let mut mask_metric = 0i32;
+    let mut tf_chan = 0;
+    let mut tmp = vec![0.0f32; len];
+
+    for c in 0..cc {
+        // High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
+        let mut mem0: f32 = 0.0;
+        let mut mem1: f32 = 0.0;
+        for i in 0..len {
+            let x = inp[i + c * len];
+            let y = mem0 + x;
+            let mem00 = mem0;
+            mem0 = mem0 - x + 0.5 * mem1;
+            mem1 = x - mem00;
+            tmp[i] = y;
+        }
+        // Clear first 12 samples (filter startup)
+        for i in 0..12.min(len) {
+            tmp[i] = 0.0;
+        }
+
+        // Forward masking pass
+        let mut mean: f32 = 0.0;
+        mem0 = 0.0;
+        for i in 0..len2 {
+            let x2 = tmp[2 * i] * tmp[2 * i] + tmp[2 * i + 1] * tmp[2 * i + 1];
+            mean += x2;
+            mem0 = x2 + (1.0 - forward_decay) * mem0;
+            tmp[i] = forward_decay * mem0;
+        }
+
+        // Backward masking pass
+        mem0 = 0.0;
+        let mut max_e: f32 = 0.0;
+        for i in (0..len2).rev() {
+            mem0 = tmp[i] + 0.875 * mem0;
+            tmp[i] = 0.125 * mem0;
+            max_e = max_e.max(tmp[i]);
+        }
+
+        // Mean and norm
+        mean = (mean * max_e * 0.5 * len2 as f32).sqrt();
+        let norm = if mean > 1e-15 {
+            len2 as f32 * 64.0 / (mean * 0.5)
+        } else {
+            0.0
+        };
+
+        // Harmonic mean via inv_table
+        let mut unmask = 0i32;
+        let mut i = 12;
+        while i < len2.saturating_sub(5) {
+            let id = (64.0 * norm * (tmp[i] + 1e-15)).max(0.0).min(127.0) as usize;
+            unmask += INV_TABLE[id] as i32;
+            i += 4;
+        }
+
+        let n_steps = ((len2.saturating_sub(17)) as f32 / 4.0).max(1.0);
+        unmask = (64.0 * unmask as f32 * 4.0 / (6.0 * n_steps)) as i32;
+
+        if unmask > mask_metric {
+            tf_chan = c;
+            mask_metric = unmask;
+        }
+    }
+    let _ = tf_chan;
+
+    let is_transient = mask_metric > 200;
+    let mut weak_transient = false;
+
+    let mut is_transient = is_transient;
+    if allow_weak_transients && is_transient && mask_metric < 600 {
+        is_transient = false;
+        weak_transient = true;
+    }
+
+    // Compute tf_estimate
+    let tf_max = (27.0 * mask_metric as f32).sqrt() - 42.0;
+    let tf_max = tf_max.max(0.0).min(163.0);
+    let tf_estimate = (0.0069 * tf_max - 0.139).max(0.0).sqrt().min(1.0);
+
+    (is_transient, tf_estimate, weak_transient)
+}
+
+/// Spreading decision: analyze spectral shape to determine spread mode.
+/// Port of bands.c spreading_decision().
 #[allow(clippy::too_many_arguments)]
 fn spreading_decision(
-    _m: &CeltMode,
-    _x: &[f32],
-    _tonal_average: &mut i32,
-    _spread_decision: i32,
-    _hf_average: &mut i32,
-    _tapset_decision: &mut i32,
-    _pf_on: bool,
-    _eff_end: usize,
-    _c: usize,
-    _mm: usize,
+    m: &CeltMode,
+    x: &[f32],
+    average: &mut i32,
+    last_decision: i32,
+    hf_average: &mut i32,
+    tapset_decision: &mut i32,
+    update_hf: bool,
+    end: usize,
+    c: usize,
+    mm: usize,
+    spread_weight: Option<&[i32]>,
 ) -> i32 {
-    // Simplified: always return SPREAD_NORMAL.
-    // A full implementation would analyze spectral shape.
-    SPREAD_NORMAL
+    let n0 = mm * m.short_mdct_size;
+
+    // Early exit for narrow bands
+    if mm * (m.ebands[end] as usize - m.ebands[end - 1] as usize) <= 8 {
+        return SPREAD_NONE;
+    }
+
+    let mut sum = 0i32;
+    let mut nb_bands = 0i32;
+    let mut hf_sum = 0i32;
+
+    for ch in 0..c {
+        for i in 0..end {
+            let n = mm * (m.ebands[i + 1] - m.ebands[i]) as usize;
+            if n <= 8 {
+                continue;
+            }
+            let x_off = mm * m.ebands[i] as usize + ch * n0;
+
+            let mut tcount = [0i32; 3];
+            for j in 0..n {
+                let idx = x_off + j;
+                if idx < x.len() {
+                    let x2n = x[idx] * x[idx] * n as f32;
+                    if x2n < 0.25 { tcount[0] += 1; }
+                    if x2n < 0.0625 { tcount[1] += 1; }
+                    if x2n < 0.015625 { tcount[2] += 1; }
+                }
+            }
+
+            if i >= m.nb_ebands - 4 {
+                hf_sum += 32 * (tcount[1] + tcount[0]) / n as i32;
+            }
+
+            let tmp = (if 2 * tcount[2] >= n as i32 { 1 } else { 0 })
+                + (if 2 * tcount[1] >= n as i32 { 1 } else { 0 })
+                + (if 2 * tcount[0] >= n as i32 { 1 } else { 0 });
+
+            let w = spread_weight.map_or(1, |sw| sw[i]);
+            sum += tmp * w;
+            nb_bands += w;
+        }
+    }
+
+    // HF / tapset update
+    if update_hf {
+        let hf_bands = c as i32 * (4 - m.nb_ebands as i32 + end as i32).max(1);
+        if hf_sum > 0 {
+            hf_sum /= hf_bands;
+        }
+        *hf_average = (*hf_average + hf_sum) >> 1;
+        hf_sum = *hf_average;
+        if *tapset_decision == 2 { hf_sum += 4; }
+        else if *tapset_decision == 0 { hf_sum -= 4; }
+        *tapset_decision = if hf_sum > 22 { 2 } else if hf_sum > 18 { 1 } else { 0 };
+    }
+
+    if nb_bands == 0 {
+        return SPREAD_NORMAL;
+    }
+
+    // Spreading decision with hysteresis
+    sum = (sum << 8) / nb_bands;
+    sum = (sum + *average) >> 1;
+    *average = sum;
+
+    sum = (3 * sum + (3 - last_decision) * 128 + 64 + 2) >> 2;
+
+    if sum < 80 { SPREAD_AGGRESSIVE }
+    else if sum < 256 { SPREAD_NORMAL }
+    else if sum < 384 { SPREAD_LIGHT }
+    else { SPREAD_NONE }
 }
 
-/// Simplified alloc trim analysis. Returns default trim = 5.
-fn alloc_trim_analysis() -> i32 {
-    5
+/// Alloc trim analysis: compute allocation trim from spectral tilt and stereo correlation.
+#[allow(clippy::too_many_arguments)]
+fn alloc_trim_analysis(
+    m: &CeltMode,
+    x: &[f32],
+    band_log_e: &[f32],
+    end: usize,
+    lm: i32,
+    c: usize,
+    n0: usize,
+    stereo_saving: &mut f32,
+    tf_estimate: f32,
+    _intensity: i32,
+    equiv_rate: i32,
+) -> i32 {
+    let nb_ebands = m.nb_ebands;
+
+    // Base trim from bitrate
+    let mut trim: f32 = if equiv_rate < 64000 {
+        4.0
+    } else if equiv_rate < 80000 {
+        let frac = (equiv_rate - 64000) as f32 / 16000.0;
+        4.0 + frac
+    } else {
+        5.0
+    };
+
+    // Stereo correlation
+    if c == 2 {
+        let mut sum = 0.0f32;
+        for i in 0..8.min(end) {
+            let band_start = (m.ebands[i] as usize) << lm as usize;
+            let band_end = (m.ebands[i + 1] as usize) << lm as usize;
+            let band_len = band_end - band_start;
+            let mut partial = 0.0f32;
+            for j in 0..band_len {
+                partial += x[band_start + j] * x[n0 + band_start + j];
+            }
+            sum += partial;
+        }
+        sum /= 8.0f32.max(1.0);
+        sum = sum.abs().min(1.0);
+
+        let log_xc = (1.001 - sum * sum).ln() / std::f32::consts::LN_2;
+        trim += (0.75 * log_xc).max(-4.0);
+        *stereo_saving = (*stereo_saving + 0.25).min(-log_xc * 0.5);
+    }
+
+    // Spectral tilt
+    let mut diff = 0.0f32;
+    for ch in 0..c {
+        for i in 0..end.saturating_sub(1) {
+            diff += band_log_e[i + ch * nb_ebands] * (2 + 2 * i as i32 - end as i32) as f32;
+        }
+    }
+    if end > 1 {
+        diff /= (c * (end - 1)) as f32;
+    }
+    trim -= diff.clamp(-2.0, 2.0);
+
+    // TF estimate adjustment
+    trim -= 2.0 * tf_estimate;
+
+    // Quantize
+    let trim_index = (trim + 0.5) as i32;
+    trim_index.clamp(0, 10)
 }
 
-/// Simplified dynamic allocation analysis.
-/// Sets offsets to 0 and returns 0 for maxDepth.
-fn dynalloc_analysis(offsets: &mut [i32], _start: usize, _end: usize) -> f32 {
-    for v in offsets.iter_mut() {
+/// Dynamic allocation analysis: compute per-band boost offsets.
+#[allow(clippy::too_many_arguments)]
+fn dynalloc_analysis(
+    band_log_e: &[f32],
+    old_band_e: &[f32],
+    nb_ebands: usize,
+    start: usize,
+    end: usize,
+    c: usize,
+    offsets: &mut [i32],
+    lsb_depth: i32,
+    log_n: &[i16],
+    is_transient: bool,
+    vbr: bool,
+    constrained_vbr: bool,
+    ebands: &[i16],
+    lm: i32,
+    effective_bytes: i32,
+    tot_boost: &mut i32,
+    lfe: bool,
+) -> f32 {
+    *tot_boost = 0;
+    for v in offsets[..end].iter_mut() {
         *v = 0;
     }
-    0.0
+
+    if effective_bytes < 30 + 5 * lm || lfe {
+        return -31.9;
+    }
+
+    // Compute noise floor
+    let mut noise_floor = vec![0.0f32; nb_ebands];
+    for i in 0..end {
+        noise_floor[i] = 0.0625 * log_n[i] as f32 + 0.5
+            + (9 - lsb_depth) as f32
+            - E_MEANS[i]
+            + 0.0062 * ((i + 5) * (i + 5)) as f32;
+    }
+
+    // Compute max depth
+    let mut max_depth = -31.9f32;
+    for ch in 0..c {
+        for i in 0..end {
+            max_depth = max_depth.max(band_log_e[ch * nb_ebands + i] - noise_floor[i]);
+        }
+    }
+
+    // Compute follower (simplified: use max of bandLogE vs noise_floor per band)
+    let mut follower = vec![0.0f32; nb_ebands];
+    for i in start..end {
+        let mut max_e = band_log_e[i];
+        if c == 2 {
+            max_e = max_e.max(band_log_e[nb_ebands + i]);
+        }
+        follower[i] = (max_e - noise_floor[i]).max(0.0);
+        // Also consider old band energy for stability
+        let old_e = if c == 2 {
+            old_band_e[i].max(old_band_e[nb_ebands + i])
+        } else {
+            old_band_e[i]
+        };
+        let old_diff = (old_e - noise_floor[i]).max(0.0);
+        // Use the larger of current and old for transient stability
+        if !is_transient {
+            follower[i] = follower[i].max(old_diff * 0.5);
+        }
+    }
+
+    // Forward follower (limit growth to 1.5 dB/band)
+    if start < end {
+        for i in (start + 1)..end {
+            follower[i] = follower[i].min(follower[i - 1] + 1.5);
+        }
+        // Backward follower (limit growth to 2.0 dB/band)
+        for i in (start..end - 1).rev() {
+            follower[i] = follower[i].min(follower[i + 1] + 2.0);
+        }
+    }
+
+    // CBR halving
+    if (!vbr || constrained_vbr) && !is_transient {
+        for i in start..end {
+            follower[i] *= 0.5;
+        }
+    }
+
+    // Band weighting
+    for i in start..end {
+        if i < 8 { follower[i] *= 2.0; }
+        if i >= 12 { follower[i] *= 0.5; }
+    }
+
+    // Convert to offsets
+    let mut boost_total = 0i32;
+    for i in start..end {
+        follower[i] = follower[i].min(4.0);
+        let width = c as i32 * (ebands[i + 1] - ebands[i]) as i32 * (1 << lm);
+        let boost = (follower[i] * 256.0) as i32;
+        let boost_bits = if width < 6 {
+            boost * width * (1 << BITRES)
+        } else if width > 48 {
+            (boost * width * (1 << BITRES)) / 8
+        } else {
+            boost * 6 * (1 << BITRES)
+        };
+
+        // CBR cap
+        if !vbr || (constrained_vbr && !is_transient) {
+            let cap = ((2 * effective_bytes / 3) as i32) << (BITRES + 3);
+            if boost_total + boost_bits > cap {
+                offsets[i] = ((cap - boost_total).max(0) / ((width * (1 << BITRES)).max(1))) as i32;
+                *tot_boost = cap;
+                break;
+            }
+        }
+        offsets[i] = boost;
+        boost_total += boost_bits;
+    }
+    *tot_boost = boost_total;
+
+    max_depth
 }
 
-/// Simplified stereo analysis. Returns 0 (not dual stereo).
-fn stereo_analysis(_m: &CeltMode, _x: &[f32], _lm: i32, _n: usize) -> i32 {
-    0
+/// Stereo analysis: decide M/S vs L/R coding.
+/// Returns 1 for M/S (dual_stereo), 0 for L/R.
+fn stereo_analysis(m: &CeltMode, x: &[f32], lm: i32, n0: usize) -> i32 {
+    let mut sum_lr = 1e-15f32;
+    let mut sum_ms = 1e-15f32;
+
+    for i in 0..13.min(m.nb_ebands) {
+        let band_start = (m.ebands[i] as usize) << lm as usize;
+        let band_end = (m.ebands[i + 1] as usize) << lm as usize;
+        for j in band_start..band_end {
+            if j < x.len() && n0 + j < x.len() {
+                let l = x[j];
+                let r = x[n0 + j];
+                let m_val = l + r;
+                let s_val = l - r;
+                sum_lr += l.abs() + r.abs();
+                sum_ms += m_val.abs() + s_val.abs();
+            }
+        }
+    }
+
+    sum_ms *= 0.707107; // 1/sqrt(2)
+
+    let thetas = if lm <= 1 { 5 } else { 13 };
+    let band13 = m.ebands[13.min(m.nb_ebands)] as i32;
+    let lhs = (((band13 << (lm + 1)) + thetas) as f32) * sum_ms;
+    let rhs = ((band13 << (lm + 1)) as f32) * sum_lr;
+
+    if lhs > rhs { 1 } else { 0 }
+}
+
+/// VBR rate computation.
+#[allow(clippy::too_many_arguments)]
+fn compute_vbr(
+    m: &CeltMode,
+    base_target: i32,
+    lm: i32,
+    _bitrate: i32,
+    last_coded_bands: i32,
+    c: usize,
+    intensity: i32,
+    constrained_vbr: bool,
+    stereo_saving: f32,
+    tot_boost: i32,
+    tf_estimate: f32,
+    _pitch_change: bool,
+    max_depth: f32,
+    lfe: bool,
+    _has_surround_mask: bool,
+) -> i32 {
+    let coded_bands = if last_coded_bands != 0 {
+        last_coded_bands as usize
+    } else {
+        m.nb_ebands
+    };
+    let coded_bins = (m.ebands[coded_bands] as i32) << lm;
+    let mut coded_bins_total = coded_bins;
+    if c == 2 {
+        coded_bins_total += (m.ebands[intensity.min(coded_bands as i32) as usize] as i32) << lm;
+    }
+
+    let mut target = base_target;
+
+    // Stereo savings
+    if c == 2 {
+        let coded_stereo_bands = (intensity as usize).min(coded_bands);
+        let coded_stereo_dof = ((m.ebands[coded_stereo_bands] as i32) << lm) - coded_stereo_bands as i32;
+        if coded_bins_total > 0 && coded_stereo_dof > 0 {
+            let max_frac = (0.8 * coded_stereo_dof as f32 / coded_bins_total as f32) as f32;
+            let saving = stereo_saving.min(1.0);
+            let save_amount = ((saving - 0.1) * coded_stereo_dof as f32 * (1 << BITRES) as f32) as i32;
+            target -= save_amount.min((max_frac * target as f32) as i32);
+        }
+    }
+
+    // Dynalloc boost
+    target += tot_boost - (19 << lm);
+
+    // Transient boost (via tf_estimate)
+    let tf_calibration = 0.044f32;
+    target += (2.0 * (tf_estimate - tf_calibration) * target as f32) as i32;
+
+    // Floor depth limiting
+    if !lfe {
+        let bins = (m.ebands[m.nb_ebands.saturating_sub(2)] as i32) << lm;
+        let floor_depth = (c as f32 * bins as f32 * (1 << BITRES) as f32 * max_depth) as i32;
+        let floor_depth = floor_depth.max(target / 4);
+        target = target.min(floor_depth);
+    }
+
+    // Constrained VBR dampening
+    if constrained_vbr {
+        target = base_target + ((target - base_target) as f32 * 0.67) as i32;
+    }
+
+    // Cap at 2x base
+    target = target.min(2 * base_target);
+
+    target
 }
 
 impl CeltEncoder {
@@ -430,19 +878,11 @@ impl CeltEncoder {
         // 2. Initialize range encoder
         // -----------------------------------------------------------------
         let mut local_enc;
-        let mut tell;
-        let nb_filled_bytes;
-
-        if ec.is_none() {
-            tell = 1;
-            nb_filled_bytes = 0;
+        let nb_filled_bytes = if let Some(ref ext) = ec {
+            ((ext.tell() + 4) >> 3) as usize
         } else {
-            // If an external encoder was provided, compute initial tell
-            let ext = ec.as_ref().unwrap();
-            tell = ext.tell();
-            nb_filled_bytes = ((tell + 4) >> 3) as usize;
-        }
-        let _ = tell; // used later after enc init
+            0
+        };
 
         // For CBR, compute the actual packet size from bitrate
         if !self.vbr || self.bitrate == 510000 {
@@ -467,7 +907,7 @@ impl CeltEncoder {
         };
 
         let total_bits = nb_compressed_bytes as i32 * 8;
-        tell = enc.tell();
+        let mut tell = enc.tell();
 
         // -----------------------------------------------------------------
         // 3. Pre-emphasis
@@ -530,23 +970,32 @@ impl CeltEncoder {
         }
 
         // -----------------------------------------------------------------
-        // 5. Prefilter (skip for now: encode pf_on=0)
+        // 5. Transient analysis
         // -----------------------------------------------------------------
-        let is_transient = false;
-        let short_blocks = 0i32;
+        let (mut is_transient, tf_estimate, _weak_transient) = if self.complexity >= 1 && !self.lfe {
+            transient_analysis(&inp, n + overlap, cc, false)
+        } else {
+            (false, 0.0f32, false)
+        };
 
         // Encode prefilter off (if we have bits for it and start==0)
         tell = enc.tell();
         if start == 0 && tell + 16 <= total_bits {
-            enc.enc_bit_logp(false, 1); // pf_on = 0
+            enc.enc_bit_logp(false, 1); // pf_on = 0 (prefilter disabled for now)
         }
 
         // -----------------------------------------------------------------
-        // 6. Transient flag (simplified: always non-transient)
+        // 6. Transient flag
         // -----------------------------------------------------------------
+        let mut short_blocks = 0i32;
         tell = enc.tell();
         if lm > 0 && tell + 3 <= total_bits {
+            if is_transient {
+                short_blocks = mm as i32;
+            }
             enc.enc_bit_logp(is_transient, 3);
+        } else {
+            is_transient = false;
         }
 
         // -----------------------------------------------------------------
@@ -658,10 +1107,11 @@ impl CeltEncoder {
                     self.spread_decision,
                     &mut self.hf_average,
                     &mut self.tapset_decision,
-                    false, // pf_on
+                    !self.disable_pf && short_blocks == 0,
                     eff_end,
                     c,
                     mm,
+                    None, // spread_weight (simplified)
                 );
             }
             enc.enc_icdf(self.spread_decision as usize, &SPREAD_ICDF, 5);
@@ -676,9 +1126,17 @@ impl CeltEncoder {
         init_caps(mode, &mut cap, lm, c as i32);
 
         let mut offsets = vec![0i32; nb_ebands];
-        let _max_depth = dynalloc_analysis(&mut offsets, start, end);
+        let effective_bytes = nb_available_bytes as i32;
+        let mut tot_boost = 0i32;
+        let max_depth = dynalloc_analysis(
+            &band_log_e, &self.old_band_e,
+            nb_ebands, start, end, c, &mut offsets,
+            self.lsb_depth, mode.log_n, is_transient,
+            self.vbr, self.constrained_vbr,
+            mode.ebands, lm, effective_bytes, &mut tot_boost, self.lfe,
+        );
 
-        // Encode dynamic allocation (all zeros for simplified encoder)
+        // Encode dynamic allocation
         let mut dynalloc_logp = 6i32;
         let total_bits_shifted = nb_compressed_bytes as i32 * 8 << BITRES;
         let mut total_boost = 0i32;
@@ -712,14 +1170,70 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 14. Alloc trim encode
         // -----------------------------------------------------------------
+        let equiv_rate = ((nb_compressed_bytes as i64 * 8 * 50) << (3 - lm)) as i32
+            - (40 * c as i32 + 20) * ((400 >> lm) - 50);
         let alloc_trim;
         tell = enc.tell_frac() as i32;
-        if tell + (6 << BITRES) <= total_bits_shifted - total_boost {
-            alloc_trim = alloc_trim_analysis();
+        if tell + (6 << BITRES) <= total_bits_shifted - tot_boost {
+            if start > 0 || self.lfe {
+                self.stereo_saving = 0.0;
+                alloc_trim = 5;
+            } else {
+                alloc_trim = alloc_trim_analysis(
+                    mode, &x_norm, &band_log_e, end, lm, c,
+                    mm * mode.short_mdct_size,
+                    &mut self.stereo_saving, tf_estimate,
+                    self.intensity, equiv_rate,
+                );
+            }
             enc.enc_icdf(alloc_trim as usize, &TRIM_ICDF, 7);
             let _ = enc.tell_frac();
         } else {
             alloc_trim = 5;
+        }
+
+        // -----------------------------------------------------------------
+        // 14b. VBR rate computation
+        // -----------------------------------------------------------------
+        let min_allowed = ((enc.tell() + tot_boost + (1 << (BITRES + 3)) - 1) >> (BITRES + 3)) + 2;
+        if self.vbr && self.bitrate != 510000 {
+            let lm_diff = mode.max_lm as i32 - lm;
+            let vbr_rate = ((self.bitrate as i64 * frame_size as i64 / mode.fs as i64) as i32) << BITRES;
+            let base_target = vbr_rate - ((40 * c as i32 + 20) << BITRES);
+            let target = compute_vbr(
+                mode, base_target, lm, self.bitrate,
+                self.last_coded_bands, c, self.intensity,
+                self.constrained_vbr, self.stereo_saving,
+                tot_boost, tf_estimate, false, max_depth,
+                self.lfe, false,
+            );
+            let target = target + enc.tell() as i32;
+            let mut nb_avail = (target + (1 << (BITRES + 2))) >> (BITRES + 3);
+            nb_avail = nb_avail.max(min_allowed as i32);
+            nb_avail = nb_avail.min(nb_compressed_bytes as i32);
+
+            // VBR reservoir update
+            let delta = target - vbr_rate;
+            if self.constrained_vbr {
+                self.vbr_reservoir += target - vbr_rate;
+                if self.vbr_reservoir < 0 {
+                    let adjust = (-self.vbr_reservoir) / (8 << BITRES);
+                    nb_avail += if silence { 0 } else { adjust };
+                    self.vbr_reservoir = 0;
+                }
+            }
+            nb_compressed_bytes = nb_avail.min(nb_compressed_bytes as i32) as usize;
+            enc.enc_shrink(nb_compressed_bytes as u32);
+
+            // Update VBR drift
+            if self.vbr_count < 970 {
+                self.vbr_count += 1;
+            }
+            if self.constrained_vbr {
+                let alpha = if self.vbr_count < 970 { 1.0 / (self.vbr_count + 20) as f32 } else { 0.001 };
+                self.vbr_drift += (alpha * ((delta << lm_diff) - self.vbr_offset - self.vbr_drift) as f32) as i32;
+                self.vbr_offset = -self.vbr_drift;
+            }
         }
 
         // -----------------------------------------------------------------
@@ -741,13 +1255,33 @@ impl CeltEncoder {
         bits -= anti_collapse_rsv;
 
         // For stereo, determine intensity and dual_stereo
-        let mut enc_intensity = if c == 2 {
-            self.intensity.min(end as i32).max(start as i32)
+        let mut dual_stereo = if c == 2 {
+            stereo_analysis(mode, &x_norm, lm, n)
         } else {
             0
         };
-        let mut dual_stereo = if c == 2 {
-            stereo_analysis(mode, &x_norm, lm, n)
+
+        // Intensity stereo threshold (from C reference)
+        let mut enc_intensity = if c == 2 {
+            static INTENSITY_THRESHOLDS: [i32; 21] =
+                [1, 2, 3, 4, 5, 6, 7, 8, 16, 24, 36, 44, 50, 56, 62, 67, 72, 79, 88, 106, 134];
+            static INTENSITY_HISTERESIS: [i32; 21] =
+                [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 4, 5, 6, 8, 8];
+            let rate_kbps = equiv_rate / 1000;
+            let mut new_intensity = start as i32;
+            for j in 0..21 {
+                let mut thresh = INTENSITY_THRESHOLDS[j];
+                if self.intensity >= (start as i32 + j as i32 + 1) {
+                    thresh -= INTENSITY_HISTERESIS[j];
+                } else {
+                    thresh += INTENSITY_HISTERESIS[j];
+                }
+                if rate_kbps >= thresh {
+                    new_intensity = (start as i32 + j as i32 + 1).min(end as i32);
+                }
+            }
+            self.intensity = new_intensity;
+            new_intensity
         } else {
             0
         };
