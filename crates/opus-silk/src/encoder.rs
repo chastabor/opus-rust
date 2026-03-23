@@ -28,6 +28,10 @@ pub struct SilkEncControl {
     pub bitrate_bps: i32,
     /// Encoder complexity (0-10)
     pub complexity: i32,
+    /// Whether to use in-band FEC (LBRR)
+    pub use_in_band_fec: bool,
+    /// Expected packet loss percentage (0-100)
+    pub packet_loss_percentage: i32,
 }
 
 impl Default for SilkEncControl {
@@ -38,6 +42,8 @@ impl Default for SilkEncControl {
             payload_size_ms: 20,
             bitrate_bps: 25000,
             complexity: 2,
+            use_in_band_fec: false,
+            packet_loss_percentage: 0,
         }
     }
 }
@@ -59,6 +65,11 @@ pub struct SilkScratch {
     pub nsq_s_ltp: Vec<i16>,     // MAX_SILK_TOTAL
     pub nsq_x_sc_q10: Vec<i32>,  // MAX_SILK_SUBFR
     pub nsq_xq_tmp: Vec<i16>,    // MAX_SILK_SUBFR
+    // LBRR NSQ scratch buffers (separate from main NSQ to avoid conflicts)
+    pub lbrr_nsq_s_ltp_q15: Vec<i32>, // MAX_SILK_TOTAL
+    pub lbrr_nsq_s_ltp: Vec<i16>,     // MAX_SILK_TOTAL
+    pub lbrr_nsq_x_sc_q10: Vec<i32>,  // MAX_SILK_SUBFR
+    pub lbrr_nsq_xq_tmp: Vec<i16>,    // MAX_SILK_SUBFR
 }
 
 impl SilkScratch {
@@ -71,6 +82,10 @@ impl SilkScratch {
             nsq_s_ltp: vec![0i16; MAX_SILK_TOTAL],
             nsq_x_sc_q10: vec![0i32; MAX_SILK_SUBFR],
             nsq_xq_tmp: vec![0i16; MAX_SILK_SUBFR],
+            lbrr_nsq_s_ltp_q15: vec![0i32; MAX_SILK_TOTAL],
+            lbrr_nsq_s_ltp: vec![0i16; MAX_SILK_TOTAL],
+            lbrr_nsq_x_sc_q10: vec![0i32; MAX_SILK_SUBFR],
+            lbrr_nsq_xq_tmp: vec![0i16; MAX_SILK_SUBFR],
         }
     }
 }
@@ -125,6 +140,21 @@ struct EncChannelState {
     // Pitch analysis state (for lag tracking across frames)
     prev_lag: i32,
     ltp_corr_q15: i32,
+
+    // LBRR state
+    lbrr_enabled: bool,
+    lbrr_gain_increases: i32,
+    lbrr_flags: [i32; MAX_FRAMES_PER_PACKET],
+    lbrr_prev_last_gain_index: i8,
+    indices_lbrr: [SideInfoIndices; MAX_FRAMES_PER_PACKET],
+    pulses_lbrr: [[i8; MAX_FRAME_LENGTH]; MAX_FRAMES_PER_PACKET],
+
+    // Previous packet LBRR data (written at start of next packet)
+    prev_lbrr_flags: [i32; MAX_FRAMES_PER_PACKET],
+    prev_indices_lbrr: [SideInfoIndices; MAX_FRAMES_PER_PACKET],
+    prev_pulses_lbrr: [[i8; MAX_FRAME_LENGTH]; MAX_FRAMES_PER_PACKET],
+    prev_lbrr_any: bool,
+    prev_n_frames_per_packet: i32,
 }
 
 impl EncChannelState {
@@ -159,6 +189,21 @@ impl EncChannelState {
             n_frames_encoded: 0,
             prev_lag: 0,
             ltp_corr_q15: 0,
+
+            // LBRR state
+            lbrr_enabled: false,
+            lbrr_gain_increases: 0,
+            lbrr_flags: [0; MAX_FRAMES_PER_PACKET],
+            lbrr_prev_last_gain_index: 10,
+            indices_lbrr: Default::default(),
+            pulses_lbrr: [[0i8; MAX_FRAME_LENGTH]; MAX_FRAMES_PER_PACKET],
+
+            // Previous packet LBRR data
+            prev_lbrr_flags: [0; MAX_FRAMES_PER_PACKET],
+            prev_indices_lbrr: Default::default(),
+            prev_pulses_lbrr: [[0i8; MAX_FRAME_LENGTH]; MAX_FRAMES_PER_PACKET],
+            prev_lbrr_any: false,
+            prev_n_frames_per_packet: 1,
         }
     }
 
@@ -261,9 +306,30 @@ impl SilkEncoder {
         let lpc_order = cs.lpc_order as usize;
         let ltp_mem_length = cs.ltp_mem_length as usize;
 
+        // Number of frames per packet
+        let n_frames_per_packet: i32 = 1;
+
         // Ensure we have enough input
         if samples.len() < frame_length {
             return -1;
+        }
+
+        // ====== LBRR setup (from silk/control_codec.c silk_setup_LBRR) ======
+        let lbrr_in_previous = cs.lbrr_enabled;
+        cs.lbrr_enabled = control.use_in_band_fec && control.packet_loss_percentage > 0;
+        if cs.lbrr_enabled {
+            // 13107 = SILK_FIX_CONST(0.2, 16) -- maps percentage to gain increase
+            cs.lbrr_gain_increases = if !lbrr_in_previous {
+                7
+            } else {
+                (7 - silk_smulwb(control.packet_loss_percentage, 13107)).max(2)
+            };
+        }
+
+        // At the start of a new packet (n_frames_encoded == 0), reset LBRR flags
+        if cs.n_frames_encoded == 0 {
+            cs.lbrr_flags = [0; MAX_FRAMES_PER_PACKET];
+            cs.lbrr_prev_last_gain_index = cs.last_gain_index;
         }
 
         // Build analysis buffer: history + current frame (use scratch)
@@ -538,6 +604,96 @@ impl SilkEncoder {
         // Set random seed
         cs.indices.seed = (cs.n_frames_encoded & 3) as i8;
 
+        // ====== LBRR encoding (before main NSQ, so we can clone NSQ state) ======
+        let frame_idx = cs.n_frames_encoded as usize;
+        if cs.lbrr_enabled {
+            // Only encode LBRR for frames with sufficient speech activity
+            // Threshold: speech_activity_q8 > 0.3 * 256 = 76
+            if cs.speech_activity_q8 > 76 {
+                cs.lbrr_flags[frame_idx] = 1;
+
+                // Copy current indices for LBRR
+                cs.indices_lbrr[frame_idx] = cs.indices.clone();
+
+                // Boost first subframe gain index by lbrr_gain_increases
+                let mut lbrr_gains_indices = cs.indices.gains_indices;
+                if cond_coding == CODE_INDEPENDENTLY {
+                    // Absolute coding: boost the absolute gain index
+                    lbrr_gains_indices[0] = ((lbrr_gains_indices[0] as i32
+                        + cs.lbrr_gain_increases)
+                        .min(N_LEVELS_QGAIN - 1)) as i8;
+                } else {
+                    // Delta coding: boost the delta to increase gain
+                    lbrr_gains_indices[0] = ((lbrr_gains_indices[0] as i32
+                        + cs.lbrr_gain_increases)
+                        .min(MAX_DELTA_GAIN_QUANT - MIN_DELTA_GAIN_QUANT)) as i8;
+                }
+                cs.indices_lbrr[frame_idx].gains_indices = lbrr_gains_indices;
+
+                // Dequantize LBRR gains
+                let mut lbrr_gains_q16 = [0i32; MAX_NB_SUBFR];
+                let mut lbrr_prev_gain_idx = cs.lbrr_prev_last_gain_index;
+                gain_quant::silk_gains_dequant(
+                    &mut lbrr_gains_q16,
+                    &lbrr_gains_indices,
+                    &mut lbrr_prev_gain_idx,
+                    cond_coding == CODE_CONDITIONALLY,
+                    nb_subfr,
+                );
+
+                // Clone NSQ state for LBRR (does not affect main encoder state)
+                let mut lbrr_nsq_state = cs.nsq_state.clone();
+                let mut lbrr_indices = cs.indices_lbrr[frame_idx].clone();
+
+                // Read NSQ config values for LBRR
+                let lbrr_signal_type = cs.indices.signal_type as i32;
+                let lbrr_quant_offset_type = cs.indices.quant_offset_type as i32;
+                let lbrr_nlsf_interp_coef_q2 = cs.indices.nlsf_interp_coef_q2 as i32;
+
+                // Run NSQ with LBRR gains
+                let mut lbrr_pulses = [0i8; MAX_FRAME_LENGTH];
+                nsq::silk_nsq(
+                    &mut lbrr_nsq_state,
+                    &mut lbrr_indices,
+                    &samples[..frame_length],
+                    &mut lbrr_pulses,
+                    &pred_coef_q12,
+                    &ltp_coef_q14,
+                    &ar_q13,
+                    harm_shape_gain_q14,
+                    tilt_q14,
+                    lf_shp_q14,
+                    &lbrr_gains_q16,
+                    &pitch_lags,
+                    lambda_q10,
+                    ltp_scale_q14,
+                    cs.frame_length,
+                    cs.subfr_length,
+                    cs.ltp_mem_length,
+                    cs.lpc_order,
+                    MAX_SHAPE_LPC_ORDER as i32,
+                    cs.nb_subfr,
+                    lbrr_signal_type,
+                    lbrr_quant_offset_type,
+                    lbrr_nlsf_interp_coef_q2,
+                    &mut scratch.lbrr_nsq_s_ltp_q15,
+                    &mut scratch.lbrr_nsq_s_ltp,
+                    &mut scratch.lbrr_nsq_x_sc_q10,
+                    &mut scratch.lbrr_nsq_xq_tmp,
+                );
+
+                // Store LBRR pulses
+                cs.pulses_lbrr[frame_idx][..frame_length]
+                    .copy_from_slice(&lbrr_pulses[..frame_length]);
+            } else {
+                cs.lbrr_flags[frame_idx] = 0;
+            }
+        } else {
+            cs.lbrr_flags[frame_idx] = 0;
+        }
+
+        // ====== Main NSQ ======
+
         // Read values before borrowing cs.indices mutably
         let nsq_signal_type = cs.indices.signal_type as i32;
         let nsq_quant_offset_type = cs.indices.quant_offset_type as i32;
@@ -623,10 +779,138 @@ impl SilkEncoder {
         cs.first_frame_after_reset = false;
         cs.n_frames_encoded += 1;
 
+        // If this is the last frame in the packet, save LBRR data for next packet
+        if cs.n_frames_encoded >= n_frames_per_packet {
+            // Move current packet's LBRR data to "previous" storage
+            cs.prev_lbrr_flags = cs.lbrr_flags;
+            cs.prev_indices_lbrr = cs.indices_lbrr.clone();
+            cs.prev_pulses_lbrr = cs.pulses_lbrr;
+            cs.prev_lbrr_any = cs.lbrr_flags[..n_frames_per_packet as usize]
+                .iter()
+                .any(|&f| f != 0);
+            cs.prev_n_frames_per_packet = n_frames_per_packet;
+
+            // Reset frame counter for next packet
+            cs.n_frames_encoded = 0;
+        }
+
         // Put scratch buffers back
         self.scratch = scratch;
 
         0 // Success
+    }
+
+    /// Write LBRR data from the previous packet into the bitstream.
+    ///
+    /// This should be called at the start of encoding a new packet, after writing
+    /// the LBRR flag bit. Returns true if LBRR data was written.
+    ///
+    /// The LBRR data written here is from the PREVIOUS packet. The first packet
+    /// encoded never has LBRR data (no previous packet to reference).
+    pub fn write_lbrr_data(
+        &self,
+        enc: &mut EcCtx,
+    ) -> bool {
+        let cs = &self.state;
+
+        if !cs.prev_lbrr_any {
+            return false;
+        }
+
+        let n_frames = cs.prev_n_frames_per_packet as usize;
+
+        // If more than one frame per packet, encode per-frame LBRR flags
+        if n_frames > 1 {
+            let lbrr_flags_icdf = if n_frames == 2 {
+                &SILK_LBRR_FLAGS_2_ICDF[..]
+            } else {
+                &SILK_LBRR_FLAGS_3_ICDF[..]
+            };
+
+            // Compute combined LBRR symbol: binary encoding of per-frame flags
+            // For the iCDF tables: symbol = combined_flags - 1 (since 0 means no LBRR,
+            // which is never encoded here because prev_lbrr_any is true)
+            let mut lbrr_symbol = 0usize;
+            for i in 0..n_frames {
+                lbrr_symbol |= (cs.prev_lbrr_flags[i] as usize) << i;
+            }
+            enc.enc_icdf(lbrr_symbol - 1, lbrr_flags_icdf, 8);
+        }
+
+        // Encode LBRR indices and pulses for each flagged frame
+        for i in 0..n_frames {
+            if cs.prev_lbrr_flags[i] != 0 {
+                let lbrr_cond_coding = if i > 0 {
+                    CODE_CONDITIONALLY
+                } else {
+                    CODE_INDEPENDENTLY
+                };
+
+                encode_indices::silk_encode_indices(
+                    &cs.prev_indices_lbrr[i],
+                    enc,
+                    i as i32,
+                    true, // encode_lbrr = true
+                    lbrr_cond_coding,
+                    cs.nb_subfr,
+                    cs.nlsf_cb_sel,
+                    cs.pitch_contour_sel,
+                    cs.pitch_lag_low_bits_sel,
+                    cs.fs_khz,
+                    // For LBRR ec_prev state: use previous LBRR frame's signal type/lag
+                    if i > 0 { cs.prev_indices_lbrr[i - 1].signal_type as i32 } else { 0 },
+                    if i > 0 { cs.prev_indices_lbrr[i - 1].lag_index } else { 0 },
+                );
+
+                encode_pulses::silk_encode_pulses(
+                    enc,
+                    &cs.prev_pulses_lbrr[i],
+                    cs.prev_indices_lbrr[i].signal_type as i32,
+                    cs.prev_indices_lbrr[i].quant_offset_type as i32,
+                    cs.frame_length,
+                );
+            }
+        }
+
+        true
+    }
+
+    /// Encode a complete SILK packet with proper header (VAD + LBRR flags).
+    ///
+    /// This is the high-level API that handles the packet header format:
+    /// 1. Write VAD flag (1 bit) and LBRR flag (1 bit) as placeholders
+    /// 2. If LBRR data exists from previous packet, write it
+    /// 3. Encode the current frame
+    /// 4. Patch initial bits to correct VAD + LBRR flag values
+    pub fn encode_packet(
+        &mut self,
+        control: &SilkEncControl,
+        enc: &mut EcCtx,
+        samples: &[i16],
+    ) -> i32 {
+        // Write placeholder VAD flag + LBRR flag (will be patched later)
+        enc.enc_bit_logp(false, 1); // VAD flag placeholder
+        enc.enc_bit_logp(false, 1); // LBRR flag placeholder
+
+        // Write LBRR data from previous packet (if any)
+        let has_lbrr = self.write_lbrr_data(enc);
+
+        // Encode the current frame
+        let result = self.encode(control, enc, samples);
+        if result != 0 {
+            return result;
+        }
+
+        // Determine actual VAD flag from the encoded frame
+        let actual_vad = self.state.prev_signal_type != TYPE_NO_VOICE_ACTIVITY;
+
+        // Patch the initial VAD + LBRR bits
+        // Bit layout in first byte: bit 7 = VAD flag, bit 6 = LBRR flag
+        // enc_patch_initial_bits patches the MSBs of the first byte
+        let flags_byte = (actual_vad as u32) | ((has_lbrr as u32) << 1);
+        enc.enc_patch_initial_bits(flags_byte, 2);
+
+        0
     }
 }
 
@@ -659,6 +943,8 @@ mod tests {
             payload_size_ms: 20,
             bitrate_bps: 20000,
             complexity: 0,
+            use_in_band_fec: false,
+            packet_loss_percentage: 0,
         };
         let samples = vec![0i16; 320]; // 20ms at 16kHz
         let mut range_enc = EcCtx::enc_init(1275);
@@ -684,6 +970,8 @@ mod tests {
             payload_size_ms: 20,
             bitrate_bps: 20000,
             complexity: 0,
+            use_in_band_fec: false,
+            packet_loss_percentage: 0,
         };
 
         // Generate a simple 200Hz tone at 16kHz

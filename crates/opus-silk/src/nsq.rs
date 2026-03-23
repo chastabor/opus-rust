@@ -12,11 +12,15 @@ pub const MAX_SHAPE_LPC_ORDER: usize = 24;
 pub const NSQ_LPC_BUF_LENGTH: usize = MAX_LPC_ORDER;
 pub const HARM_SHAPE_FIR_TAPS: usize = 3;
 
+const NSQ_BUF_SIZE: usize = 2 * MAX_FRAME_LENGTH; // 640
+
 /// NSQ state -- matches silk_nsq_state from silk/structs.h
+/// Uses fixed-size arrays (not Vec) so Clone is a single memcpy with zero heap allocation.
+#[derive(Clone)]
 pub struct NsqState {
-    pub xq: Vec<i16>,                            // 2 * MAX_FRAME_LENGTH
-    pub s_ltp_shp_q14: Vec<i32>,                  // 2 * MAX_FRAME_LENGTH
-    pub s_lpc_q14: Vec<i32>,                      // MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH
+    pub xq: [i16; NSQ_BUF_SIZE],
+    pub s_ltp_shp_q14: [i32; NSQ_BUF_SIZE],
+    pub s_lpc_q14: [i32; MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH],
     pub s_ar2_q14: [i32; MAX_SHAPE_LPC_ORDER],
     pub s_lf_ar_shp_q14: i32,
     pub s_diff_shp_q14: i32,
@@ -30,11 +34,10 @@ pub struct NsqState {
 
 impl NsqState {
     pub fn new() -> Self {
-        let buf_size = 2 * MAX_FRAME_LENGTH;
         Self {
-            xq: vec![0i16; buf_size],
-            s_ltp_shp_q14: vec![0i32; buf_size],
-            s_lpc_q14: vec![0i32; MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH],
+            xq: [0i16; NSQ_BUF_SIZE],
+            s_ltp_shp_q14: [0i32; NSQ_BUF_SIZE],
+            s_lpc_q14: [0i32; MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH],
             s_ar2_q14: [0i32; MAX_SHAPE_LPC_ORDER],
             s_lf_ar_shp_q14: 0,
             s_diff_shp_q14: 0,

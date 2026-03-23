@@ -84,6 +84,10 @@ pub struct OpusEncoder {
     max_bandwidth: i32,
     /// User-requested bitrate (before clamping).
     user_bitrate_bps: i32,
+    /// Whether to use in-band FEC (LBRR) for SILK frames.
+    use_inband_fec: bool,
+    /// Expected packet loss percentage (0-100) for FEC rate control.
+    packet_loss_perc: i32,
     /// Final range coder state for testing/verification.
     pub range_final: u32,
 }
@@ -138,6 +142,8 @@ impl OpusEncoder {
             force_channels: OPUS_AUTO,
             max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
             user_bitrate_bps: default_bitrate,
+            use_inband_fec: false,
+            packet_loss_perc: 0,
             range_final: 0,
         })
     }
@@ -169,6 +175,16 @@ impl OpusEncoder {
     /// Set the maximum bandwidth.
     pub fn set_bandwidth(&mut self, bandwidth: i32) {
         self.max_bandwidth = bandwidth;
+    }
+
+    /// Enable or disable in-band FEC (LBRR) for SILK frames.
+    pub fn set_inband_fec(&mut self, enabled: bool) {
+        self.use_inband_fec = enabled;
+    }
+
+    /// Set the expected packet loss percentage (0-100) for FEC rate control.
+    pub fn set_packet_loss_perc(&mut self, perc: i32) {
+        self.packet_loss_perc = perc.clamp(0, 100);
     }
 
     /// Get the number of channels.
@@ -405,6 +421,8 @@ impl OpusEncoder {
                     self.bitrate_bps
                 },
                 complexity: self.complexity.min(10),
+                use_in_band_fec: self.use_inband_fec,
+                packet_loss_percentage: self.packet_loss_perc,
             };
 
             // Write VAD flag and LBRR flag into the range coder

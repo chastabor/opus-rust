@@ -1,11 +1,8 @@
-// Port of silk/decode_parameters.c, silk/gain_quant.c, silk/decode_pitch.c
+// Port of silk/decode_parameters.c, silk/decode_pitch.c
 
 use crate::*;
 use crate::tables::*;
-
-// Gain dequantization constants
-const OFFSET: i32 = (MIN_QGAIN_DB * 128) / 6 + 16 * 128;
-const INV_SCALE_Q16: i32 = (65536 * (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6)) / (N_LEVELS_QGAIN - 1);
+use crate::gain_quant::silk_gains_dequant;
 
 /// Decode parameters from payload
 pub fn silk_decode_parameters(
@@ -13,7 +10,7 @@ pub fn silk_decode_parameters(
     ps_dec_ctrl: &mut DecoderControl,
     cond_coding: i32,
 ) {
-    // Dequant gains
+    // Dequant gains (shared with encoder via gain_quant module)
     silk_gains_dequant(
         &mut ps_dec_ctrl.gains_q16,
         &ps_dec.indices.gains_indices,
@@ -83,34 +80,6 @@ pub fn silk_decode_parameters(
         ps_dec_ctrl.ltp_coef_q14[..LTP_ORDER * ps_dec.nb_subfr as usize].fill(0);
         ps_dec.indices.per_index = 0;
         ps_dec_ctrl.ltp_scale_q14 = 0;
-    }
-}
-
-/// Gains scalar dequantization
-fn silk_gains_dequant(
-    gain_q16: &mut [i32; MAX_NB_SUBFR],
-    ind: &[i8; MAX_NB_SUBFR],
-    prev_ind: &mut i8,
-    conditional: bool,
-    nb_subfr: usize,
-) {
-    for k in 0..nb_subfr {
-        if k == 0 && !conditional {
-            *prev_ind = ind[k].max(*prev_ind - 16);
-        } else {
-            let ind_tmp = ind[k] as i32 + MIN_DELTA_GAIN_QUANT;
-            let double_step_threshold = 2 * MAX_DELTA_GAIN_QUANT - N_LEVELS_QGAIN + *prev_ind as i32;
-            if ind_tmp > double_step_threshold {
-                *prev_ind = (*prev_ind as i32 + (ind_tmp << 1) - double_step_threshold) as i8;
-            } else {
-                *prev_ind = (*prev_ind as i32 + ind_tmp) as i8;
-            }
-        }
-        *prev_ind = (*prev_ind).clamp(0, (N_LEVELS_QGAIN - 1) as i8);
-
-        gain_q16[k] = silk_log2lin(
-            (silk_smulwb(INV_SCALE_Q16, *prev_ind as i32) + OFFSET).min(3967)
-        );
     }
 }
 
