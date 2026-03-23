@@ -534,25 +534,13 @@ impl OpusEncoder {
             // Allocate a temporary output buffer for CELT compressed data
             let mut celt_compressed = vec![0u8; celt_bytes];
 
-            let celt_result = if mode == MODE_HYBRID {
-                // In hybrid mode, pass the range coder so CELT writes after SILK
-                self.celt_enc.encode_with_ec(
-                    &celt_pcm,
-                    celt_frame_size,
-                    &mut celt_compressed,
-                    celt_bytes,
-                    Some(&mut enc),
-                )
-            } else {
-                // CELT-only: encode directly with its own range coder
-                self.celt_enc.encode_with_ec(
-                    &celt_pcm,
-                    celt_frame_size,
-                    &mut celt_compressed,
-                    celt_bytes,
-                    Some(&mut enc),
-                )
-            };
+            let celt_result = self.celt_enc.encode_with_ec(
+                &celt_pcm,
+                celt_frame_size,
+                &mut celt_compressed,
+                celt_bytes,
+                Some(&mut enc),
+            );
 
             match celt_result {
                 Ok(_nbytes) => {
@@ -570,10 +558,7 @@ impl OpusEncoder {
 
         // Finalize the range coder
         enc.enc_done();
-        // Use enc.storage as the output size to match the bit allocation budget.
-        // The CELT VBR code calls enc_shrink() to set storage to the target size,
-        // and the decoder uses packet length for its allocation — they must match.
-        let nbytes = (enc.storage as usize).min((max_data_bytes - 1) as usize);
+        let nbytes = ((enc.tell() + 7) >> 3) as usize;
 
         if nbytes == 0 {
             // DTX: just the TOC byte

@@ -621,8 +621,10 @@ fn dynalloc_analysis(
         } else {
             6
         };
-        // offsets[i] is the number of boost quanta — small integer, typically 0-8
-        let boost = (follower[i] * 2.0).round().max(0.0).min(8.0) as i32;
+        // Convert follower (dB above noise floor, 0-4) to boost quanta count.
+        const DB_PER_QUANTA: f32 = 2.0;
+        const MAX_BOOST_QUANTA: f32 = 2.0;
+        let boost = (follower[i] / DB_PER_QUANTA).round().max(0.0).min(MAX_BOOST_QUANTA) as i32;
         let boost_bits = boost * quanta * (1 << BITRES);
 
         // CBR cap
@@ -1778,7 +1780,11 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 21. Finalize and return
         // -----------------------------------------------------------------
-        enc.enc_done();
+        // Only call enc_done() for local (non-external) range coders.
+        // When using an external encoder, the caller (opus encoder) handles finalization.
+        if !enc_is_external {
+            enc.enc_done();
+        }
 
         if enc.get_error() {
             self.scratch = scratch;

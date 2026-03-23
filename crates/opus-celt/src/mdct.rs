@@ -48,8 +48,8 @@ pub fn clt_mdct_forward(
     l: &MdctLookup,
     input: &[f32],
     output: &mut [f32],
-    _window: &[f32],
-    _overlap: usize,
+    window: &[f32],
+    overlap: usize,
     shift: usize,
     stride: usize,
 ) {
@@ -64,85 +64,103 @@ pub fn clt_mdct_forward(
 
     let trig = &l.trig[trig_offset..];
     let st = &l.kfft[shift];
+    let scale = st.scale;
 
-    // === Windowing and pre-rotation ===
-    // The forward MDCT folds the windowed input, then does pre-rotation + FFT + post-rotation
-    let mut f = vec![KissFftCpx::default(); n4];
+    // === Phase 1: Window, shuffle, fold → f[0..N2-1] ===
+    // Matches C clt_mdct_forward_c exactly: three regions with windowed folding.
+    debug_assert!(overlap > 0 && overlap <= n2);
+    debug_assert!(input.len() >= n2 + overlap);
+    debug_assert!(window.len() >= overlap);
 
-    // Windowed folding: matching C clt_mdct_forward_c
+    let mut f_buf = vec![0.0f32; n2];
     {
-        let xp1_start = 0usize;
-        let xp2_start = n2;
-        for i in 0..n4 {
-            let rev = st.bitrev[i];
-            // Window application during folding
-            // yp[2*rev] and yp[2*rev+1] are the real and imaginary parts
-            // C code:
-            // re = wp1*xp1[N2] + wp2*xp2[0]
-            // im = wp1*xp1[0]  - wp2*xp2[N2]
-            // where wp1 = window[2*i], wp2 = window[n2-1-2*i]
-            // xp1 advances by 2, xp2 retreats by 2
-            let idx1 = xp1_start + 2 * i;
-            let idx2 = xp2_start - 1 - 2 * i;
+        // Use isize for pointers that decrement past zero (matching C pointer arithmetic)
+        let mut xp1 = (overlap >> 1) as isize;
+        let mut xp2 = (n2 - 1 + (overlap >> 1)) as isize;
+        let mut yp = 0usize;
+        let mut wp1 = (overlap >> 1) as isize;
+        let mut wp2 = (overlap >> 1) as isize - 1;
+        let n2i = n2 as isize;
 
-            // Folding with windowing: combine the two halves
-            let re = if idx1 + n2 < input.len() && idx2 < input.len() {
-                input[idx1 + n2] + input[idx2]
-            } else {
-                0.0
-            };
-            let im = if idx1 < input.len() && idx2 + n2 < input.len() {
-                input[idx1] - input[idx2 + n2]
-            } else {
-                0.0
-            };
+        // Loop 1: overlap beginning region
+        let loop1_end = (overlap + 3) >> 2;
+        for _i in 0..loop1_end {
+            let w1 = window[wp1 as usize];
+            let w2 = window[wp2 as usize];
+            f_buf[yp] = w2 * input[(xp1 + n2i) as usize] + w1 * input[xp2 as usize];
+            f_buf[yp + 1] = w1 * input[xp1 as usize] - w2 * input[(xp2 - n2i) as usize];
+            yp += 2;
+            xp1 += 2;
+            xp2 -= 2;
+            wp1 += 2;
+            wp2 -= 2;
+        }
 
-            // Pre-rotation
-            let t0 = trig[i];
-            let t1 = trig[n4 + i];
-            f[rev].r = re * t0 + im * t1;
-            f[rev].i = im * t0 - re * t1;
+        // Loop 2: middle region (no windowing, window = 1.0)
+        let loop2_end = n4 - ((overlap + 3) >> 2);
+        for _i in loop1_end..loop2_end {
+            f_buf[yp] = input[xp2 as usize];
+            f_buf[yp + 1] = input[xp1 as usize];
+            yp += 2;
+            xp1 += 2;
+            xp2 -= 2;
+        }
+
+        // Loop 3: overlap end region
+        wp1 = 0;
+        wp2 = overlap as isize - 1;
+        for _i in loop2_end..n4 {
+            let w1 = window[wp1 as usize];
+            let w2 = window[wp2 as usize];
+            f_buf[yp] = -w1 * input[(xp1 - n2i) as usize] + w2 * input[xp2 as usize];
+            f_buf[yp + 1] = w2 * input[xp1 as usize] + w1 * input[(xp2 + n2i) as usize];
+            yp += 2;
+            xp1 += 2;
+            xp2 -= 2;
+            wp1 += 2;
+            wp2 -= 2;
         }
     }
 
-    // === N/4-point complex FFT in-place ===
-    opus_fft_impl(st, &mut f);
-
-    // === Post-rotation ===
+    // === Phase 2: Pre-rotation with scale → f2[bitrev[i]] ===
+    let mut f2 = vec![KissFftCpx::default(); n4];
     {
-        let half = (n4 + 1) >> 1;
-        for i in 0..half {
-            let re0 = f[i].r;
-            let im0 = f[i].i;
+        let mut yp = 0usize;
+        for i in 0..n4 {
+            let re = f_buf[yp];
+            let im = f_buf[yp + 1];
+            yp += 2;
             let t0 = trig[i];
             let t1 = trig[n4 + i];
-            let yr0 = re0 * t0 + im0 * t1;
-            let yi0 = im0 * t0 - re0 * t1;
+            let yr = re * t0 - im * t1;
+            let yi = im * t0 + re * t1;
+            f2[st.bitrev[i]].r = yr * scale;
+            f2[st.bitrev[i]].i = yi * scale;
+        }
+    }
 
-            let j = n4 - 1 - i;
-            let re1 = f[j].r;
-            let im1 = f[j].i;
-            let t0b = trig[j];
-            let t1b = trig[n4 + j];
-            let yr1 = re1 * t0b + im1 * t1b;
-            let yi1 = im1 * t0b - re1 * t1b;
+    // === Phase 3: N/4-point complex FFT in-place ===
+    opus_fft_impl(st, &mut f2);
 
-            // Write interleaved output with stride
-            // C: d[i] = yr0; d[N4-1-i] = yr1; d[N2+i] = yi0; d[N-1-i] = yi1;
-            // But output is written with stride
-            let d_base = 0;
-            if i * stride < output.len() {
-                output[d_base + i * stride] = yr0;
+    // === Phase 4: Post-rotation → output with stride ===
+    // C: yr = fp->i*t1 - fp->r*t0;  yi = fp->r*t1 + fp->i*t0
+    // where t0 = t[i], t1 = t[N4+i]
+    {
+        let mut yp1 = 0usize; // C: yp1 = out
+        let mut yp2 = stride * (n2 - 1); // C: yp2 = out + stride*(N2-1)
+        for i in 0..n4 {
+            let t0 = trig[i];
+            let t1 = trig[n4 + i];
+            let yr = f2[i].i * t1 - f2[i].r * t0;
+            let yi = f2[i].r * t1 + f2[i].i * t0;
+            if yp1 < output.len() {
+                output[yp1] = yr;
             }
-            if j * stride < output.len() {
-                output[d_base + j * stride] = yr1;
+            if yp2 < output.len() {
+                output[yp2] = yi;
             }
-            if (n2 + i) * stride < output.len() {
-                output[d_base + (n2 + i) * stride] = yi0;
-            }
-            if (n - 1 - i) * stride < output.len() {
-                output[d_base + (n - 1 - i) * stride] = yi1;
-            }
+            yp1 += 2 * stride;
+            yp2 = yp2.wrapping_sub(2 * stride);
         }
     }
 }
