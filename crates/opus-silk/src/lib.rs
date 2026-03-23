@@ -18,6 +18,7 @@ pub mod gain_quant;
 pub mod encode_indices;
 pub mod encode_pulses;
 pub mod nsq;
+pub mod nsq_del_dec;
 pub mod nlsf_encode;
 pub mod lpc_analysis;
 pub mod pitch_analysis;

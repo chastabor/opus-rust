@@ -12,6 +12,7 @@ use crate::nlsf_encode;
 use crate::lpc_analysis;
 use crate::pitch_analysis;
 use crate::nsq::{self, NsqState, MAX_SHAPE_LPC_ORDER};
+use crate::nsq_del_dec;
 use crate::vad;
 use crate::noise_shape_analysis;
 
@@ -704,35 +705,80 @@ impl SilkEncoder {
         let nsq_lpc_order = cs.lpc_order;
         let nsq_nb_subfr = cs.nb_subfr;
 
-        nsq::silk_nsq(
-            &mut cs.nsq_state,
-            &mut cs.indices,
-            &samples[..frame_length],
-            &mut pulses,
-            &pred_coef_q12,
-            &ltp_coef_q14,
-            &ar_q13,
-            harm_shape_gain_q14,
-            tilt_q14,
-            lf_shp_q14,
-            &gains_q16,
-            &pitch_lags,
-            lambda_q10,
-            ltp_scale_q14,
-            nsq_frame_length,
-            nsq_subfr_length,
-            nsq_ltp_mem_length,
-            nsq_lpc_order,
-            MAX_SHAPE_LPC_ORDER as i32,
-            nsq_nb_subfr,
-            nsq_signal_type,
-            nsq_quant_offset_type,
-            nsq_nlsf_interp_coef_q2,
-            &mut scratch.nsq_s_ltp_q15,
-            &mut scratch.nsq_s_ltp,
-            &mut scratch.nsq_x_sc_q10,
-            &mut scratch.nsq_xq_tmp,
-        );
+        // Select NSQ mode based on complexity (from silk/control_codec.c):
+        //   complexity 0-1: nStatesDelayedDecision = 1 (scalar NSQ)
+        //   complexity 2-3: nStatesDelayedDecision = 2
+        //   complexity 4-5: nStatesDelayedDecision = 2
+        //   complexity 6-7: nStatesDelayedDecision = 3
+        //   complexity 8+:  nStatesDelayedDecision = 4
+        let n_states_delayed_decision: i32 = match control.complexity {
+            0 | 1 => 1,
+            2 | 3 | 4 | 5 => 2,
+            6 | 7 => 3,
+            _ => 4, // MAX_DEL_DEC_STATES
+        };
+
+        if n_states_delayed_decision > 1 {
+            nsq_del_dec::silk_nsq_del_dec(
+                &mut cs.nsq_state,
+                &mut cs.indices,
+                &samples[..frame_length],
+                &mut pulses,
+                &pred_coef_q12,
+                &ltp_coef_q14,
+                &ar_q13,
+                harm_shape_gain_q14,
+                tilt_q14,
+                lf_shp_q14,
+                &gains_q16,
+                &pitch_lags,
+                lambda_q10,
+                ltp_scale_q14,
+                nsq_frame_length,
+                nsq_subfr_length,
+                nsq_ltp_mem_length,
+                nsq_lpc_order,
+                MAX_SHAPE_LPC_ORDER as i32,
+                nsq_nb_subfr,
+                nsq_signal_type,
+                nsq_quant_offset_type,
+                nsq_nlsf_interp_coef_q2,
+                n_states_delayed_decision,
+                cs.warping_q16,
+                &mut scratch.nsq_s_ltp_q15,
+                &mut scratch.nsq_s_ltp,
+            );
+        } else {
+            nsq::silk_nsq(
+                &mut cs.nsq_state,
+                &mut cs.indices,
+                &samples[..frame_length],
+                &mut pulses,
+                &pred_coef_q12,
+                &ltp_coef_q14,
+                &ar_q13,
+                harm_shape_gain_q14,
+                tilt_q14,
+                lf_shp_q14,
+                &gains_q16,
+                &pitch_lags,
+                lambda_q10,
+                ltp_scale_q14,
+                nsq_frame_length,
+                nsq_subfr_length,
+                nsq_ltp_mem_length,
+                nsq_lpc_order,
+                MAX_SHAPE_LPC_ORDER as i32,
+                nsq_nb_subfr,
+                nsq_signal_type,
+                nsq_quant_offset_type,
+                nsq_nlsf_interp_coef_q2,
+                &mut scratch.nsq_s_ltp_q15,
+                &mut scratch.nsq_s_ltp,
+                &mut scratch.nsq_x_sc_q10,
+                &mut scratch.nsq_xq_tmp,
+            );
+        }
 
         // ====== Bitstream writing ======
 
