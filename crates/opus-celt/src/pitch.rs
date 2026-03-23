@@ -81,12 +81,15 @@ pub fn comb_filter_inplace(
     }
 }
 
-/// Comb filter with separate input and output buffers.
-/// Used by the prefilter where x[] and y[] are distinct.
-#[allow(dead_code)] // Used when prefilter is enabled
+/// Comb filter with separate input and output buffers, using (buffer, offset) addressing.
+/// In C, this is called as `comb_filter(y_ptr, x_ptr, ...)` where x_ptr has history before it.
+/// In Rust, we use `(x_buf, x_off)` so that `x_buf[x_off - T1]` is valid (no negative indices).
+/// Similarly `(y_buf, y_off)` for the output.
 pub fn comb_filter(
-    y: &mut [f32],
-    x: &[f32],
+    y_buf: &mut [f32],
+    y_off: usize,
+    x_buf: &[f32],
+    x_off: usize,
     t0: usize,
     t1: usize,
     n: usize,
@@ -107,10 +110,11 @@ pub fn comb_filter(
     let g11 = g1 * COMB_FILTER_GAINS[tapset1][1];
     let g12 = g1 * COMB_FILTER_GAINS[tapset1][2];
 
-    let mut x1 = x[1usize.wrapping_sub(t1)];
-    let mut x2 = x[0usize.wrapping_sub(t1)];
-    let mut x3 = x[0usize.wrapping_sub(t1).wrapping_sub(1)];
-    let mut x4 = x[0usize.wrapping_sub(t1).wrapping_sub(2)];
+    // Pre-load sliding window: x[off - T1 + 1], x[off - T1], x[off - T1 - 1], x[off - T1 - 2]
+    let mut x1 = x_buf[x_off - t1 + 1];
+    let mut x2 = x_buf[x_off - t1];
+    let mut x3 = x_buf[x_off - t1 - 1];
+    let mut x4 = x_buf[x_off - t1 - 2];
 
     let actual_overlap = if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
         0
@@ -119,16 +123,17 @@ pub fn comb_filter(
     };
 
     for i in 0..actual_overlap {
-        let x0 = x[i + 2 - t1];
+        let x0 = x_buf[x_off + i - t1 + 2];
         let f = window[i] * window[i];
-        let val = x[i]
-            + (1.0 - f) * g00 * x[i.wrapping_sub(t0)]
-            + (1.0 - f) * g01 * (x[i + 1 - t0] + x[i.wrapping_sub(t0).wrapping_sub(1)])
-            + (1.0 - f) * g02 * (x[i + 2 - t0] + x[i.wrapping_sub(t0).wrapping_sub(2)])
+        let xi = x_buf[x_off + i];
+        let val = xi
+            + (1.0 - f) * g00 * x_buf[x_off + i - t0]
+            + (1.0 - f) * g01 * (x_buf[x_off + i - t0 + 1] + x_buf[x_off + i - t0 - 1])
+            + (1.0 - f) * g02 * (x_buf[x_off + i - t0 + 2] + x_buf[x_off + i - t0 - 2])
             + f * g10 * x2
             + f * g11 * (x1 + x3)
             + f * g12 * (x0 + x4);
-        y[i] = val.clamp(-SIG_SAT, SIG_SAT);
+        y_buf[y_off + i] = val.clamp(-SIG_SAT, SIG_SAT);
         x4 = x3;
         x3 = x2;
         x2 = x1;
@@ -136,19 +141,19 @@ pub fn comb_filter(
     }
 
     if g1 == 0.0 {
-        // Copy remaining input to output
         for i in actual_overlap..n {
-            y[i] = x[i];
+            y_buf[y_off + i] = x_buf[x_off + i];
         }
         return;
     }
 
     for i in actual_overlap..n {
-        let val = x[i]
-            + g10 * x[i - t1]
-            + g11 * (x[i - t1 + 1] + x[i - t1 - 1])
-            + g12 * (x[i - t1 + 2] + x[i - t1 - 2]);
-        y[i] = val.clamp(-SIG_SAT, SIG_SAT);
+        let xi = x_buf[x_off + i];
+        let val = xi
+            + g10 * x_buf[x_off + i - t1]
+            + g11 * (x_buf[x_off + i - t1 + 1] + x_buf[x_off + i - t1 - 1])
+            + g12 * (x_buf[x_off + i - t1 + 2] + x_buf[x_off + i - t1 - 2]);
+        y_buf[y_off + i] = val.clamp(-SIG_SAT, SIG_SAT);
     }
 }
 
@@ -173,7 +178,6 @@ fn celt_fir5(x: &mut [f32], num: &[f32; 5], len: usize) {
 
 /// Downsample and LPC-filter for pitch analysis.
 /// Port of pitch.c pitch_downsample (float path, factor=2).
-#[allow(dead_code)] // Used when prefilter is enabled
 pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
     // Downsample by 2 with 3-tap filter
     for i in 1..len {
@@ -281,7 +285,6 @@ fn find_best_pitch(
 
 /// Multi-resolution pitch search.
 /// Finds the best pitch period in the downsampled signal.
-#[allow(dead_code)] // Used when prefilter is enabled
 pub fn pitch_search(
     x_lp: &[f32],
     y: &[f32],
@@ -360,7 +363,6 @@ const SECOND_CHECK: [usize; 16] = [0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 
 ///
 /// `x` is the full buffer; the C code does `x += maxperiod` so that negative
 /// indices reach into the past.  We use `base = maxperiod/2` as the origin.
-#[allow(dead_code)] // Used when prefilter is enabled
 pub fn remove_doubling(
     x: &[f32],
     maxperiod: usize,

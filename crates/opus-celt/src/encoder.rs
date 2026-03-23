@@ -4,6 +4,8 @@ use crate::mdct::{MdctLookup, clt_mdct_forward};
 use crate::rate::{init_caps, clt_compute_allocation_enc};
 use crate::quant_energy::{quant_coarse_energy, quant_fine_energy, quant_energy_finalise_enc};
 use crate::bands::{compute_band_energies, normalise_bands, amp2_log2, quant_all_bands_enc};
+use crate::pitch::{pitch_downsample, pitch_search, remove_doubling, comb_filter};
+use crate::mathops::ec_ilog;
 use opus_range_coder::EcCtx;
 
 /// CELT encoder state.
@@ -719,6 +721,222 @@ fn compute_vbr(
     target
 }
 
+/// Run the prefilter: pitch search + comb filter to remove pitch periodicity.
+/// Returns (pf_on, pitch_index, gain, qg).
+#[allow(clippy::too_many_arguments)]
+fn run_prefilter(
+    inp: &mut [f32],
+    prefilter_mem: &mut [f32],
+    in_mem: &mut [f32],
+    cc: usize,
+    n: usize,
+    overlap: usize,
+    window: &[f32],
+    prefilter_period: usize,
+    prefilter_gain: f32,
+    prefilter_tapset: usize,
+    complexity: i32,
+    tf_estimate: f32,
+    nb_available_bytes: usize,
+    loss_rate: i32,
+) -> (bool, usize, f32, i32) {
+    let max_period = COMBFILTER_MAXPERIOD;
+    let min_period = COMBFILTER_MINPERIOD;
+
+    // Build pre[] buffer: [history | current_frame] per channel
+    let pre_len = n + max_period;
+    let mut pre = vec![0.0f32; cc * pre_len];
+    for ch in 0..cc {
+        // Copy history from prefilter memory
+        let mem_base = ch * max_period;
+        let pre_base = ch * pre_len;
+        pre[pre_base..pre_base + max_period]
+            .copy_from_slice(&prefilter_mem[mem_base..mem_base + max_period]);
+        // Copy current frame from inp (after overlap)
+        let in_base = ch * (n + overlap) + overlap;
+        pre[pre_base + max_period..pre_base + pre_len]
+            .copy_from_slice(&inp[in_base..in_base + n]);
+    }
+
+    // Pitch search
+    let mut pitch_index;
+    let mut gain1: f32;
+
+    if complexity >= 5 {
+        let half_len = (max_period + n) >> 1;
+        let mut pitch_buf = vec![0.0f32; half_len];
+
+        // Build references to each channel's pre buffer for pitch_downsample
+        let channel_refs: Vec<&[f32]> = (0..cc)
+            .map(|ch| &pre[ch * pre_len..ch * pre_len + 2 * half_len])
+            .collect();
+        pitch_downsample(&channel_refs, &mut pitch_buf, half_len, cc);
+
+        // Search for pitch
+        let mut pi = 0usize;
+        pitch_search(
+            &pitch_buf[max_period >> 1..],
+            &pitch_buf,
+            n,
+            max_period - 3 * min_period,
+            &mut pi,
+        );
+        pitch_index = max_period - pi;
+
+        // Remove doubling
+        gain1 = remove_doubling(
+            &pitch_buf,
+            max_period,
+            min_period,
+            n,
+            &mut pitch_index,
+            prefilter_period,
+            prefilter_gain,
+        );
+
+        if pitch_index > max_period - 2 {
+            pitch_index = max_period - 2;
+        }
+
+        gain1 *= 0.7;
+        if loss_rate > 2 { gain1 *= 0.5; }
+        if loss_rate > 4 { gain1 *= 0.5; }
+        if loss_rate > 8 { gain1 = 0.0; }
+    } else {
+        gain1 = 0.0;
+        pitch_index = COMBFILTER_MINPERIOD;
+    }
+
+    // Gain thresholding
+    let mut pf_threshold: f32 = 0.2;
+    if ((pitch_index as i32 - prefilter_period as i32).unsigned_abs() as usize) * 10 > pitch_index {
+        pf_threshold += 0.2;
+        if tf_estimate > 0.98 {
+            gain1 = 0.0;
+        }
+    }
+    if nb_available_bytes < 25 { pf_threshold += 0.1; }
+    if nb_available_bytes < 35 { pf_threshold += 0.1; }
+    if prefilter_gain > 0.4 { pf_threshold -= 0.1; }
+    if prefilter_gain > 0.55 { pf_threshold -= 0.1; }
+    pf_threshold = pf_threshold.max(0.2);
+
+    let pf_on;
+    let qg;
+    if gain1 < pf_threshold {
+        gain1 = 0.0;
+        pf_on = false;
+        qg = 0;
+    } else {
+        if (gain1 - prefilter_gain).abs() < 0.1 {
+            gain1 = prefilter_gain;
+        }
+        let qg_raw = (0.5 + gain1 * 32.0 / 3.0).floor() as i32 - 1;
+        qg = qg_raw.clamp(0, 7);
+        gain1 = 0.09375 * (qg + 1) as f32;
+        pf_on = true;
+    };
+
+    // Apply comb filter (with negative gain to remove pitch)
+    let old_period = prefilter_period.max(COMBFILTER_MINPERIOD);
+    for ch in 0..cc {
+        let offset = 120 - overlap; // mode->shortMdctSize - overlap for 48kHz
+
+        // Copy overlap from in_mem into inp
+        let in_base = ch * (n + overlap);
+        inp[in_base..in_base + overlap]
+            .copy_from_slice(&in_mem[ch * overlap..(ch + 1) * overlap]);
+
+        let pre_base = ch * pre_len;
+        let inp_start = in_base + overlap;
+
+        // First segment: old period/gain (constant, no transition)
+        if offset > 0 {
+            comb_filter(
+                inp, inp_start,
+                &pre, pre_base + max_period,
+                old_period, old_period, offset,
+                -prefilter_gain, -prefilter_gain,
+                prefilter_tapset, prefilter_tapset,
+                window, 0, // no overlap transition
+            );
+        }
+
+        // Second segment: transition from old to new period/gain
+        comb_filter(
+            inp, inp_start + offset,
+            &pre, pre_base + max_period + offset,
+            old_period, pitch_index, n - offset,
+            -prefilter_gain, -gain1,
+            prefilter_tapset, if pf_on { prefilter_tapset } else { 0 },
+            window, overlap,
+        );
+    }
+
+    // Cancel check (mono only for simplicity)
+    let mut cancel = false;
+    if cc == 1 {
+        let in_base = overlap;
+        let mut before_sum = 0.0f32;
+        let mut after_sum = 0.0f32;
+        let pre_base = max_period;
+        for i in 0..n {
+            before_sum += pre[pre_base + i].abs();
+            after_sum += inp[in_base + i].abs();
+        }
+        if after_sum > before_sum {
+            cancel = true;
+        }
+    }
+
+    if cancel {
+        // Revert: copy unfiltered signal back
+        for ch in 0..cc {
+            let in_base = ch * (n + overlap) + overlap;
+            let pre_base = ch * pre_len + max_period;
+            inp[in_base..in_base + n].copy_from_slice(&pre[pre_base..pre_base + n]);
+
+            // Re-apply transition with zero new gain
+            let offset = 120 - overlap;
+            comb_filter(
+                inp, in_base + offset,
+                &pre, pre_base + offset,
+                old_period, pitch_index, overlap,
+                -prefilter_gain, 0.0,
+                prefilter_tapset, prefilter_tapset,
+                window, overlap,
+            );
+        }
+        return (false, pitch_index, 0.0, 0);
+    }
+
+    // Update state: copy overlap tail of inp into in_mem
+    for ch in 0..cc {
+        let in_base = ch * (n + overlap);
+        in_mem[ch * overlap..(ch + 1) * overlap]
+            .copy_from_slice(&inp[in_base + n..in_base + n + overlap]);
+    }
+
+    // Update prefilter_mem from pre[]
+    for ch in 0..cc {
+        let mem_base = ch * max_period;
+        let pre_base = ch * pre_len;
+        if n > max_period {
+            prefilter_mem[mem_base..mem_base + max_period]
+                .copy_from_slice(&pre[pre_base + n..pre_base + n + max_period]);
+        } else {
+            prefilter_mem.copy_within(
+                mem_base + n..mem_base + max_period,
+                mem_base,
+            );
+            prefilter_mem[mem_base + max_period - n..mem_base + max_period]
+                .copy_from_slice(&pre[pre_base + max_period..pre_base + max_period + n]);
+        }
+    }
+
+    (pf_on, pitch_index, gain1, qg)
+}
+
 impl CeltEncoder {
     /// Create a new CELT encoder for the given sample rate and channel count.
     pub fn new(sample_rate: i32, channels: usize) -> Result<Self, i32> {
@@ -978,10 +1196,41 @@ impl CeltEncoder {
             (false, 0.0f32, false)
         };
 
-        // Encode prefilter off (if we have bits for it and start==0)
+        // -----------------------------------------------------------------
+        // 5b. Prefilter (pitch search + comb filter)
+        // -----------------------------------------------------------------
+        let enabled = (self.lfe && nb_available_bytes > 3)
+            || (nb_available_bytes > 12 * c)
+            && !silence
+            && !self.disable_pf;
+        tell = enc.tell();
+        let (pf_on, pitch_index, gain1, qg) = if enabled && start == 0 && tell + 16 <= total_bits {
+            run_prefilter(
+                &mut inp,
+                &mut self.prefilter_mem,
+                &mut self.in_mem,
+                cc, n, overlap, mode.window,
+                self.prefilter_period, self.prefilter_gain, self.prefilter_tapset,
+                self.complexity, tf_estimate, nb_available_bytes, self.loss_rate,
+            )
+        } else {
+            (false, COMBFILTER_MINPERIOD, 0.0, 0)
+        };
+
+        // Encode prefilter parameters
         tell = enc.tell();
         if start == 0 && tell + 16 <= total_bits {
-            enc.enc_bit_logp(false, 1); // pf_on = 0 (prefilter disabled for now)
+            if !pf_on {
+                enc.enc_bit_logp(false, 1);
+            } else {
+                enc.enc_bit_logp(true, 1);
+                let pi = pitch_index + 1;
+                let octave = (ec_ilog(pi as u32) as usize) - 5;
+                enc.enc_uint(octave as u32, 6);
+                enc.enc_bits((pi - (16 << octave)) as u32, (4 + octave) as u32);
+                enc.enc_bits(qg as u32, 3);
+                enc.enc_icdf(self.prefilter_tapset, &TAPSET_ICDF, 2);
+            }
         }
 
         // -----------------------------------------------------------------
@@ -1455,27 +1704,30 @@ impl CeltEncoder {
 
         self.rng = enc.rng;
 
-        // Update prefilter memory: shift and copy the new frame tail
-        for ch in 0..cc {
-            let mem_base = ch * COMBFILTER_MAXPERIOD;
-            let in_base = ch * (n + overlap);
-            // Shift prefilter memory: keep the tail, prepend new data
-            // The prefilter_mem stores the last COMBFILTER_MAXPERIOD samples per channel.
-            // After encoding, the new samples are in inp[in_base + overlap .. in_base + overlap + n]
-            // We want to keep the last COMBFILTER_MAXPERIOD of those.
-            if n >= COMBFILTER_MAXPERIOD {
-                // Copy the last COMBFILTER_MAXPERIOD samples from the input buffer
-                let src_start = in_base + overlap + n - COMBFILTER_MAXPERIOD;
-                self.prefilter_mem[mem_base..mem_base + COMBFILTER_MAXPERIOD]
-                    .copy_from_slice(&inp[src_start..src_start + COMBFILTER_MAXPERIOD]);
-            } else {
-                // Shift existing memory left by n, append new n samples
-                let keep = COMBFILTER_MAXPERIOD - n;
-                self.prefilter_mem
-                    .copy_within(mem_base + n..mem_base + COMBFILTER_MAXPERIOD, mem_base);
-                let src_start = in_base + overlap;
-                self.prefilter_mem[mem_base + keep..mem_base + COMBFILTER_MAXPERIOD]
-                    .copy_from_slice(&inp[src_start..src_start + n]);
+        // Update prefilter state for next frame
+        self.prefilter_period = pitch_index;
+        self.prefilter_gain = gain1;
+        if pf_on {
+            self.prefilter_tapset = self.tapset_decision as usize;
+        }
+        // Note: prefilter_mem and in_mem are already updated inside run_prefilter
+        // If prefilter wasn't run, update prefilter_mem from the input buffer
+        if !enabled || start != 0 {
+            for ch in 0..cc {
+                let mem_base = ch * COMBFILTER_MAXPERIOD;
+                let in_base = ch * (n + overlap);
+                if n >= COMBFILTER_MAXPERIOD {
+                    let src_start = in_base + overlap + n - COMBFILTER_MAXPERIOD;
+                    self.prefilter_mem[mem_base..mem_base + COMBFILTER_MAXPERIOD]
+                        .copy_from_slice(&inp[src_start..src_start + COMBFILTER_MAXPERIOD]);
+                } else {
+                    let keep = COMBFILTER_MAXPERIOD - n;
+                    self.prefilter_mem
+                        .copy_within(mem_base + n..mem_base + COMBFILTER_MAXPERIOD, mem_base);
+                    let src_start = in_base + overlap;
+                    self.prefilter_mem[mem_base + keep..mem_base + COMBFILTER_MAXPERIOD]
+                        .copy_from_slice(&inp[src_start..src_start + n]);
+                }
             }
         }
 
