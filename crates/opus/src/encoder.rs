@@ -396,42 +396,61 @@ impl OpusEncoder {
                 }
             }
 
-            // For mono SILK, extract mono samples
-            let silk_mono: Vec<i16> = if stream_channels == 1 {
-                pcm_i16
+            let silk_bitrate = if mode == MODE_HYBRID {
+                self.bitrate_bps / 2
             } else {
-                // Downmix to mono for SILK (simplified)
-                let mut mono = vec![0i16; silk_samples];
-                for i in 0..silk_samples {
-                    let l = pcm_i16[i * 2] as i32;
-                    let r = pcm_i16[i * 2 + 1] as i32;
-                    mono[i] = ((l + r) / 2).clamp(-32768, 32767) as i16;
-                }
-                mono
+                self.bitrate_bps
             };
 
             let control = SilkEncControl {
                 api_sample_rate: silk_internal_rate,
                 max_internal_fs_hz: silk_internal_rate,
                 payload_size_ms: frame_duration_ms,
-                bitrate_bps: if mode == MODE_HYBRID {
-                    // In hybrid, SILK gets about half the bitrate
-                    self.bitrate_bps / 2
-                } else {
-                    self.bitrate_bps
-                },
+                bitrate_bps: silk_bitrate,
                 complexity: self.complexity.min(10),
                 use_in_band_fec: self.use_inband_fec,
                 packet_loss_percentage: self.packet_loss_perc,
-                n_channels_internal: 1,
+                n_channels_internal: stream_channels,
                 to_mono: false,
             };
 
-            // Write VAD flag and LBRR flag into the range coder
-            enc.enc_bit_logp(true, 1); // VAD flag: 1 = voice activity
-            enc.enc_bit_logp(false, 1); // LBRR flag: 0 = no LBRR
+            let result = if stream_channels == 2 {
+                // Stereo SILK: split interleaved pcm_i16 into left and right
+                let mut left = vec![0i16; silk_samples];
+                let mut right = vec![0i16; silk_samples];
+                for i in 0..silk_samples {
+                    left[i] = pcm_i16[i * 2];
+                    right[i] = pcm_i16[i * 2 + 1];
+                }
 
-            let result = self.silk_enc.encode(&control, &mut enc, &silk_mono);
+                // Write placeholder VAD + LBRR flags for both channels (4 bits)
+                // These will be patched after encode_stereo determines mid_only state
+                enc.enc_bit_logp(false, 1); // VAD (mid) placeholder
+                enc.enc_bit_logp(false, 1); // LBRR (mid) placeholder
+                enc.enc_bit_logp(false, 1); // VAD (side) placeholder
+                enc.enc_bit_logp(false, 1); // LBRR (side) placeholder
+
+                let ret = self.silk_enc.encode_stereo(&control, &mut enc, &left, &right);
+
+                // Patch VAD + LBRR flags: mid VAD=1, mid LBRR=0
+                // Side VAD = 0 when mid_only (so decoder reads mid_only flag), 1 otherwise
+                let mid_vad = 1u32;
+                let mid_lbrr = 0u32;
+                let side_active = if self.silk_enc.prev_decode_only_middle { 0u32 } else { 1u32 };
+                let side_lbrr = 0u32;
+                // Pack: bit 3=mid_vad, bit 2=mid_lbrr, bit 1=side_vad, bit 0=side_lbrr
+                let flags = (mid_vad << 3) | (mid_lbrr << 2) | (side_active << 1) | side_lbrr;
+                enc.enc_patch_initial_bits(flags, 4);
+
+                ret
+            } else {
+                // Mono SILK
+                // Write VAD flag and LBRR flag
+                enc.enc_bit_logp(true, 1);
+                enc.enc_bit_logp(false, 1);
+
+                self.silk_enc.encode(&control, &mut enc, &pcm_i16)
+            };
             if result < 0 {
                 return Err(OpusError::InternalError);
             }

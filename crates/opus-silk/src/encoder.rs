@@ -280,7 +280,7 @@ pub struct SilkEncoder {
     /// Previous frame's n_channels_internal
     prev_n_channels_internal: i32,
     /// Previous frame's decode_only_middle flag
-    prev_decode_only_middle: bool,
+    pub prev_decode_only_middle: bool,
     /// Speech activity from previous frame (for stereo smoothing)
     prev_speech_activity_q8: i32,
 }
