@@ -1,0 +1,3 @@
+[submodule "crates/opus-ffi/opus-c"]
+	path = crates/opus-ffi/opus-c
+	url = git@github.com:xiph/opus.git

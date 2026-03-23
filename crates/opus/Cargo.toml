@@ -8,3 +8,15 @@ description = "Opus audio codec decoder in pure Rust"
 opus-range-coder = { path = "../opus-range-coder" }
 opus-celt = { path = "../opus-celt" }
 opus-silk = { path = "../opus-silk" }
+
+[dev-dependencies]
+opus-ffi = { path = "../opus-ffi" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "encode_decode"
+harness = false
+
+[[bench]]
+name = "c_reference"
+harness = false

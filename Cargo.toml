@@ -4,5 +4,6 @@ members = [
     "crates/opus-celt",
     "crates/opus-silk",
     "crates/opus",
+    "crates/opus-ffi",
 ]
 resolver = "3"

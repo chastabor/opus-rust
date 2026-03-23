@@ -187,6 +187,11 @@ impl OpusEncoder {
         self.packet_loss_perc = perc.clamp(0, 100);
     }
 
+    /// Force encoding to a specific channel count (-1 = auto, 1 = mono, 2 = stereo).
+    pub fn set_force_channels(&mut self, channels: i32) {
+        self.force_channels = channels;
+    }
+
     /// Get the number of channels.
     pub fn channels(&self) -> i32 {
         self.channels

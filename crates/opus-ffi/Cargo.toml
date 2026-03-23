@@ -1,0 +1,10 @@
+[package]
+name = "opus-ffi"
+version = "0.1.0"
+edition = "2024"
+description = "FFI bindings to C libopus for cross-validation and benchmarking"
+links = "opus_c_ref"
+
+[build-dependencies]
+cc = "1"
+cmake = "0.1"
