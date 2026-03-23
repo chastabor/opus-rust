@@ -101,14 +101,14 @@ pub fn celt_preemphasis(
     mem: &mut f32,
     clip: bool,
 ) {
+    const CELT_SIG_SCALE: f32 = 32768.0;
     let coef0 = coef[0];
     let mut m = *mem;
 
     // Fast path: common 48 kHz case (coef[1]==0, upsample==1, no clip)
     if coef[1] == 0.0 && upsample == 1 && !clip {
         for i in 0..n {
-            // RES2SIG for float is just *1.0 (identity)
-            let x = pcm[cc * i];
+            let x = pcm[cc * i] * CELT_SIG_SCALE;
             out[i] = x - m;
             m = coef0 * x;
         }
@@ -123,12 +123,12 @@ pub fn celt_preemphasis(
         }
     }
     for i in 0..nu {
-        out[i * upsample] = pcm[cc * i];
+        out[i * upsample] = pcm[cc * i] * CELT_SIG_SCALE;
     }
 
     if clip {
         for i in 0..nu {
-            out[i * upsample] = out[i * upsample].clamp(-65536.0, 65536.0);
+            out[i * upsample] = out[i * upsample].clamp(-65536.0 * CELT_SIG_SCALE, 65536.0 * CELT_SIG_SCALE);
         }
     }
 
@@ -608,25 +608,28 @@ fn dynalloc_analysis(
         if i >= 12 { follower[i] *= 0.5; }
     }
 
-    // Convert to offsets
+    // Convert to offsets (number of boost quanta per band)
     let mut boost_total = 0i32;
     for i in start..end {
         follower[i] = follower[i].min(4.0);
         let width = c as i32 * (ebands[i + 1] - ebands[i]) as i32 * (1 << lm);
-        let boost = (follower[i] * 256.0) as i32;
-        let boost_bits = if width < 6 {
-            boost * width * (1 << BITRES)
+        // Compute quanta size (matching the encoding loop's quanta calculation)
+        let quanta = if width < 6 {
+            width
         } else if width > 48 {
-            (boost * width * (1 << BITRES)) / 8
+            8
         } else {
-            boost * 6 * (1 << BITRES)
+            6
         };
+        // offsets[i] is the number of boost quanta — small integer, typically 0-8
+        let boost = (follower[i] * 2.0).round().max(0.0).min(8.0) as i32;
+        let boost_bits = boost * quanta * (1 << BITRES);
 
         // CBR cap
         if !vbr || (constrained_vbr && !is_transient) {
             let cap = ((2 * effective_bytes / 3) as i32) << (BITRES + 3);
             if boost_total + boost_bits > cap {
-                offsets[i] = ((cap - boost_total).max(0) / ((width * (1 << BITRES)).max(1))) as i32;
+                offsets[i] = ((cap - boost_total).max(0) / ((quanta * (1 << BITRES)).max(1))) as i32;
                 *tot_boost = cap;
                 break;
             }

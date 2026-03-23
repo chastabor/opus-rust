@@ -570,7 +570,10 @@ impl OpusEncoder {
 
         // Finalize the range coder
         enc.enc_done();
-        let nbytes = ((enc.tell() + 7) >> 3) as usize;
+        // Use enc.storage as the output size to match the bit allocation budget.
+        // The CELT VBR code calls enc_shrink() to set storage to the target size,
+        // and the decoder uses packet length for its allocation — they must match.
+        let nbytes = (enc.storage as usize).min((max_data_bytes - 1) as usize);
 
         if nbytes == 0 {
             // DTX: just the TOC byte
@@ -578,8 +581,8 @@ impl OpusEncoder {
             return Ok(1);
         }
 
-        // Copy encoded payload after the TOC byte
-        let out_bytes = nbytes.min((max_data_bytes - 1) as usize);
+        // Copy encoded payload after the TOC byte (enc.buf is zero-padded beyond used bits)
+        let out_bytes = nbytes;
         data[1..1 + out_bytes].copy_from_slice(&enc.buf[..out_bytes]);
 
         // Strip trailing zeros for SILK-only mode (matching C reference behavior)
