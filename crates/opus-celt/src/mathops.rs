@@ -128,6 +128,21 @@ pub fn celt_inner_prod(x: &[f32], y: &[f32], n: usize) -> f32 {
     sum
 }
 
+/// Maximum absolute value of a float slice.
+pub fn celt_maxabs(x: &[f32], len: usize) -> f32 {
+    let mut maxval = 0.0f32;
+    for i in 0..len {
+        maxval = maxval.max(x[i].abs());
+    }
+    maxval
+}
+
+/// Float reciprocal.
+#[inline]
+pub fn celt_rcp(x: f32) -> f32 {
+    1.0 / x
+}
+
 /// Renormalize a vector to have the given target gain.
 pub fn renormalise_vector(x: &mut [f32], n: usize, gain: f32) {
     let mut e = 1e-27f32;

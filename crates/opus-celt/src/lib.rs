@@ -9,5 +9,7 @@ pub mod lpc;
 pub mod bands;
 pub mod pitch;
 pub mod decoder;
+pub mod encoder;
 
 pub use decoder::CeltDecoder;
+pub use encoder::CeltEncoder;

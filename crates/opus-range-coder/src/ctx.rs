@@ -108,6 +108,19 @@ impl EcCtx {
         let l_total = (l << 3) + b;
         nbits.wrapping_sub(l_total)
     }
+
+    /// Save the current encoder state (for two-pass encoding).
+    pub fn save_state(&self) -> EcCtx {
+        self.clone()
+    }
+
+    /// Restore a previously saved encoder state.
+    pub fn restore_state(&mut self, saved: &EcCtx) {
+        // Restore all fields except keep the current buf capacity
+        let saved_buf = saved.buf.clone();
+        *self = saved.clone();
+        self.buf = saved_buf;
+    }
 }
 
 /// Integer binary logarithm of a 32-bit value.

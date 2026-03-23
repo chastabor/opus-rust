@@ -35,6 +35,118 @@ impl MdctLookup {
     }
 }
 
+/// MDCT forward (analysis) transform.
+/// Matches clt_mdct_forward_c in celt/mdct.c for the float case.
+///
+/// `input`: time-domain input buffer (windowed)
+/// `output`: frequency-domain output buffer (written with stride)
+/// `window`: TDAC window of length `overlap`
+/// `overlap`: overlap length
+/// `shift`: shift level (0 = full size, 1 = half, etc.)
+/// `stride`: interleave stride for short blocks (B)
+pub fn clt_mdct_forward(
+    l: &MdctLookup,
+    input: &[f32],
+    output: &mut [f32],
+    _window: &[f32],
+    _overlap: usize,
+    shift: usize,
+    stride: usize,
+) {
+    let mut n = l.n;
+    let mut trig_offset = 0;
+    for _ in 0..shift {
+        trig_offset += n >> 1;
+        n >>= 1;
+    }
+    let n2 = n >> 1;
+    let n4 = n >> 2;
+
+    let trig = &l.trig[trig_offset..];
+    let st = &l.kfft[shift];
+
+    // === Windowing and pre-rotation ===
+    // The forward MDCT folds the windowed input, then does pre-rotation + FFT + post-rotation
+    let mut f = vec![KissFftCpx::default(); n4];
+
+    // Windowed folding: matching C clt_mdct_forward_c
+    {
+        let xp1_start = 0usize;
+        let xp2_start = n2;
+        for i in 0..n4 {
+            let rev = st.bitrev[i];
+            // Window application during folding
+            // yp[2*rev] and yp[2*rev+1] are the real and imaginary parts
+            // C code:
+            // re = wp1*xp1[N2] + wp2*xp2[0]
+            // im = wp1*xp1[0]  - wp2*xp2[N2]
+            // where wp1 = window[2*i], wp2 = window[n2-1-2*i]
+            // xp1 advances by 2, xp2 retreats by 2
+            let idx1 = xp1_start + 2 * i;
+            let idx2 = xp2_start - 1 - 2 * i;
+
+            // Folding with windowing: combine the two halves
+            let re = if idx1 + n2 < input.len() && idx2 < input.len() {
+                input[idx1 + n2] + input[idx2]
+            } else {
+                0.0
+            };
+            let im = if idx1 < input.len() && idx2 + n2 < input.len() {
+                input[idx1] - input[idx2 + n2]
+            } else {
+                0.0
+            };
+
+            // Pre-rotation
+            let t0 = trig[i];
+            let t1 = trig[n4 + i];
+            f[rev].r = re * t0 + im * t1;
+            f[rev].i = im * t0 - re * t1;
+        }
+    }
+
+    // === N/4-point complex FFT in-place ===
+    opus_fft_impl(st, &mut f);
+
+    // === Post-rotation ===
+    {
+        let half = (n4 + 1) >> 1;
+        for i in 0..half {
+            let re0 = f[i].r;
+            let im0 = f[i].i;
+            let t0 = trig[i];
+            let t1 = trig[n4 + i];
+            let yr0 = re0 * t0 + im0 * t1;
+            let yi0 = im0 * t0 - re0 * t1;
+
+            let j = n4 - 1 - i;
+            let re1 = f[j].r;
+            let im1 = f[j].i;
+            let t0b = trig[j];
+            let t1b = trig[n4 + j];
+            let yr1 = re1 * t0b + im1 * t1b;
+            let yi1 = im1 * t0b - re1 * t1b;
+
+            // Write interleaved output with stride
+            // C: d[i] = yr0; d[N4-1-i] = yr1; d[N2+i] = yi0; d[N-1-i] = yi1;
+            // But output is written with stride
+            let d_base = 0;
+            if i * stride < output.len() {
+                output[d_base + i * stride] = yr0;
+            }
+            if j * stride < output.len() {
+                output[d_base + j * stride] = yr1;
+            }
+            if (n2 + i) * stride < output.len() {
+                output[d_base + (n2 + i) * stride] = yi0;
+            }
+            if (n - 1 - i) * stride < output.len() {
+                output[d_base + (n - 1 - i) * stride] = yi1;
+            }
+        }
+    }
+}
+
 /// MDCT backward (inverse) transform.
 /// Matches clt_mdct_backward_c in celt/mdct.c for the float case.
 ///

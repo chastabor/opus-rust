@@ -7,6 +7,9 @@ pub const DEC_PITCH_BUF_SIZE: usize = 2048;
 /// Comb filter minimum period.
 pub const COMBFILTER_MINPERIOD: usize = 15;
 
+/// Comb filter maximum period (encoder prefilter memory).
+pub const COMBFILTER_MAXPERIOD: usize = 1024;
+
 /// CELT LPC order.
 pub const CELT_LPC_ORDER: usize = 24;
 
