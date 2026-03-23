@@ -1,0 +1,6 @@
+frames=6
+samples_per_frame=960
+channels=4
+streams=2
+coupled_streams=2
+mapping=0,1,2,3

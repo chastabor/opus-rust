@@ -129,10 +129,28 @@ pub struct ParsedPacket {
     pub frame_sizes: Vec<i16>,
     /// Offset into the packet data where payload frames begin.
     pub payload_offset: usize,
+    /// Total bytes consumed from the input (including padding).
+    /// For self-delimited packets in multistream, this tells you
+    /// how far to advance to find the next stream's data.
+    pub packet_offset: usize,
 }
 
 /// Parse an Opus packet into its constituent frames.
 pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
+    opus_packet_parse_impl(data, false)
+}
+
+/// Parse an Opus packet with self-delimited framing support.
+/// When `self_delimited` is true, the last frame's size is explicitly encoded
+/// rather than derived from the remaining packet length. This is used for
+/// multistream packets where each stream's data must be independently sized.
+/// Returns the parsed packet info; use `total_bytes_consumed()` on the result
+/// to get how many bytes from `data` were consumed (for advancing to next stream).
+pub fn opus_packet_parse_self_delimited(data: &[u8]) -> Result<ParsedPacket, OpusError> {
+    opus_packet_parse_impl(data, true)
+}
+
+fn opus_packet_parse_impl(data: &[u8], self_delimited: bool) -> Result<ParsedPacket, OpusError> {
     if data.is_empty() {
         return Err(OpusError::InvalidPacket);
     }
@@ -142,32 +160,39 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
     let mut pos: usize = 1;
     let mut remaining = data.len() as i32 - 1;
     let mut sizes: Vec<i16> = Vec::new();
+    let mut last_size = remaining;
+    let mut cbr = false;
+    let mut pad: i32 = 0;
+    let count: i32;
 
     match toc & 0x3 {
         // One frame
         0 => {
-            sizes.push(remaining as i16);
+            count = 1;
         }
         // Two CBR frames
         1 => {
-            if remaining & 1 != 0 {
-                return Err(OpusError::InvalidPacket);
+            count = 2;
+            cbr = true;
+            if !self_delimited {
+                if remaining & 1 != 0 {
+                    return Err(OpusError::InvalidPacket);
+                }
+                last_size = remaining / 2;
+                sizes.push(last_size as i16);
             }
-            let half = remaining / 2;
-            sizes.push(half as i16);
-            sizes.push(half as i16);
         }
         // Two VBR frames
         2 => {
+            count = 2;
             let (sz, bytes) = parse_size(&data[pos..])?;
             pos += bytes;
             remaining -= bytes as i32;
             if sz < 0 || sz as i32 > remaining {
                 return Err(OpusError::InvalidPacket);
             }
-            let last = remaining - sz as i32;
+            last_size = remaining - sz as i32;
             sizes.push(sz);
-            sizes.push(last as i16);
         }
         // Multiple CBR/VBR frames
         _ => {
@@ -177,7 +202,7 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
             let ch = data[pos];
             pos += 1;
             remaining -= 1;
-            let count = (ch & 0x3F) as i32;
+            count = (ch & 0x3F) as i32;
             if count <= 0 || framesize as i64 * count as i64 > 5760 {
                 return Err(OpusError::InvalidPacket);
             }
@@ -192,6 +217,7 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
                     remaining -= 1;
                     let tmp = if p == 255 { 254 } else { p as i32 };
                     remaining -= tmp;
+                    pad += tmp;
                     if p != 255 {
                         break;
                     }
@@ -200,10 +226,10 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
             if remaining < 0 {
                 return Err(OpusError::InvalidPacket);
             }
-            let cbr = ch & 0x80 == 0;
+            cbr = ch & 0x80 == 0;
             if !cbr {
                 // VBR
-                let mut last_size = remaining;
+                last_size = remaining;
                 for _ in 0..(count - 1) as usize {
                     let (sz, bytes) = parse_size(&data[pos..])?;
                     pos += bytes;
@@ -217,35 +243,58 @@ pub fn opus_packet_parse(data: &[u8]) -> Result<ParsedPacket, OpusError> {
                 if last_size < 0 {
                     return Err(OpusError::InvalidPacket);
                 }
-                sizes.push(last_size as i16);
-            } else {
-                // CBR
-                let frame_size = remaining / count;
-                if frame_size * count != remaining {
+            } else if !self_delimited {
+                // CBR (non-self-delimited)
+                last_size = remaining / count;
+                if last_size * count != remaining {
                     return Err(OpusError::InvalidPacket);
                 }
-                if frame_size > 1275 {
-                    return Err(OpusError::InvalidPacket);
-                }
-                for _ in 0..count {
-                    sizes.push(frame_size as i16);
+                for _ in 0..(count - 1) {
+                    sizes.push(last_size as i16);
                 }
             }
         }
     }
 
-    // Validate last size
-    if let Some(last) = sizes.last() {
-        if *last > 1275 {
-            // Only for non-self-delimited, check last size
-            // (already handled in code 3 CBR case above)
+    // Self-delimited framing has an extra size for the last frame
+    if self_delimited {
+        let (sz, bytes) = parse_size(&data[pos..])?;
+        pos += bytes;
+        remaining -= bytes as i32;
+        if sz < 0 || sz as i32 > remaining {
+            return Err(OpusError::InvalidPacket);
         }
+        // For CBR packets, apply the size to all the frames
+        if cbr {
+            if sz as i32 * count > remaining {
+                return Err(OpusError::InvalidPacket);
+            }
+            for _ in 0..(count - 1) {
+                sizes.push(sz);
+            }
+        } else if bytes as i32 + sz as i32 > last_size {
+            return Err(OpusError::InvalidPacket);
+        }
+        sizes.push(sz);
+    } else {
+        // Not self-delimited: last size is implicit
+        if last_size > 1275 {
+            return Err(OpusError::InvalidPacket);
+        }
+        sizes.push(last_size as i16);
     }
+
+    let payload_offset = pos;
+
+    // Advance past all frame data
+    let total_frame_bytes: i32 = sizes.iter().map(|s| *s as i32).sum();
+    let packet_offset = (pos as i32 + total_frame_bytes + pad) as usize;
 
     Ok(ParsedPacket {
         toc,
         frame_sizes: sizes,
-        payload_offset: pos,
+        payload_offset,
+        packet_offset,
     })
 }
 

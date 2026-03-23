@@ -1,1 +1,6 @@
 target/
+
+# Compiled test vector generators (rebuild from .c sources against C libopus)
+tests/gen_test_vectors
+tests/gen_ms_test_vectors
+tests/cwrs_validate

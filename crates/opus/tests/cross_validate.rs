@@ -1,7 +1,7 @@
 //! Cross-validation tests: decode the same packets with both C reference
 //! and our Rust decoder, compare PCM output sample-by-sample.
 
-use opus::OpusDecoder;
+use opus::{OpusDecoder, OpusMSDecoder};
 use std::path::Path;
 
 const VECTORS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors");
@@ -251,4 +251,108 @@ fn cross_validate_hybrid_stereo() {
 #[test]
 fn cross_validate_hybrid_stereo_fb() {
     run_test_case("hybrid_stereo_fb", 2.0);
+}
+
+// ==========================================
+// Multistream cross-validation tests
+// ==========================================
+
+/// Parse multistream info from a .info file.
+fn read_ms_info(info_path: &Path) -> (usize, usize, usize, Vec<u8>) {
+    let text = std::fs::read_to_string(info_path).expect("Cannot read info file");
+    let mut channels = 0usize;
+    let mut streams = 0usize;
+    let mut coupled_streams = 0usize;
+    let mut mapping = Vec::new();
+
+    for line in text.lines() {
+        if let Some(val) = line.strip_prefix("channels=") {
+            channels = val.trim().parse().unwrap();
+        } else if let Some(val) = line.strip_prefix("streams=") {
+            streams = val.trim().parse().unwrap();
+        } else if let Some(val) = line.strip_prefix("coupled_streams=") {
+            coupled_streams = val.trim().parse().unwrap();
+        } else if let Some(val) = line.strip_prefix("mapping=") {
+            mapping = val.trim().split(',')
+                .map(|s| s.trim().parse::<u8>().unwrap())
+                .collect();
+        }
+    }
+    (channels, streams, coupled_streams, mapping)
+}
+
+/// Decode all packets with the Rust multistream decoder.
+fn rust_ms_decode_all(
+    packets: &[Vec<u8>],
+    channels: usize,
+    streams: usize,
+    coupled_streams: usize,
+    mapping: &[u8],
+) -> Vec<f32> {
+    let mut dec = OpusMSDecoder::new(48000, channels, streams, coupled_streams, mapping)
+        .expect("Failed to create MS decoder");
+    let mut all_pcm = Vec::new();
+    for pkt in packets {
+        let mut pcm = vec![0.0f32; FRAME_SIZE * channels];
+        match dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE as i32) {
+            Ok(n) => {
+                all_pcm.extend_from_slice(&pcm[..n as usize * channels]);
+            }
+            Err(e) => {
+                eprintln!("Rust MS decode error: {e}, using zeros");
+                all_pcm.extend(vec![0.0f32; FRAME_SIZE * channels]);
+            }
+        }
+    }
+    all_pcm
+}
+
+/// Run a multistream test case.
+fn run_ms_test_case(name: &str, max_allowed_error: f64) {
+    let vec_dir = Path::new(VECTORS_DIR);
+    let packets_path = vec_dir.join(format!("{name}.packets"));
+    let pcm_path = vec_dir.join(format!("{name}.pcm"));
+    let info_path = vec_dir.join(format!("{name}.info"));
+
+    if !packets_path.exists() {
+        panic!(
+            "Test vector not found: {}\nRun `tests/gen_ms_test_vectors` first.",
+            packets_path.display()
+        );
+    }
+
+    let (channels, streams, coupled_streams, mapping) = read_ms_info(&info_path);
+    let packets = read_packets(&packets_path);
+    let ref_pcm = read_pcm_f32(&pcm_path);
+    let rust_pcm = rust_ms_decode_all(&packets, channels, streams, coupled_streams, &mapping);
+
+    let (max_err, rms_err, n) = compare_pcm(&ref_pcm, &rust_pcm);
+
+    println!(
+        "  {name}: {n} samples, ch={channels}, streams={streams}, \
+         max_err={max_err:.8}, rms_err={rms_err:.8} (threshold={max_allowed_error:.1e})"
+    );
+
+    assert_eq!(
+        ref_pcm.len(), rust_pcm.len(),
+        "{name}: sample count mismatch: C={}, Rust={}",
+        ref_pcm.len(), rust_pcm.len()
+    );
+
+    assert!(
+        max_err <= max_allowed_error,
+        "{name}: max error {max_err:.10} exceeds threshold {max_allowed_error:.1e}\n\
+         First diverging sample details:\n{}",
+        first_divergence_detail(&ref_pcm, &rust_pcm, max_allowed_error, channels)
+    );
+}
+
+#[test]
+fn cross_validate_ms_quad() {
+    run_ms_test_case("ms_quad", 2.0);
+}
+
+#[test]
+fn cross_validate_ms_surround51() {
+    run_ms_test_case("ms_surround51", 2.0);
 }
