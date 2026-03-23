@@ -1141,7 +1141,7 @@ impl CeltEncoder {
             }
         }
 
-        let nb_available_bytes = nb_compressed_bytes.saturating_sub(nb_filled_bytes);
+        let mut nb_available_bytes = nb_compressed_bytes.saturating_sub(nb_filled_bytes);
 
         local_enc = EcCtx::enc_init(nb_compressed_bytes as u32);
         // Use either the provided encoder or our local one
@@ -1152,7 +1152,7 @@ impl CeltEncoder {
             &mut local_enc
         };
 
-        let total_bits = nb_compressed_bytes as i32 * 8;
+        let mut total_bits = nb_compressed_bytes as i32 * 8;
         let mut tell = enc.tell();
 
         // Take scratch buffers out of self to avoid borrow conflicts
@@ -1212,7 +1212,15 @@ impl CeltEncoder {
             enc.enc_bit_logp(silence, 15);
         }
         if silence {
+            // In VBR mode there is no need to send more than the minimum.
+            if self.vbr && self.bitrate != 510000 {
+                nb_compressed_bytes = nb_compressed_bytes.min(nb_filled_bytes + 2);
+                total_bits = nb_compressed_bytes as i32 * 8;
+                nb_available_bytes = nb_compressed_bytes.saturating_sub(nb_filled_bytes);
+                enc.enc_shrink(nb_compressed_bytes as u32);
+            }
             // Pretend we have filled all remaining bits with zeros
+            // (that's what the initialiser did anyway)
             let tell_now = enc.tell();
             enc.nbits_total += total_bits - tell_now;
         }
