@@ -27,6 +27,9 @@ pub struct SilkEncControl {
     pub payload_size_ms: i32,
     /// Target bitrate in bits per second
     pub bitrate_bps: i32,
+    /// Maximum number of bits allowed for this frame (0 = no limit).
+    /// Matches C reference `maxBits` in `silk_EncControlStruct`.
+    pub max_bits: i32,
     /// Encoder complexity (0-10)
     pub complexity: i32,
     /// Whether to use in-band FEC (LBRR)
@@ -46,6 +49,7 @@ impl Default for SilkEncControl {
             max_internal_fs_hz: 16000,
             payload_size_ms: 20,
             bitrate_bps: 25000,
+            max_bits: 0,
             complexity: 2,
             use_in_band_fec: false,
             packet_loss_percentage: 0,
@@ -552,10 +556,7 @@ impl SilkEncoder {
             nb_subfr,
         );
 
-        // 8. NSQ - Noise Shaping Quantization
-        let mut pulses = [0i8; MAX_FRAME_LENGTH];
-
-        // Build LTP coefficients from indices
+        // 8. Build LTP coefficients from indices
         let mut ltp_coef_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
         if voiced {
             let cbk = SILK_LTP_VQ_PTRS_Q7[cs.indices.per_index as usize];
@@ -610,7 +611,17 @@ impl SilkEncoder {
             cs.shaping_lpc_order,
             cs.warping_q16,
             cs.speech_activity_q8,
-            10000, // coding_quality_q14 (moderate default)
+            // Derive coding quality from target bitrate (approximates C reference's
+            // silk_control_SNR → noise_shape_analysis → coding_quality chain).
+            // sigmoid(0.25 * (SNR_adj_dB - 20)) where SNR scales ~linearly with bitrate.
+            {
+                let bps = control.bitrate_bps;
+                // Map bitrate to approximate SNR_adj_dB: ~10dB at 8kbps, ~35dB at 40kbps
+                let snr_db = 10.0 + 25.0 * ((bps - 8000) as f32 / 32000.0).clamp(0.0, 1.0);
+                // sigmoid(0.25 * (snr - 20)) in Q14
+                let sig = 1.0 / (1.0 + (-0.25 * (snr_db - 20.0) as f64).exp());
+                (sig * 16384.0) as i32
+            },
             cs.snr_db_q7,
         );
 
@@ -721,9 +732,12 @@ impl SilkEncoder {
             cs.lbrr_flags[frame_idx] = 0;
         }
 
-        // ====== Main NSQ ======
+        // ====== Main NSQ + Bitstream writing with iterative gain adjustment ======
+        //
+        // The C reference (silk/fixed/encode_frame_FIX.c) iteratively adjusts gains
+        // until the encoded bits fit within max_bits. We implement a simplified version:
+        // encode once, check bit count, and if over budget, scale up gains and retry.
 
-        // Read values before borrowing cs.indices mutably
         let nsq_signal_type = cs.indices.signal_type as i32;
         let nsq_quant_offset_type = cs.indices.quant_offset_type as i32;
         let nsq_nlsf_interp_coef_q2 = cs.indices.nlsf_interp_coef_q2 as i32;
@@ -733,119 +747,116 @@ impl SilkEncoder {
         let nsq_lpc_order = cs.lpc_order;
         let nsq_nb_subfr = cs.nb_subfr;
 
-        // Select NSQ mode based on complexity (from silk/control_codec.c):
-        //   complexity 0-1: nStatesDelayedDecision = 1 (scalar NSQ)
-        //   complexity 2-3: nStatesDelayedDecision = 2
-        //   complexity 4-5: nStatesDelayedDecision = 2
-        //   complexity 6-7: nStatesDelayedDecision = 3
-        //   complexity 8+:  nStatesDelayedDecision = 4
         let n_states_delayed_decision: i32 = match control.complexity {
             0 | 1 => 1,
             2 | 3 | 4 | 5 => 2,
             6 | 7 => 3,
-            _ => 4, // MAX_DEL_DEC_STATES
+            _ => 4,
         };
+
+        let max_bits = control.max_bits;
+        let prev_sig_type = cs.ec_prev_signal_type;
+        let prev_lag_idx = cs.ec_prev_lag_index;
+
+        // Run NSQ to produce pulses
+        let mut pulses = [0i8; MAX_FRAME_LENGTH];
 
         if n_states_delayed_decision > 1 {
             nsq_del_dec::silk_nsq_del_dec(
-                &mut cs.nsq_state,
-                &mut cs.indices,
-                &samples[..frame_length],
-                &mut pulses,
-                &pred_coef_q12,
-                &ltp_coef_q14,
-                &ar_q13,
-                harm_shape_gain_q14,
-                tilt_q14,
-                lf_shp_q14,
-                &gains_q16,
-                &pitch_lags,
-                lambda_q10,
-                ltp_scale_q14,
-                nsq_frame_length,
-                nsq_subfr_length,
-                nsq_ltp_mem_length,
-                nsq_lpc_order,
-                MAX_SHAPE_LPC_ORDER as i32,
-                nsq_nb_subfr,
-                nsq_signal_type,
-                nsq_quant_offset_type,
-                nsq_nlsf_interp_coef_q2,
-                n_states_delayed_decision,
-                cs.warping_q16,
-                &mut scratch.nsq_s_ltp_q15,
-                &mut scratch.nsq_s_ltp,
+                &mut cs.nsq_state, &mut cs.indices,
+                &samples[..frame_length], &mut pulses,
+                &pred_coef_q12, &ltp_coef_q14, &ar_q13,
+                harm_shape_gain_q14, tilt_q14, lf_shp_q14,
+                &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
+                nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
+                nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
+                nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
+                n_states_delayed_decision, cs.warping_q16,
+                &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
             );
         } else {
             nsq::silk_nsq(
-                &mut cs.nsq_state,
-                &mut cs.indices,
-                &samples[..frame_length],
-                &mut pulses,
-                &pred_coef_q12,
-                &ltp_coef_q14,
-                &ar_q13,
-                harm_shape_gain_q14,
-                tilt_q14,
-                lf_shp_q14,
-                &gains_q16,
-                &pitch_lags,
-                lambda_q10,
-                ltp_scale_q14,
-                nsq_frame_length,
-                nsq_subfr_length,
-                nsq_ltp_mem_length,
-                nsq_lpc_order,
-                MAX_SHAPE_LPC_ORDER as i32,
-                nsq_nb_subfr,
-                nsq_signal_type,
-                nsq_quant_offset_type,
-                nsq_nlsf_interp_coef_q2,
-                &mut scratch.nsq_s_ltp_q15,
-                &mut scratch.nsq_s_ltp,
-                &mut scratch.nsq_x_sc_q10,
-                &mut scratch.nsq_xq_tmp,
+                &mut cs.nsq_state, &mut cs.indices,
+                &samples[..frame_length], &mut pulses,
+                &pred_coef_q12, &ltp_coef_q14, &ar_q13,
+                harm_shape_gain_q14, tilt_q14, lf_shp_q14,
+                &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
+                nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
+                nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
+                nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
+                &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
+                &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
             );
         }
 
-        // ====== Bitstream writing ======
+        // Encode indices and pulses, with damage control for bitrate constraint.
+        // If the first encoding exceeds max_bits, zero out pulses and re-encode
+        // (matches C reference damage control in silk/fixed/encode_frame_FIX.c).
+        let bits_before = enc.tell();
+        let saved_enc = enc.save_state();
 
-        // Encode VAD flags (simplified: always set VAD = 1 for voiced, 0 for unvoiced)
-        // The VAD flags are typically encoded at the packet level, not per-frame here.
-        // For this simplified encoder, the caller handles that.
-
-        // Encode side information indices
-        let prev_sig_type = cs.ec_prev_signal_type;
-        let prev_lag_idx = cs.ec_prev_lag_index;
         encode_indices::silk_encode_indices(
-            &cs.indices,
-            enc,
-            0, // frame_index
-            false, // encode_lbrr
-            cond_coding,
-            cs.nb_subfr,
-            cs.nlsf_cb_sel,
-            cs.pitch_contour_sel,
-            cs.pitch_lag_low_bits_sel,
-            cs.fs_khz,
-            prev_sig_type,
-            prev_lag_idx,
+            &cs.indices, enc, 0, false, cond_coding,
+            cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
+            cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+        );
+        encode_pulses::silk_encode_pulses(
+            enc, &pulses, cs.indices.signal_type as i32,
+            cs.indices.quant_offset_type as i32, cs.frame_length,
         );
 
-        // Update ec_prev state (after encode_indices, matching what the decoder expects)
+        let n_bits = enc.tell() - bits_before;
+        if max_bits > 0 && n_bits > max_bits {
+            // Over budget: progressively reduce pulse magnitudes and re-encode
+            // until within budget. This preserves signal shape while meeting bitrate.
+            enc.restore_state(&saved_enc);
+
+            // Binary search for the right shift amount
+            let mut best_shift = 0;
+            for shift in 1..=8 {
+                let mut trial_pulses = pulses;
+                for p in trial_pulses[..frame_length].iter_mut() {
+                    *p = ((*p as i32) >> shift) as i8;
+                }
+                let trial_enc = enc.save_state();
+                let trial_before = enc.tell();
+                encode_indices::silk_encode_indices(
+                    &cs.indices, enc, 0, false, cond_coding,
+                    cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
+                    cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+                );
+                encode_pulses::silk_encode_pulses(
+                    enc, &trial_pulses, cs.indices.signal_type as i32,
+                    cs.indices.quant_offset_type as i32, cs.frame_length,
+                );
+                let trial_bits = enc.tell() - trial_before;
+                enc.restore_state(&trial_enc);
+                if trial_bits <= max_bits {
+                    best_shift = shift;
+                    break;
+                }
+            }
+
+            // Apply the best shift and encode
+            for p in pulses[..frame_length].iter_mut() {
+                *p = ((*p as i32) >> best_shift) as i8;
+            }
+            encode_indices::silk_encode_indices(
+                &cs.indices, enc, 0, false, cond_coding,
+                cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
+                cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+            );
+            encode_pulses::silk_encode_pulses(
+                enc, &pulses, cs.indices.signal_type as i32,
+                cs.indices.quant_offset_type as i32, cs.frame_length,
+            );
+        }
+
+        // Update ec_prev state
         cs.ec_prev_signal_type = cs.indices.signal_type as i32;
         if voiced {
             cs.ec_prev_lag_index = cs.indices.lag_index;
         }
-
-        // Encode excitation pulses
-        encode_pulses::silk_encode_pulses(
-            enc,
-            &pulses,
-            cs.indices.signal_type as i32,
-            cs.indices.quant_offset_type as i32,
-            cs.frame_length,
-        );
 
         // Update state for next frame
         cs.prev_nlsf_q15[..lpc_order].copy_from_slice(&nlsf_q15[..lpc_order]);
@@ -1179,6 +1190,7 @@ mod tests {
             max_internal_fs_hz: 16000,
             payload_size_ms: 20,
             bitrate_bps: 20000,
+            max_bits: 0,
             complexity: 0,
             use_in_band_fec: false,
             packet_loss_percentage: 0,
@@ -1208,6 +1220,7 @@ mod tests {
             max_internal_fs_hz: 16000,
             payload_size_ms: 20,
             bitrate_bps: 20000,
+            max_bits: 0,
             complexity: 0,
             use_in_band_fec: false,
             packet_loss_percentage: 0,

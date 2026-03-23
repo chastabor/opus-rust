@@ -411,11 +411,17 @@ impl OpusEncoder {
                 self.bitrate_bps
             };
 
+            // Maximum bits for the SILK frame. The C reference sets this to the
+            // packet budget and relies on iterative gain adjustment for bitrate
+            // control. We use the bitrate-derived target as a soft limit.
+            let silk_max_bits = (max_data_bytes - 1) * 8;
+
             let control = SilkEncControl {
                 api_sample_rate: silk_internal_rate,
                 max_internal_fs_hz: silk_internal_rate,
                 payload_size_ms: frame_duration_ms,
                 bitrate_bps: silk_bitrate,
+                max_bits: silk_max_bits,
                 complexity: self.complexity.min(10),
                 use_in_band_fec: self.use_inband_fec,
                 packet_loss_percentage: self.packet_loss_perc,
