@@ -423,6 +423,8 @@ impl OpusEncoder {
                 complexity: self.complexity.min(10),
                 use_in_band_fec: self.use_inband_fec,
                 packet_loss_percentage: self.packet_loss_perc,
+                n_channels_internal: 1,
+                to_mono: false,
             };
 
             // Write VAD flag and LBRR flag into the range coder

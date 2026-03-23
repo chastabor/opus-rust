@@ -25,6 +25,7 @@ pub mod pitch_analysis;
 pub mod noise_shape_analysis;
 pub mod encoder;
 pub mod signal_processing;
+pub mod stereo_encode;
 pub mod vad;
 
 // Re-export the main decoder

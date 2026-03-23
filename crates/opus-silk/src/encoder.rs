@@ -33,6 +33,10 @@ pub struct SilkEncControl {
     pub use_in_band_fec: bool,
     /// Expected packet loss percentage (0-100)
     pub packet_loss_percentage: i32,
+    /// Number of internal channels (1 = mono, 2 = stereo)
+    pub n_channels_internal: i32,
+    /// Last frame before a stereo->mono transition
+    pub to_mono: bool,
 }
 
 impl Default for SilkEncControl {
@@ -45,6 +49,8 @@ impl Default for SilkEncControl {
             complexity: 2,
             use_in_band_fec: false,
             packet_loss_percentage: 0,
+            n_channels_internal: 1,
+            to_mono: false,
         }
     }
 }
@@ -257,11 +263,26 @@ impl EncChannelState {
     }
 }
 
-/// Top-level SILK encoder (mono)
+/// Top-level SILK encoder (mono or stereo)
+#[allow(dead_code)]
 pub struct SilkEncoder {
     state: EncChannelState,
+    /// Second channel state for stereo (side channel)
+    state_side: EncChannelState,
+    /// Stereo encoder state for L/R to M/S conversion
+    stereo_state: crate::stereo_encode::StereoEncState,
     initialized: bool,
     scratch: SilkScratch,
+    /// Scratch buffers for side channel (stereo only)
+    scratch_side: SilkScratch,
+    /// Number of internal channels currently configured
+    n_channels_internal: i32,
+    /// Previous frame's n_channels_internal
+    prev_n_channels_internal: i32,
+    /// Previous frame's decode_only_middle flag
+    prev_decode_only_middle: bool,
+    /// Speech activity from previous frame (for stereo smoothing)
+    prev_speech_activity_q8: i32,
 }
 
 impl SilkEncoder {
@@ -269,8 +290,15 @@ impl SilkEncoder {
     pub fn new() -> Self {
         Self {
             state: EncChannelState::new(),
+            state_side: EncChannelState::new(),
+            stereo_state: crate::stereo_encode::StereoEncState::default(),
             initialized: false,
             scratch: SilkScratch::new(),
+            scratch_side: SilkScratch::new(),
+            n_channels_internal: 1,
+            prev_n_channels_internal: 1,
+            prev_decode_only_middle: false,
+            prev_speech_activity_q8: 128,
         }
     }
 
@@ -921,6 +949,130 @@ impl SilkEncoder {
         true
     }
 
+    /// Encode a stereo SILK frame.
+    ///
+    /// Takes interleaved L/R samples. Converts to mid/side using adaptive
+    /// prediction, then encodes mid channel (and optionally side channel).
+    /// The stereo prediction info is written BEFORE per-channel frame data.
+    ///
+    /// Returns 0 on success, negative on error.
+    pub fn encode_stereo(
+        &mut self,
+        control: &SilkEncControl,
+        enc: &mut EcCtx,
+        samples_left: &[i16],
+        samples_right: &[i16],
+    ) -> i32 {
+        // Determine internal sampling rate
+        let fs_khz = match control.max_internal_fs_hz {
+            ..=8000 => 8,
+            8001..=12000 => 12,
+            _ => 16,
+        };
+
+        // Initialize / reconfigure if needed
+        if !self.initialized || self.state.fs_khz != fs_khz {
+            self.state.set_fs(fs_khz, control.payload_size_ms);
+            self.state_side.set_fs(fs_khz, control.payload_size_ms);
+            self.initialized = true;
+        }
+        self.n_channels_internal = control.n_channels_internal;
+
+        let frame_length = self.state.frame_length as usize;
+
+        // Ensure we have enough input
+        if samples_left.len() < frame_length || samples_right.len() < frame_length {
+            return -1;
+        }
+
+        // Prepare buffers with 2-sample prefix for stereo L/R to M/S conversion
+        let buf_len = frame_length + 2;
+        let mut x1 = vec![0i16; buf_len]; // left -> mid
+        let mut x2 = vec![0i16; buf_len]; // right -> side
+
+        // Copy current frame samples (offset by 2 for the prefix buffer)
+        x1[2..buf_len].copy_from_slice(&samples_left[..frame_length]);
+        x2[2..buf_len].copy_from_slice(&samples_right[..frame_length]);
+
+        // Convert L/R to M/S with adaptive stereo prediction
+        let mut ix = [[0i8; 3]; 2];
+        let mut mid_only_flag = 0i8;
+        let mut mid_side_rates_bps = [0i32; 2];
+
+        crate::stereo_encode::silk_stereo_lr_to_ms(
+            &mut self.stereo_state,
+            &mut x1,
+            &mut x2,
+            &mut ix,
+            &mut mid_only_flag,
+            &mut mid_side_rates_bps,
+            control.bitrate_bps,
+            self.prev_speech_activity_q8,
+            control.to_mono,
+            fs_khz,
+            frame_length,
+        );
+
+        // Write stereo prediction info BEFORE per-channel frame data
+        crate::stereo_encode::silk_stereo_encode_pred(enc, &ix);
+
+        // Write mid-only flag if we have 2 internal channels
+        if self.n_channels_internal == 2 {
+            crate::stereo_encode::silk_stereo_encode_mid_only(enc, mid_only_flag);
+        }
+
+        // Encode mid channel (x1 contains mid signal, skip the 2-sample prefix)
+        // Build mono samples from the mid signal
+        let mid_samples: Vec<i16> = x1[1..1 + frame_length].to_vec();
+
+        // Create a mono control with mid bitrate
+        let mid_control = SilkEncControl {
+            bitrate_bps: mid_side_rates_bps[0],
+            ..control.clone()
+        };
+        let result = self.encode(&mid_control, enc, &mid_samples);
+        if result != 0 {
+            return result;
+        }
+
+        // Update speech activity tracking
+        self.prev_speech_activity_q8 = self.state.speech_activity_q8;
+
+        // Encode side channel (if not mid-only)
+        if mid_only_flag == 0 && self.n_channels_internal == 2 {
+            // x2 contains side residual, skip the 2-sample prefix
+            let side_samples: Vec<i16> = x2[1..1 + frame_length].to_vec();
+
+            let side_control = SilkEncControl {
+                bitrate_bps: mid_side_rates_bps[1],
+                ..control.clone()
+            };
+
+            // Swap side channel state into the main slot to reuse encode()
+            std::mem::swap(&mut self.state, &mut self.state_side);
+
+            // Ensure side channel is configured
+            if self.state.fs_khz != fs_khz {
+                self.state.set_fs(fs_khz, control.payload_size_ms);
+            }
+
+            // Encode the side channel using the existing mono pipeline
+            let result = self.encode(&side_control, enc, &side_samples);
+
+            // Swap back
+            std::mem::swap(&mut self.state, &mut self.state_side);
+
+            if result != 0 {
+                return result;
+            }
+        }
+
+        // Track state
+        self.prev_decode_only_middle = mid_only_flag != 0;
+
+        0
+    }
+
     /// Encode a complete SILK packet with proper header (VAD + LBRR flags).
     ///
     /// This is the high-level API that handles the packet header format:
@@ -958,6 +1110,45 @@ impl SilkEncoder {
 
         0
     }
+
+    /// Encode a complete stereo SILK packet with proper header.
+    ///
+    /// Takes separate left and right channel sample buffers.
+    /// Stereo prediction is written before per-channel frame data.
+    ///
+    /// For stereo, the packet layout is:
+    /// 1. VAD flag (mid) + LBRR flag
+    /// 2. (optional) VAD flag (side) + LBRR flag (side)
+    /// 3. Stereo prediction indices
+    /// 4. Mid-only flag
+    /// 5. Mid channel frame data (indices + pulses)
+    /// 6. Side channel frame data (indices + pulses) -- skipped if mid_only
+    pub fn encode_stereo_packet(
+        &mut self,
+        control: &SilkEncControl,
+        enc: &mut EcCtx,
+        samples_left: &[i16],
+        samples_right: &[i16],
+    ) -> i32 {
+        // Write placeholder VAD + LBRR flags for mid channel
+        enc.enc_bit_logp(false, 1); // VAD flag placeholder (mid)
+        enc.enc_bit_logp(false, 1); // LBRR flag placeholder (mid)
+
+        // Encode stereo
+        let result = self.encode_stereo(control, enc, samples_left, samples_right);
+        if result != 0 {
+            return result;
+        }
+
+        // Determine actual VAD flag from the mid channel
+        let actual_vad = self.state.prev_signal_type != TYPE_NO_VOICE_ACTIVITY;
+
+        // Patch the initial VAD + LBRR bits (no LBRR for stereo in this simplified version)
+        let flags_byte = (actual_vad as u32) | 0; // no LBRR
+        enc.enc_patch_initial_bits(flags_byte, 2);
+
+        0
+    }
 }
 
 impl Default for SilkEncoder {
@@ -991,6 +1182,8 @@ mod tests {
             complexity: 0,
             use_in_band_fec: false,
             packet_loss_percentage: 0,
+            n_channels_internal: 1,
+            to_mono: false,
         };
         let samples = vec![0i16; 320]; // 20ms at 16kHz
         let mut range_enc = EcCtx::enc_init(1275);
@@ -1018,6 +1211,8 @@ mod tests {
             complexity: 0,
             use_in_band_fec: false,
             packet_loss_percentage: 0,
+            n_channels_internal: 1,
+            to_mono: false,
         };
 
         // Generate a simple 200Hz tone at 16kHz

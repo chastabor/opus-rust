@@ -533,6 +533,30 @@ pub fn silk_inner_prod_aligned(in_vec1: &[i16], in_vec2: &[i16], len: usize) -> 
 }
 
 // ============================================================================
+// 7b. silk_inner_prod_aligned_scale - Inner product with per-product right-shift
+// Ported from silk/inner_prod_aligned.c
+// ============================================================================
+
+/// Compute the inner product of two i16 vectors with a per-product right-shift.
+///
+/// Each product (in_vec1[i] * in_vec2[i]) is right-shifted by `scale` bits before
+/// accumulation. This prevents overflow when working with high-energy signals.
+pub fn silk_inner_prod_aligned_scale(
+    in_vec1: &[i16],
+    in_vec2: &[i16],
+    scale: i32,
+    len: usize,
+) -> i32 {
+    let mut sum = 0i32;
+    for i in 0..len {
+        let product = (in_vec1[i] as i32) * (in_vec2[i] as i32);
+        // silk_ADD_RSHIFT32(sum, product, scale)
+        sum = sum.wrapping_add(product >> scale);
+    }
+    sum
+}
+
+// ============================================================================
 // 8. silk_resampler_down2 - Downsample by a factor 2
 // Ported from silk/resampler_down2.c
 // ============================================================================
