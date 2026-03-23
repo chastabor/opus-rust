@@ -42,6 +42,39 @@ impl Default for SilkEncControl {
     }
 }
 
+// Maximum buffer sizes for SILK encoder scratch (16kHz, 20ms frame)
+const MAX_SILK_FRAME: usize = MAX_FRAME_LENGTH; // 320
+const MAX_SILK_SUBFR: usize = MAX_SUB_FRAME_LENGTH; // 80
+const MAX_SILK_LTP_MEM: usize = 320; // LTP_MEM_LENGTH_MS * MAX_FS_KHZ
+const MAX_SILK_TOTAL: usize = MAX_SILK_LTP_MEM + MAX_SILK_FRAME; // 640
+const MAX_SILK_WIN: usize = 240; // shape_win_length max (15 * 16)
+
+/// Pre-allocated scratch buffers for SILK encoder (avoids per-frame heap allocations).
+#[derive(Default)]
+pub struct SilkScratch {
+    pub analysis_buf: Vec<i16>,   // MAX_SILK_TOTAL
+    pub vad_x: Vec<i16>,         // ~800
+    pub x_windowed: Vec<i16>,    // MAX_SILK_WIN
+    pub nsq_s_ltp_q15: Vec<i32>, // MAX_SILK_TOTAL
+    pub nsq_s_ltp: Vec<i16>,     // MAX_SILK_TOTAL
+    pub nsq_x_sc_q10: Vec<i32>,  // MAX_SILK_SUBFR
+    pub nsq_xq_tmp: Vec<i16>,    // MAX_SILK_SUBFR
+}
+
+impl SilkScratch {
+    fn new() -> Self {
+        Self {
+            analysis_buf: vec![0i16; MAX_SILK_TOTAL],
+            vad_x: vec![0i16; 800],
+            x_windowed: vec![0i16; MAX_SILK_WIN],
+            nsq_s_ltp_q15: vec![0i32; MAX_SILK_TOTAL],
+            nsq_s_ltp: vec![0i16; MAX_SILK_TOTAL],
+            nsq_x_sc_q10: vec![0i32; MAX_SILK_SUBFR],
+            nsq_xq_tmp: vec![0i16; MAX_SILK_SUBFR],
+        }
+    }
+}
+
 /// Per-channel encoder state
 struct EncChannelState {
     // Frame configuration
@@ -176,6 +209,7 @@ impl EncChannelState {
 pub struct SilkEncoder {
     state: EncChannelState,
     initialized: bool,
+    scratch: SilkScratch,
 }
 
 impl SilkEncoder {
@@ -184,6 +218,7 @@ impl SilkEncoder {
         Self {
             state: EncChannelState::new(),
             initialized: false,
+            scratch: SilkScratch::new(),
         }
     }
 
@@ -197,6 +232,8 @@ impl SilkEncoder {
         enc: &mut EcCtx,
         samples: &[i16],
     ) -> i32 {
+        // Take scratch buffers to avoid borrow conflicts with self.state
+        let mut scratch = std::mem::take(&mut self.scratch);
         let cs = &mut self.state;
 
         // Determine internal sampling rate
@@ -223,9 +260,9 @@ impl SilkEncoder {
             return -1;
         }
 
-        // Build analysis buffer: history + current frame
+        // Build analysis buffer: history + current frame (use scratch)
         let analysis_buf_len = ltp_mem_length + frame_length;
-        let mut analysis_buf = vec![0i16; analysis_buf_len];
+        let analysis_buf = &mut scratch.analysis_buf[..analysis_buf_len];
         // Copy history from input_buf
         let history_len = ltp_mem_length.min(cs.input_buf_idx);
         if history_len > 0 {
@@ -254,7 +291,7 @@ impl SilkEncoder {
         // ====== Analysis ======
 
         // 1. LPC analysis: compute autocorrelation -> Levinson-Durbin -> LPC coefficients
-        let mut corr = vec![0i32; lpc_order + 1];
+        let mut corr = [0i32; MAX_LPC_ORDER + 1];
         lpc_analysis::silk_autocorrelation(
             &mut corr,
             &analysis_buf[ltp_mem_length..],
@@ -262,11 +299,11 @@ impl SilkEncoder {
             lpc_order,
         );
 
-        let mut a_q16 = vec![0i32; lpc_order];
+        let mut a_q16 = [0i32; MAX_LPC_ORDER];
         let _pred_gain = lpc_analysis::silk_levinson_durbin(&mut a_q16, &corr, lpc_order);
 
         // Convert to Q12 for the filter
-        let mut a_q12 = vec![0i16; lpc_order];
+        let mut a_q12 = [0i16; MAX_LPC_ORDER];
         for i in 0..lpc_order {
             a_q12[i] = silk_rshift_round(a_q16[i], 4) as i16;
         }
@@ -305,7 +342,7 @@ impl SilkEncoder {
         );
 
         // 4. Convert quantized NLSFs back to LPC for filtering
-        let mut pred_coef_q12 = vec![0i16; 2 * MAX_LPC_ORDER];
+        let mut pred_coef_q12 = [0i16; 2 * MAX_LPC_ORDER];
         silk_nlsf2a(&mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order], &nlsf_q15, lpc_order);
         // For interpolation: use the same coefficients for both halves (simplified)
         // Copy second half to first half via temp to satisfy borrow checker
@@ -391,10 +428,10 @@ impl SilkEncoder {
         );
 
         // 8. NSQ - Noise Shaping Quantization
-        let mut pulses = vec![0i8; frame_length];
+        let mut pulses = [0i8; MAX_FRAME_LENGTH];
 
         // Build LTP coefficients from indices
-        let mut ltp_coef_q14 = vec![0i16; nb_subfr * LTP_ORDER];
+        let mut ltp_coef_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
         if voiced {
             let cbk = SILK_LTP_VQ_PTRS_Q7[cs.indices.per_index as usize];
             for k in 0..nb_subfr {
@@ -408,8 +445,8 @@ impl SilkEncoder {
         // Set complexity-dependent shaping parameters
         cs.shaping_lpc_order = match control.complexity {
             0 => 12,
-            1 => 14,
-            2 | 3 => if control.complexity >= 3 { 14 } else { 12 },
+            1 | 3 => 14,
+            2 => 12,
             4 | 5 => 16,
             6 | 7 => 20,
             _ => 24,
@@ -454,9 +491,9 @@ impl SilkEncoder {
 
         // Use noise shape results
         let ar_q13 = shape_result.ar_q13;
-        let harm_shape_gain_q14: Vec<i32> = shape_result.harm_shape_gain_q14[..nb_subfr].to_vec();
-        let tilt_q14: Vec<i32> = shape_result.tilt_q14[..nb_subfr].to_vec();
-        let lf_shp_q14: Vec<i32> = shape_result.lf_shp_q14[..nb_subfr].to_vec();
+        let harm_shape_gain_q14 = &shape_result.harm_shape_gain_q14[..nb_subfr];
+        let tilt_q14 = &shape_result.tilt_q14[..nb_subfr];
+        let lf_shp_q14 = &shape_result.lf_shp_q14[..nb_subfr];
         let lambda_q10 = shape_result.lambda_q10;
 
         // Use noise shape analysis quant offset type
@@ -489,9 +526,9 @@ impl SilkEncoder {
             &pred_coef_q12,
             &ltp_coef_q14,
             &ar_q13,
-            &harm_shape_gain_q14,
-            &tilt_q14,
-            &lf_shp_q14,
+            harm_shape_gain_q14,
+            tilt_q14,
+            lf_shp_q14,
             &gains_q16,
             &pitch_lags,
             lambda_q10,
@@ -505,6 +542,10 @@ impl SilkEncoder {
             nsq_signal_type,
             nsq_quant_offset_type,
             nsq_nlsf_interp_coef_q2,
+            &mut scratch.nsq_s_ltp_q15,
+            &mut scratch.nsq_s_ltp,
+            &mut scratch.nsq_x_sc_q10,
+            &mut scratch.nsq_xq_tmp,
         );
 
         // ====== Bitstream writing ======
@@ -551,6 +592,9 @@ impl SilkEncoder {
         cs.prev_signal_type = cs.indices.signal_type as i32;
         cs.first_frame_after_reset = false;
         cs.n_frames_encoded += 1;
+
+        // Put scratch buffers back
+        self.scratch = scratch;
 
         0 // Success
     }

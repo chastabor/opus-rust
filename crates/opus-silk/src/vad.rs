@@ -252,7 +252,8 @@ fn decimate_into_bands(
     input: &[i16],
     state: &mut VadState,
     frame_length: i32,
-) -> (Vec<i16>, [usize; VAD_N_BANDS]) {
+    x_out: &mut [i16],
+) -> [usize; VAD_N_BANDS] {
     let decimated_framelength1 = (frame_length >> 1) as usize; // frame_length / 2
     let decimated_framelength2 = (frame_length >> 2) as usize; // frame_length / 4
     let decimated_framelength = (frame_length >> 3) as usize;  // frame_length / 8
@@ -270,7 +271,7 @@ fn decimate_into_bands(
             + decimated_framelength2,
     ];
     let x_len = x_offset[3] + decimated_framelength1;
-    let mut x = vec![0i16; x_len];
+    let mut x = &mut x_out[..x_len];
 
     // Stage 1: 0-8 kHz -> 0-4 kHz (low, outL) and 4-8 kHz (high, outH)
     // C: silk_ana_filt_bank_1(pIn, &AnaState[0], X, &X[X_offset[3]], frame_length)
@@ -287,7 +288,9 @@ fn decimate_into_bands(
     // Stage 2: 0-4 kHz -> 0-2 kHz (low) and 2-4 kHz (high)
     // C: silk_ana_filt_bank_1(X, &AnaState1[0], X, &X[X_offset[2]], decimated_framelength1)
     //   Input and outL both start at X[0], so we need a copy of the input.
-    let input_stage2: Vec<i16> = x[..decimated_framelength1].to_vec();
+    let mut input_stage2_buf = [0i16; 200]; // max decimated_framelength1 = 160
+    input_stage2_buf[..decimated_framelength1].copy_from_slice(&x[..decimated_framelength1]);
+    let input_stage2 = &input_stage2_buf[..decimated_framelength1];
     silk_ana_filt_bank_1(
         &input_stage2,
         &mut state.ana_state1,
@@ -299,7 +302,9 @@ fn decimate_into_bands(
 
     // Stage 3: 0-2 kHz -> 0-1 kHz (low) and 1-2 kHz (high)
     // C: silk_ana_filt_bank_1(X, &AnaState2[0], X, &X[X_offset[1]], decimated_framelength2)
-    let input_stage3: Vec<i16> = x[..decimated_framelength2].to_vec();
+    let mut input_stage3_buf = [0i16; 100]; // max decimated_framelength2 = 80
+    input_stage3_buf[..decimated_framelength2].copy_from_slice(&x[..decimated_framelength2]);
+    let input_stage3 = &input_stage3_buf[..decimated_framelength2];
     silk_ana_filt_bank_1(
         &input_stage3,
         &mut state.ana_state2,
@@ -309,7 +314,7 @@ fn decimate_into_bands(
         decimated_framelength2 as i32,
     );
 
-    (x, x_offset)
+    x_offset
 }
 
 // ---- Core VAD computation (shared by both entry points) ----
@@ -335,7 +340,10 @@ fn silk_vad_compute(
     let decimated_framelength = (frame_length >> 3) as usize;
 
     // ---- Filter and Decimate into 4 bands ----
-    let (mut x, x_offset) = decimate_into_bands(input, state, frame_length);
+    // Stack buffer for decimated bands (max ~800 i16 = 1600 bytes)
+    let mut x_buf = [0i16; 800];
+    let x_offset = decimate_into_bands(input, state, frame_length, &mut x_buf);
+    let x = &mut x_buf[..];
 
     // ---- HP filter on lowest band (differentiator) ----
     // This removes DC and very low frequencies from band 0.

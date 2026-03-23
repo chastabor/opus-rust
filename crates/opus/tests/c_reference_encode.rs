@@ -4,7 +4,7 @@
 // then re-encode similar signals with the Rust encoder and verify
 // the Rust decoder can handle them.
 
-use opus::{OpusDecoder, OpusEncoder, OPUS_APPLICATION_AUDIO};
+use opus::{OpusDecoder, OpusEncoder, OPUS_APPLICATION_AUDIO, OPUS_APPLICATION_VOIP};
 
 // Auto-generated from C libopus at 48kHz, 20ms frames
 
@@ -227,5 +227,67 @@ fn test_rust_encode_multiframe_roundtrip() {
             "Frame {frame}: decode failed: {:?}",
             result
         );
+    }
+}
+
+// =========================================================================
+// SILK C reference test vectors (16kHz VOIP mode)
+// =========================================================================
+
+// SILK VOIP 200Hz tone at 10000 bps (25 bytes)
+const SILK_VOICE_200HZ_10K: &[u8] = &[
+    0x0b, 0x41, 0x11, 0x06, 0xe0, 0xb3, 0x0e, 0xc6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+// SILK VOIP 200Hz tone at 16000 bps (40 bytes)
+const SILK_VOICE_200HZ_16K: &[u8] = &[
+    0x4b, 0x41, 0x1e, 0x06, 0xe3, 0x79, 0xc5, 0x12, 0xf7, 0xbc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+#[test]
+fn test_decode_silk_c_ref_10k() {
+    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+    let mut pcm = vec![0.0f32; 320];
+    let result = dec.decode_float(Some(SILK_VOICE_200HZ_10K), &mut pcm, 320, false);
+    assert!(result.is_ok(), "Should decode C ref SILK 10kbps: {:?}", result);
+}
+
+#[test]
+fn test_decode_silk_c_ref_16k() {
+    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+    let mut pcm = vec![0.0f32; 320];
+    let result = dec.decode_float(Some(SILK_VOICE_200HZ_16K), &mut pcm, 320, false);
+    assert!(result.is_ok(), "Should decode C ref SILK 16kbps: {:?}", result);
+}
+
+/// SILK VOIP encode-decode roundtrip at 16kHz
+#[test]
+fn test_silk_voip_encode_decode_roundtrip() {
+    let mut enc = OpusEncoder::new(16000, 1, OPUS_APPLICATION_VOIP).unwrap();
+    enc.set_bitrate(16000);
+    enc.set_complexity(5);
+    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+
+    for frame in 0..5 {
+        let mut input = vec![0.0f32; 320];
+        let freq = 200.0 + frame as f32 * 50.0;
+        for i in 0..320 {
+            input[i] = 0.3 * (2.0 * std::f32::consts::PI * freq * i as f32 / 16000.0).sin();
+        }
+
+        let mut packet = vec![0u8; 1500];
+        let nbytes = enc
+            .encode_float(&input, 320, &mut packet, 1500)
+            .unwrap() as usize;
+        assert!(nbytes > 0, "Frame {frame}: encode should produce bytes");
+
+        let mut output = vec![0.0f32; 320];
+        let result = dec.decode_float(
+            Some(&packet[..nbytes]), &mut output, 320, false,
+        );
+        assert!(result.is_ok(), "Frame {frame}: decode failed: {:?}", result);
     }
 }

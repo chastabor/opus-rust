@@ -244,8 +244,8 @@ fn silk_noise_shape_quantizer(
             );
             let n_ltp_q13 = n_ltp_q13 << 1;
 
-            let tmp2 = ltp_pred_q13 - n_ltp_q13; // Q13
-            let combined = tmp2.wrapping_add(tmp1 << 1); // Q13
+            let tmp2 = ltp_pred_q13.wrapping_sub(n_ltp_q13); // Q13
+            let combined = tmp2.wrapping_add(tmp1.wrapping_shl(1)); // Q13
             let combined_q10 = silk_rshift_round(combined, 3); // Q10
 
             x_sc_q10[i].wrapping_sub(combined_q10)
@@ -408,6 +408,11 @@ pub fn silk_nsq(
     signal_type: i32,
     quant_offset_type: i32,
     nlsf_interp_coef_q2: i32,
+    // Scratch buffers (caller-provided, avoids per-frame heap allocation)
+    scratch_s_ltp_q15: &mut [i32],
+    scratch_s_ltp: &mut [i16],
+    scratch_x_sc_q10: &mut [i32],
+    scratch_xq_tmp: &mut [i16],
 ) {
     let frame_len = frame_length as usize;
     let subfr_len = subfr_length as usize;
@@ -427,9 +432,12 @@ pub fn silk_nsq(
     let lsf_interpolation_flag = if nlsf_interp_coef_q2 == 4 { 0 } else { 1 };
 
     let total_len = ltp_mem_len + frame_len;
-    let mut s_ltp_q15 = vec![0i32; total_len];
-    let mut s_ltp = vec![0i16; total_len];
-    let mut x_sc_q10 = vec![0i32; subfr_len];
+    let mut s_ltp_q15 = &mut scratch_s_ltp_q15[..total_len];
+    let s_ltp = &mut scratch_s_ltp[..total_len];
+    let mut x_sc_q10 = &mut scratch_x_sc_q10[..subfr_len];
+    for v in s_ltp_q15.iter_mut() { *v = 0; }
+    for v in s_ltp.iter_mut() { *v = 0; }
+    for v in x_sc_q10.iter_mut() { *v = 0; }
 
     // Set up pointers to start of sub frame
     nsq.s_ltp_shp_buf_idx = ltp_mem_length;
@@ -490,8 +498,9 @@ pub fn silk_nsq(
             ltp_mem_len,
         );
 
-        // Use a temporary buffer for xq output to avoid double-borrowing nsq
-        let mut xq_tmp = vec![0i16; subfr_len];
+        // Use caller-provided scratch for xq output to avoid double-borrowing nsq
+        let mut xq_tmp = &mut scratch_xq_tmp[..subfr_len];
+        for v in xq_tmp.iter_mut() { *v = 0; }
 
         silk_noise_shape_quantizer(
             nsq,

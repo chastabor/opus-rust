@@ -7,6 +7,13 @@
 
 use crate::*;
 use crate::nsq::MAX_SHAPE_LPC_ORDER;
+use crate::signal_processing::{
+    silk_sigm_q15 as sigm_q15,
+    silk_apply_sine_window,
+    silk_schur64 as schur64_sp,
+    silk_k2a_q16 as k2a_q16_sp,
+};
+use crate::nlsf::silk_bwexpander_32 as bwexpander_32_nlsf;
 
 // ---- Tuning parameters (from silk/tuning_parameters.h) ----
 
@@ -38,6 +45,7 @@ const LOW_QUALITY_LOW_FREQ_SHAPING_DECR_Q13: i32 = 4096;
 const SUBFR_SMTH_COEF_Q16: i32 = 26214;
 
 /// Background SNR decrease: 2.0 dB
+#[allow(dead_code)] // May be used when full SNR tracking is implemented
 const BG_SNR_DECR_DB: f64 = 2.0;
 
 /// Harmonic SNR increase: 2.0 in Q8
@@ -56,25 +64,14 @@ const ENERGY_VARIATION_THRESHOLD_QNT_OFFSET_Q7: i32 = 77; // 0.6 * 128
 /// Pitch white noise fraction for BWE control: 1e-3 in Q16
 const FIND_PITCH_WHITE_NOISE_FRACTION_Q16: i32 = 66; // (1e-3 * 65536 + 0.5) as i32
 
-// ---- Sine window frequency table (from silk/fixed/apply_sine_window_FIX.c) ----
-
-static FREQ_TABLE_Q16: [i16; 27] = [
-    12111, 9804, 8235, 7100, 6239, 5565, 5022, 4575, 4202,
-    3885,  3612, 3375, 3167, 2984, 2820, 2674, 2542, 2422,
-    2313,  2214, 2123, 2038, 1961, 1889, 1822, 1760, 1702,
-];
-
-// ---- Sigmoid LUTs (from silk/sigm_Q15.c) ----
-
-static SIGM_LUT_SLOPE_Q10: [i32; 6] = [237, 153, 73, 30, 12, 7];
-static SIGM_LUT_POS_Q15: [i32; 6] = [16384, 23955, 28861, 31213, 32178, 32548];
-static SIGM_LUT_NEG_Q15: [i32; 6] = [16384, 8812, 3906, 1554, 589, 219];
+// Duplicated LUTs and helper functions removed -- now delegated to
+// signal_processing.rs, nlsf.rs, and lpc_analysis.rs via imports above.
 
 /// Results of noise shape analysis for one frame.
 pub struct NoiseShapeAnalysis {
     /// AR shaping coefficients, Q13, layout: [nb_subfr * shaping_lpc_order]
     /// Padded to MAX_SHAPE_LPC_ORDER per subframe for NSQ compatibility.
-    pub ar_q13: Vec<i16>,
+    pub ar_q13: [i16; MAX_NB_SUBFR * MAX_SHAPE_LPC_ORDER],
     /// Harmonic noise shaping gain per subframe, Q14
     pub harm_shape_gain_q14: [i32; MAX_NB_SUBFR],
     /// Noise tilt per subframe, Q14
@@ -93,23 +90,10 @@ pub struct NoiseShapeAnalysis {
     pub quant_offset_type: i8,
 }
 
-/// Approximate sigmoid function, matching silk_sigm_Q15.
-/// Input: Q5 fixed-point. Output: Q15 fixed-point in [0, 32767].
-fn silk_sigm_q15(mut in_q5: i32) -> i32 {
-    if in_q5 < 0 {
-        in_q5 = -in_q5;
-        if in_q5 >= 6 * 32 {
-            0
-        } else {
-            let ind = (in_q5 >> 5) as usize;
-            SIGM_LUT_NEG_Q15[ind] - silk_smulbb(SIGM_LUT_SLOPE_Q10[ind], in_q5 & 0x1F)
-        }
-    } else if in_q5 >= 6 * 32 {
-        32767
-    } else {
-        let ind = (in_q5 >> 5) as usize;
-        SIGM_LUT_POS_Q15[ind] + silk_smulbb(SIGM_LUT_SLOPE_Q10[ind], in_q5 & 0x1F)
-    }
+/// Delegate to signal_processing::silk_sigm_q15.
+#[inline]
+fn silk_sigm_q15(in_q5: i32) -> i32 {
+    sigm_q15(in_q5)
 }
 
 /// Apply sine window to a signal segment.
@@ -118,138 +102,28 @@ fn silk_sigm_q15(mut in_q5: i32) -> i32 {
 /// win_type 2: sine from pi/2 to pi (falling)
 ///
 /// Port of silk_apply_sine_window from silk/fixed/apply_sine_window_FIX.c.
-fn apply_sine_window(
-    px_win: &mut [i16],
-    px: &[i16],
-    win_type: i32,
-    length: usize,
-) {
-    debug_assert!(win_type == 1 || win_type == 2);
-    debug_assert!(length >= 16 && length <= 120);
-    debug_assert!(length & 3 == 0);
-
-    let k_idx = (length >> 2) - 4;
-    let f_q16 = FREQ_TABLE_Q16[k_idx] as i32;
-    let c_q16 = silk_smulwb(f_q16, -f_q16);
-
-    let (mut s0_q16, mut s1_q16);
-    if win_type == 1 {
-        s0_q16 = 0i32;
-        s1_q16 = f_q16 + (length as i32 >> 3);
-    } else {
-        s0_q16 = 1i32 << 16;
-        s1_q16 = (1i32 << 16) + (c_q16 >> 1) + (length as i32 >> 4);
-    }
-
-    let mut k = 0;
-    while k < length {
-        px_win[k] = silk_smulwb((s0_q16 + s1_q16) >> 1, px[k] as i32) as i16;
-        px_win[k + 1] = silk_smulwb(s1_q16, px[k + 1] as i32) as i16;
-        s0_q16 = silk_smulwb(s1_q16, c_q16) + (s1_q16 << 1) - s0_q16 + 1;
-        s0_q16 = s0_q16.min(1i32 << 16);
-
-        px_win[k + 2] = silk_smulwb((s0_q16 + s1_q16) >> 1, px[k + 2] as i32) as i16;
-        px_win[k + 3] = silk_smulwb(s0_q16, px[k + 3] as i32) as i16;
-        s1_q16 = silk_smulwb(s0_q16, c_q16) + (s0_q16 << 1) - s1_q16;
-        s1_q16 = s1_q16.min(1i32 << 16);
-
-        k += 4;
-    }
+/// Delegate to signal_processing::silk_apply_sine_window.
+#[inline]
+fn apply_sine_window(px_win: &mut [i16], px: &[i16], win_type: i32, length: usize) {
+    silk_apply_sine_window(px_win, px, win_type, length as i32);
 }
 
-/// Schur64: convert autocorrelation to reflection coefficients.
-///
-/// Port of silk_schur64 from silk/fixed/schur64_FIX.c.
-/// Returns residual energy. Outputs reflection coefficients in Q16.
-fn silk_schur64(
-    rc_q16: &mut [i32],
-    c: &[i32],
-    order: usize,
-) -> i32 {
-    const MAX_ORD: usize = 24; // SILK_MAX_ORDER_LPC
-    debug_assert!(order <= MAX_ORD);
-
-    if c[0] <= 0 {
-        for i in 0..order {
-            rc_q16[i] = 0;
-        }
-        return 0;
-    }
-
-    // C[k][0], C[k][1]
-    let mut c_arr = [[0i32; 2]; MAX_ORD + 1];
-    for k in 0..=order {
-        c_arr[k][0] = c[k];
-        c_arr[k][1] = c[k];
-    }
-
-    let mut k = 0;
-    while k < order {
-        // Stability check
-        if c_arr[k + 1][0].unsigned_abs() >= c_arr[0][1] as u32 {
-            if c_arr[k + 1][0] > 0 {
-                rc_q16[k] = -64881; // -0.99 in Q16
-            } else {
-                rc_q16[k] = 64881; // 0.99 in Q16
-            }
-            k += 1;
-            break;
-        }
-
-        // reflection coefficient in Q31
-        let rc_tmp_q31 = silk_div32_varq(-c_arr[k + 1][0], c_arr[0][1], 31);
-        rc_q16[k] = silk_rshift_round(rc_tmp_q31, 15);
-
-        // Update correlations
-        for n in 0..(order - k) {
-            let ctmp1_q30 = c_arr[n + k + 1][0];
-            let ctmp2_q30 = c_arr[n][1];
-            c_arr[n + k + 1][0] = ctmp1_q30.wrapping_add(silk_smmul(ctmp2_q30.wrapping_shl(1), rc_tmp_q31));
-            c_arr[n][1] = ctmp2_q30.wrapping_add(silk_smmul(ctmp1_q30.wrapping_shl(1), rc_tmp_q31));
-        }
-
-        k += 1;
-    }
-
-    // Zero remaining coefficients
-    while k < order {
-        rc_q16[k] = 0;
-        k += 1;
-    }
-
-    c_arr[0][1].max(1)
+/// Delegate to signal_processing::silk_schur64.
+#[inline]
+fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
+    schur64_sp(rc_q16, c, order)
 }
 
-/// Step-up function: convert reflection coefficients (Q16) to prediction
-/// coefficients (Q24).
-///
-/// Port of silk_k2a_Q16 from silk/fixed/k2a_Q16_FIX.c.
+/// Delegate to signal_processing::silk_k2a_q16.
+#[inline]
 fn silk_k2a_q16(a_q24: &mut [i32], rc_q16: &[i32], order: usize) {
-    for k in 0..order {
-        let rc = rc_q16[k];
-        for n in 0..((k + 1) >> 1) {
-            let tmp1 = a_q24[n];
-            let tmp2 = a_q24[k - n - 1];
-            a_q24[n] = silk_smlawb(tmp1, tmp2, rc) + ((tmp2 as i64 * rc as i64) >> 32) as i32;
-            a_q24[k - n - 1] = silk_smlawb(tmp2, tmp1, rc) + ((tmp1 as i64 * rc as i64) >> 32) as i32;
-        }
-        a_q24[k] = -(rc << 8);
-    }
+    k2a_q16_sp(a_q24, rc_q16, order)
 }
 
-/// Bandwidth expansion for i32 AR coefficients.
-///
-/// Port of silk_bwexpander_32 from silk/bwexpander_32.c.
+/// Delegate to nlsf::silk_bwexpander_32.
+#[inline]
 fn bwexpander_32(ar: &mut [i32], d: usize, chirp_q16: i32) {
-    let mut chirp = chirp_q16;
-    let chirp_minus_one_q16 = chirp_q16 - 65536;
-    for i in 0..d.saturating_sub(1) {
-        ar[i] = silk_smulww_correct(chirp, ar[i]);
-        chirp += silk_rshift_round(chirp.wrapping_mul(chirp_minus_one_q16), 16);
-    }
-    if d > 0 {
-        ar[d - 1] = silk_smulww_correct(chirp, ar[d - 1]);
-    }
+    bwexpander_32_nlsf(ar, d, chirp_q16)
 }
 
 /// silk_LPC_fit: Convert Q24 AR coefficients to Q13 i16 with overflow protection.
@@ -264,7 +138,7 @@ fn silk_lpc_fit(a_q13_out: &mut [i16], a_q24_in: &mut [i32], d: usize) {
         let mut maxabs = 0i32;
         let mut idx = 0usize;
         for k in 0..d {
-            let absval = a_q24_in[k].unsigned_abs() as i32;
+            let absval = (a_q24_in[k].unsigned_abs().min(i32::MAX as u32)) as i32;
             if absval > maxabs {
                 maxabs = absval;
                 idx = k;
@@ -483,13 +357,14 @@ pub fn silk_noise_shape_analysis(
     // ========================================================================
     // Compute noise shaping AR coefficients and gains per subframe
     // ========================================================================
-    let mut ar_q13 = vec![0i16; nb_subfr_usize * MAX_SHAPE_LPC_ORDER];
+    let mut ar_q13 = [0i16; MAX_NB_SUBFR * MAX_SHAPE_LPC_ORDER];
     let mut gains_q16 = [0i32; MAX_NB_SUBFR];
 
-    let mut x_windowed = vec![0i16; shape_win_length as usize];
-    let mut auto_corr = vec![0i32; shaping_order + 1];
-    let mut refl_coef_q16 = vec![0i32; shaping_order];
-    let mut ar_q24 = vec![0i32; shaping_order];
+    // Stack arrays for per-subframe analysis (bounded by MAX_SHAPE_LPC_ORDER=24)
+    let mut x_windowed = [0i16; 240]; // max shape_win_length = 15 * 16 = 240
+    let mut auto_corr = [0i32; MAX_SHAPE_LPC_ORDER + 1];
+    let mut refl_coef_q16 = [0i32; MAX_SHAPE_LPC_ORDER];
+    let mut ar_q24 = [0i32; MAX_SHAPE_LPC_ORDER];
 
     // x_ptr starts at input - la_shape (but since input already includes look-ahead,
     // we just start from the beginning for the first subframe)
@@ -723,7 +598,7 @@ pub fn silk_noise_shape_analysis(
     let mut harm_shape_gain_q14 = [0i32; MAX_NB_SUBFR];
     let mut tilt_q14_arr = [0i32; MAX_NB_SUBFR];
 
-    for k in 0..MAX_NB_SUBFR {
+    for k in 0..nb_subfr as usize {
         *prev_harm_q16 = silk_smlawb(
             *prev_harm_q16,
             harm_shape_gain_q16 - *prev_harm_q16,

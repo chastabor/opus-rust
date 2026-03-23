@@ -96,7 +96,7 @@ pub fn silk_schur(rc_q15: &mut [i16], c: &[i32], order: usize) -> i32 {
         // Shift to the left
         let lz_adj = lz - 2;
         for k in 0..=order {
-            let val = c[k] << lz_adj;
+            let val = c[k].wrapping_shl(lz_adj as u32);
             big_c[k][0] = val;
             big_c[k][1] = val;
         }
@@ -111,7 +111,7 @@ pub fn silk_schur(rc_q15: &mut [i16], c: &[i32], order: usize) -> i32 {
     let mut k = 0;
     while k < order {
         // Check that we won't be getting an unstable rc, otherwise stop here.
-        if big_c[k + 1][0].abs() >= big_c[0][1] {
+        if (big_c[k + 1][0].unsigned_abs() as i32) >= big_c[0][1] {
             if big_c[k + 1][0] > 0 {
                 rc_q15[k] = -FIX_CONST_099_Q15 as i16;
             } else {
@@ -135,8 +135,8 @@ pub fn silk_schur(rc_q15: &mut [i16], c: &[i32], order: usize) -> i32 {
         for n in 0..(order - k) {
             let ctmp1 = big_c[n + k + 1][0];
             let ctmp2 = big_c[n][1];
-            big_c[n + k + 1][0] = silk_smlawb(ctmp1, ctmp2 << 1, rc_tmp_q15);
-            big_c[n][1] = silk_smlawb(ctmp2, ctmp1 << 1, rc_tmp_q15);
+            big_c[n + k + 1][0] = silk_smlawb(ctmp1, ctmp2.wrapping_shl(1), rc_tmp_q15);
+            big_c[n][1] = silk_smlawb(ctmp2, ctmp1.wrapping_shl(1), rc_tmp_q15);
         }
 
         k += 1;
@@ -182,7 +182,7 @@ pub fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
     let mut k = 0;
     while k < order {
         // Check that we won't be getting an unstable rc, otherwise stop here.
-        if big_c[k + 1][0].abs() >= big_c[0][1] {
+        if (big_c[k + 1][0].unsigned_abs() as i32) >= big_c[0][1] {
             if big_c[k + 1][0] > 0 {
                 rc_q16[k] = -FIX_CONST_099_Q16;
             } else {
@@ -204,8 +204,8 @@ pub fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
             let ctmp2_q30 = big_c[n][1];
 
             // Multiply and add the highest int32
-            big_c[n + k + 1][0] = ctmp1_q30 + silk_smmul(ctmp2_q30 << 1, rc_tmp_q31);
-            big_c[n][1] = ctmp2_q30 + silk_smmul(ctmp1_q30 << 1, rc_tmp_q31);
+            big_c[n + k + 1][0] = ctmp1_q30.wrapping_add(silk_smmul(ctmp2_q30.wrapping_shl(1), rc_tmp_q31));
+            big_c[n][1] = ctmp2_q30.wrapping_add(silk_smmul(ctmp1_q30.wrapping_shl(1), rc_tmp_q31));
         }
 
         k += 1;
@@ -237,8 +237,8 @@ pub fn silk_k2a(a_q24: &mut [i32], rc_q15: &[i16], order: usize) {
         for n in 0..((k + 1) >> 1) {
             let tmp1 = a_q24[n];
             let tmp2 = a_q24[k - n - 1];
-            a_q24[n] = silk_smlawb(tmp1, tmp2 << 1, rc);
-            a_q24[k - n - 1] = silk_smlawb(tmp2, tmp1 << 1, rc);
+            a_q24[n] = silk_smlawb(tmp1, tmp2.wrapping_shl(1), rc);
+            a_q24[k - n - 1] = silk_smlawb(tmp2, tmp1.wrapping_shl(1), rc);
         }
         a_q24[k] = -((rc_q15[k] as i32) << 9);
     }
