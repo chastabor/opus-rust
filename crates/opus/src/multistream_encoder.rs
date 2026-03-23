@@ -187,10 +187,6 @@ impl OpusMSEncoder {
 
         // The remaining budget is split among non-LFE streams.
         // Coupled streams count as 1.5 "units", uncoupled streams as 1 "unit".
-        let mut lfe_count = 0usize;
-        if self.lfe_stream >= 0 && (self.lfe_stream as usize) < nb_streams {
-            lfe_count = 1;
-        }
         // Count non-LFE coupled vs uncoupled streams
         let non_lfe_coupled = if self.lfe_stream >= 0
             && (self.lfe_stream as usize) < nb_coupled
@@ -207,8 +203,6 @@ impl OpusMSEncoder {
         } else {
             nb_uncoupled
         };
-        let _ = lfe_count; // used above
-
         // Total weight: coupled = 1.5 unit each, uncoupled = 1.0 unit each
         // Multiply by 2 to avoid floats: coupled = 3, uncoupled = 2
         let total_weight = non_lfe_coupled * 3 + non_lfe_uncoupled * 2;

@@ -195,16 +195,16 @@ impl OpusEncoder {
         if self.application == OPUS_APPLICATION_RESTRICTED_LOWDELAY || !silk_ok {
             // Low-delay or sub-10ms frames: CELT only
             mode = MODE_CELT_ONLY;
-            bandwidth = self.decide_bandwidth_celt();
+            bandwidth = self.decide_bandwidth();
         } else if self.application == OPUS_APPLICATION_VOIP
             || self.signal_type == OPUS_SIGNAL_VOICE
         {
             if self.bitrate_bps < 20000 {
                 mode = MODE_SILK_ONLY;
-                bandwidth = self.decide_bandwidth_silk();
+                bandwidth = self.decide_bandwidth();
             } else if self.bitrate_bps < 32000 {
                 // Potential hybrid zone
-                let bw = self.decide_bandwidth_silk();
+                let bw = self.decide_bandwidth();
                 if bw >= OPUS_BANDWIDTH_SUPERWIDEBAND {
                     mode = MODE_HYBRID;
                     bandwidth = bw;
@@ -214,15 +214,15 @@ impl OpusEncoder {
                 }
             } else {
                 mode = MODE_CELT_ONLY;
-                bandwidth = self.decide_bandwidth_celt();
+                bandwidth = self.decide_bandwidth();
             }
         } else {
             // AUDIO application
             if self.bitrate_bps < 12000 {
                 mode = MODE_SILK_ONLY;
-                bandwidth = self.decide_bandwidth_silk();
+                bandwidth = self.decide_bandwidth();
             } else if self.bitrate_bps < 24000 {
-                let bw = self.decide_bandwidth_silk();
+                let bw = self.decide_bandwidth();
                 if bw >= OPUS_BANDWIDTH_SUPERWIDEBAND {
                     mode = MODE_HYBRID;
                     bandwidth = bw;
@@ -232,7 +232,7 @@ impl OpusEncoder {
                 }
             } else {
                 mode = MODE_CELT_ONLY;
-                bandwidth = self.decide_bandwidth_celt();
+                bandwidth = self.decide_bandwidth();
             }
         }
 
@@ -242,23 +242,8 @@ impl OpusEncoder {
         (mode, bandwidth)
     }
 
-    /// Decide bandwidth for SILK-based modes.
-    fn decide_bandwidth_silk(&self) -> i32 {
-        if self.bitrate_bps < 8000 {
-            OPUS_BANDWIDTH_NARROWBAND
-        } else if self.bitrate_bps < 12000 {
-            OPUS_BANDWIDTH_MEDIUMBAND
-        } else if self.bitrate_bps < 16000 {
-            OPUS_BANDWIDTH_WIDEBAND
-        } else if self.bitrate_bps < 20000 {
-            OPUS_BANDWIDTH_SUPERWIDEBAND
-        } else {
-            OPUS_BANDWIDTH_FULLBAND
-        }
-    }
-
-    /// Decide bandwidth for CELT-only mode.
-    fn decide_bandwidth_celt(&self) -> i32 {
+    /// Decide bandwidth based on bitrate.
+    fn decide_bandwidth(&self) -> i32 {
         if self.bitrate_bps < 8000 {
             OPUS_BANDWIDTH_NARROWBAND
         } else if self.bitrate_bps < 12000 {

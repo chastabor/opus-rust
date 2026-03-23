@@ -104,6 +104,13 @@ impl EncChannelState {
     }
 
     fn set_fs(&mut self, fs_khz: i32, payload_size_ms: i32) {
+        // Reset state on sample rate change
+        if self.fs_khz != fs_khz {
+            self.first_frame_after_reset = true;
+            self.prev_nlsf_q15 = [0; MAX_LPC_ORDER];
+            self.last_gain_index = 10;
+        }
+
         self.fs_khz = fs_khz;
         self.nb_subfr = if payload_size_ms == 10 { 2 } else { MAX_NB_SUBFR as i32 };
         self.subfr_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz;
@@ -137,14 +144,6 @@ impl EncChannelState {
             12 => PitchLagLowBitsSel::Uniform6,
             _ => PitchLagLowBitsSel::Uniform4,
         };
-
-        if self.fs_khz != fs_khz {
-            self.first_frame_after_reset = true;
-            self.prev_nlsf_q15 = [0; MAX_LPC_ORDER];
-            self.last_gain_index = 10;
-        }
-
-        self.fs_khz = fs_khz;
     }
 }
 
@@ -214,7 +213,6 @@ impl SilkEncoder {
             .copy_from_slice(&samples[..frame_length]);
 
         // Update input buffer with current frame for next call's history
-        let _new_buf_len = (cs.input_buf_idx + frame_length).min(cs.input_buf.len());
         if cs.input_buf_idx + frame_length > cs.input_buf.len() {
             // Shift buffer
             let shift = cs.input_buf_idx + frame_length - cs.input_buf.len();

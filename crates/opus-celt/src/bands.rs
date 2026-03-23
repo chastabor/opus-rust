@@ -322,25 +322,7 @@ fn compute_theta(
     let qalloc = ec.tell_frac() as i32 - tell as i32;
     *b -= qalloc;
 
-    let imid;
-    let iside;
-    let delta;
-    let b_val = b0; // B for fill masking
-    if itheta == 0 {
-        imid = 32767i32;
-        iside = 0i32;
-        *fill &= (1u32 << b_val) - 1;
-        delta = -16384i32;
-    } else if itheta == 16384 {
-        imid = 0i32;
-        iside = 32767i32;
-        *fill &= ((1u32 << b_val) - 1) << b_val;
-        delta = 16384i32;
-    } else {
-        imid = bitexact_cos(itheta as i16) as i32;
-        iside = bitexact_cos((16384 - itheta) as i16) as i32;
-        delta = frac_mul16((n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
-    }
+    let (imid, iside, delta) = theta_to_mid_side(itheta, n, b0, fill);
 
     SplitCtx {
         inv,
@@ -565,25 +547,8 @@ fn quant_partition(
         }
         let qalloc = ec.tell_frac() as i32 - tell as i32;
 
-        let imid;
-        let iside;
-        let delta;
         let b_left = b - qalloc;
-        if itheta == 0 {
-            imid = 32767i32;
-            iside = 0i32;
-            new_fill &= (1u32 << new_b) - 1;
-            delta = -16384i32;
-        } else if itheta == 16384 {
-            imid = 0i32;
-            iside = 32767i32;
-            new_fill &= ((1u32 << new_b) - 1) << new_b;
-            delta = 16384i32;
-        } else {
-            imid = bitexact_cos(itheta as i16) as i32;
-            iside = bitexact_cos((16384 - itheta) as i16) as i32;
-            delta = frac_mul16((half_n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
-        }
+        let (imid, iside, delta) = theta_to_mid_side(itheta, half_n, new_b, &mut new_fill);
 
         let mid = imid as f32 / 32768.0;
         let side = iside as f32 / 32768.0;
@@ -1320,6 +1285,35 @@ pub fn quant_all_bands(
 }
 
 // =========================================================================
+// SHARED HELPERS (used by both encoder and decoder)
+// =========================================================================
+
+/// Convert itheta to imid/iside/delta and update fill mask.
+/// Used by compute_theta (decode), compute_theta_enc (encode),
+/// quant_partition (decode), and quant_partition_enc (encode).
+fn theta_to_mid_side(itheta: i32, n: usize, b0: usize, fill: &mut u32) -> (i32, i32, i32) {
+    if itheta == 0 {
+        *fill &= (1u32 << b0) - 1;
+        (32767, 0, -16384)
+    } else if itheta == 16384 {
+        *fill &= ((1u32 << b0) - 1) << b0;
+        (0, 32767, 16384)
+    } else {
+        let imid = bitexact_cos(itheta as i16) as i32;
+        let iside = bitexact_cos((16384 - itheta) as i16) as i32;
+        let delta = frac_mul16((n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
+        (imid, iside, delta)
+    }
+}
+
+/// Compute fine energy offset value (shared between encode and decode).
+#[inline]
+#[allow(dead_code)]
+fn fine_energy_offset(q2: i32, fine_quant: i32) -> f32 {
+    (q2 as f32 + 0.5) * ((1 << (14 - fine_quant)) as f32) * (1.0 / 16384.0) - 0.5
+}
+
+// =========================================================================
 // ENCODER-SIDE FUNCTIONS
 // =========================================================================
 
@@ -1592,25 +1586,7 @@ fn compute_theta_enc(
     let qalloc = ec.tell_frac() as i32 - tell as i32;
     *b -= qalloc;
 
-    let imid;
-    let iside;
-    let delta;
-    let b_val = b0;
-    if itheta == 0 {
-        imid = 32767i32;
-        iside = 0i32;
-        *fill &= (1u32 << b_val) - 1;
-        delta = -16384i32;
-    } else if itheta == 16384 {
-        imid = 0i32;
-        iside = 32767i32;
-        *fill &= ((1u32 << b_val) - 1) << b_val;
-        delta = 16384i32;
-    } else {
-        imid = bitexact_cos(itheta as i16) as i32;
-        iside = bitexact_cos((16384 - itheta) as i16) as i32;
-        delta = frac_mul16((n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
-    }
+    let (imid, iside, delta) = theta_to_mid_side(itheta, n, b0, fill);
 
     SplitCtx {
         inv,
@@ -1697,25 +1673,8 @@ fn quant_partition_enc(
         }
         let qalloc = ec.tell_frac() as i32 - tell as i32;
 
-        let imid;
-        let iside;
-        let delta;
         let b_left = b - qalloc;
-        if itheta == 0 {
-            imid = 32767i32;
-            iside = 0i32;
-            new_fill &= (1u32 << new_b) - 1;
-            delta = -16384i32;
-        } else if itheta == 16384 {
-            imid = 0i32;
-            iside = 32767i32;
-            new_fill &= ((1u32 << new_b) - 1) << new_b;
-            delta = 16384i32;
-        } else {
-            imid = bitexact_cos(itheta as i16) as i32;
-            iside = bitexact_cos((16384 - itheta) as i16) as i32;
-            delta = frac_mul16((half_n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
-        }
+        let (imid, iside, delta) = theta_to_mid_side(itheta, half_n, new_b, &mut new_fill);
 
         let mid = imid as f32 / 32768.0;
         let side = iside as f32 / 32768.0;

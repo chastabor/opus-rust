@@ -477,7 +477,6 @@ impl CeltEncoder {
         let mut inp = vec![0.0f32; buf_size];
 
         // Compute sample_max for silence detection
-        let _pcm_len = cc * n / self.upsample;
         let sample_max = {
             let mut smax = self.overlap_max;
             let non_overlap_len = cc * (n - overlap) / self.upsample;
@@ -587,9 +586,6 @@ impl CeltEncoder {
         }
 
         amp2_log2(mode, eff_end, end, &band_e, &mut band_log_e, c);
-
-        // bandLogE2: for secondMdct (complexity >= 8 and short blocks). Simplified: copy.
-        let _band_log_e2 = band_log_e.clone();
 
         // Normalize bands (creates normalized MDCTs in x_norm)
         let mut x_norm = vec![0.0f32; c * n];
@@ -812,17 +808,10 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         let mut collapse_masks = vec![0u8; c * nb_ebands];
 
-        // Split x_norm into X and Y for stereo
-        let y_norm = if c == 2 {
+        // Split x_norm into X and Y for stereo (safe disjoint borrows via split_at_mut)
+        let (x_ref, y_ref): (&mut [f32], Option<&mut [f32]>) = if c == 2 {
             let (x_part, y_part) = x_norm.split_at_mut(n);
-            Some((x_part as *mut [f32], y_part as *mut [f32]))
-        } else {
-            None
-        };
-
-        let (x_ref, y_ref) = if let Some((x_ptr, y_ptr)) = y_norm {
-            // SAFETY: x_part and y_part are non-overlapping slices from x_norm
-            unsafe { (&mut *x_ptr, Some(&mut *y_ptr)) }
+            (x_part, Some(y_part))
         } else {
             (&mut x_norm[..], None)
         };

@@ -149,7 +149,6 @@ fn silk_noise_shape_quantizer(
     shaping_lpc_order: usize,
     predict_lpc_order: usize,
 ) {
-    let _lag_usize = lag as usize;
     let gain_q10 = gain_q16 >> 6;
 
     // Pointer to short-term AR state -- psLPC_Q14
@@ -189,7 +188,6 @@ fn silk_noise_shape_quantizer(
         let mut n_ar_q12: i64 = 0;
         // AR noise shaping feedback using s_ar2_q14 and s_diff_shp_q14
         // silk_NSQ_noise_shape_feedback_loop
-        let _s_diff = nsq.s_diff_shp_q14;
         for j in (0..shaping_lpc_order).rev() {
             n_ar_q12 += (nsq.s_ar2_q14[j] as i64) * (ar_shp_q13[j] as i64);
         }
@@ -355,9 +353,9 @@ fn silk_noise_shape_quantizer(
             s_ltp_q15[ltp_buf_idx] = lpc_exc_q14 << 1;
         }
 
-        // Update AR shaping state: shift s_ar2_q14
-        for j in (1..shaping_lpc_order).rev() {
-            nsq.s_ar2_q14[j] = nsq.s_ar2_q14[j - 1];
+        // Update AR shaping state: shift s_ar2_q14 (memmove is faster than element loop)
+        if shaping_lpc_order > 1 {
+            nsq.s_ar2_q14.copy_within(0..shaping_lpc_order - 1, 1);
         }
         if shaping_lpc_order > 0 {
             nsq.s_ar2_q14[0] = nsq.s_diff_shp_q14;
