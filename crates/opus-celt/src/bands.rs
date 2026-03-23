@@ -182,7 +182,41 @@ fn deinterleave_hadamard(x: &mut [f32], n0: usize, stride: usize, hadamard: bool
 }
 
 // =========================================================================
-// Stereo merge
+// Stereo split / merge (float path)
+// =========================================================================
+#[allow(dead_code)]
+fn stereo_split(x: &mut [f32], y: &mut [f32], n: usize) {
+    let inv_sqrt2: f32 = 0.70710678;
+    for j in 0..n {
+        let l = inv_sqrt2 * x[j];
+        let r = inv_sqrt2 * y[j];
+        x[j] = l + r;
+        y[j] = r - l;
+    }
+}
+
+fn stereo_merge(x: &mut [f32], y: &mut [f32], mid: f32, n: usize) {
+    // Compute the norm of X+Y and X-Y as |X|^2 + |Y|^2 +/- sum(xy)
+    let xp_raw = celt_inner_prod(y, x, n);
+    let side = celt_inner_prod(y, y, n);
+    // Compensating for the mid normalization
+    let xp = mid * xp_raw;
+    let el = mid * mid * 0.125 + side - 2.0 * xp;
+    let er = mid * mid * 0.125 + side + 2.0 * xp;
+    if el < 6e-4 || er < 6e-4 {
+        x[..n].copy_from_slice(&y[..n]);
+        return;
+    }
+    let lgain = 1.0 / el.sqrt();
+    let rgain = 1.0 / er.sqrt();
+    for j in 0..n {
+        let l = mid * x[j];
+        let r = y[j];
+        x[j] = lgain * (l - r);
+        y[j] = rgain * (l + r);
+    }
+}
+
 // =========================================================================
 // compute_qn for theta quantization
 // =========================================================================
@@ -197,6 +231,124 @@ fn compute_qn(n: usize, b: i32, offset: i32, pulse_cap: i32, stereo: bool) -> i3
         let exp2_table8: [i32; 8] = [16384, 17866, 19483, 21247, 23170, 25267, 27554, 30048];
         let qn = exp2_table8[(qb & 0x7) as usize] >> (14 - (qb >> BITRES));
         ((qn + 1) >> 1 << 1).min(256)
+    }
+}
+
+// =========================================================================
+// compute_theta - decode stereo/split theta parameter
+// Matches C bands.c compute_theta() decode path
+// =========================================================================
+fn compute_theta(
+    m: &CeltMode,
+    band_idx: usize,
+    ec: &mut EcCtx,
+    n: usize,
+    b: &mut i32,
+    b0: usize,
+    lm: i32,
+    ctx: &mut BandCtx,
+    stereo: bool,
+    fill: &mut u32,
+) -> SplitCtx {
+    let i = band_idx;
+    let intensity = ctx.intensity;
+
+    // Decide on the resolution to give to the split parameter theta
+    let pulse_cap = m.log_n[i] as i32 + lm * (1 << BITRES);
+    let offset = (pulse_cap >> 1) - if stereo && n == 2 { QTHETA_OFFSET_TWOPHASE } else { QTHETA_OFFSET };
+    let mut qn = compute_qn(n, *b, offset, pulse_cap, stereo);
+    if stereo && (i as i32) >= intensity {
+        qn = 1;
+    }
+
+    let tell = ec.tell_frac();
+    let mut itheta;
+    let mut inv = false;
+
+    if qn != 1 {
+        // Entropy coding of the angle
+        if stereo && n > 2 {
+            // Step PDF for stereo N>2
+            let p0: i32 = 3;
+            let x0 = qn / 2;
+            let ft = (p0 * (x0 + 1) + x0) as u32;
+            let fs = ec.decode(ft) as i32;
+            let x;
+            if fs < (x0 + 1) * p0 {
+                x = fs / p0;
+            } else {
+                x = x0 + 1 + (fs - (x0 + 1) * p0);
+            }
+            let fl = if x <= x0 { p0 * x } else { (x - 1 - x0) + (x0 + 1) * p0 };
+            let fh = if x <= x0 { p0 * (x + 1) } else { (x - x0) + (x0 + 1) * p0 };
+            ec.dec_update(fl as u32, fh as u32, ft);
+            itheta = x;
+        } else if b0 > 1 || stereo {
+            // Uniform PDF
+            itheta = ec.dec_uint((qn + 1) as u32) as i32;
+        } else {
+            // Triangular PDF
+            let ft = ((qn >> 1) + 1) * ((qn >> 1) + 1);
+            let fm = ec.decode(ft as u32);
+            if (fm as i32) < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
+                itheta = ((isqrt32(8 * fm + 1) as i32 - 1) >> 1) as i32;
+                let fs = itheta + 1;
+                let fl = itheta * (itheta + 1) >> 1;
+                ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
+            } else {
+                itheta = (2 * (qn + 1) - isqrt32(8 * (ft as u32 - fm - 1) + 1) as i32) >> 1;
+                let fs = qn + 1 - itheta;
+                let fl = ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1);
+                ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
+            }
+        }
+        itheta = celt_udiv(itheta * 16384, qn);
+    } else if stereo {
+        // qn==1 stereo path: decode inv bit
+        if *b > 2 << BITRES && ctx.remaining_bits > 2 << BITRES {
+            inv = ec.dec_bit_logp(2);
+        } else {
+            inv = false;
+        }
+        // inv flag override to avoid problems with downmixing
+        if ctx.disable_inv {
+            inv = false;
+        }
+        itheta = 0;
+    } else {
+        itheta = 0;
+    }
+
+    let qalloc = ec.tell_frac() as i32 - tell as i32;
+    *b -= qalloc;
+
+    let imid;
+    let iside;
+    let delta;
+    let b_val = b0; // B for fill masking
+    if itheta == 0 {
+        imid = 32767i32;
+        iside = 0i32;
+        *fill &= (1u32 << b_val) - 1;
+        delta = -16384i32;
+    } else if itheta == 16384 {
+        imid = 0i32;
+        iside = 32767i32;
+        *fill &= ((1u32 << b_val) - 1) << b_val;
+        delta = 16384i32;
+    } else {
+        imid = bitexact_cos(itheta as i16) as i32;
+        iside = bitexact_cos((16384 - itheta) as i16) as i32;
+        delta = frac_mul16((n as i32 - 1) << 7, bitexact_log2tan(iside, imid));
+    }
+
+    SplitCtx {
+        inv,
+        imid,
+        iside,
+        delta,
+        itheta,
+        qalloc,
     }
 }
 
@@ -332,6 +484,17 @@ struct BandCtx {
     remaining_bits: i32,
     avoid_split_noise: bool,
     tf_change: i32,
+    intensity: i32,
+    disable_inv: bool,
+}
+
+struct SplitCtx {
+    inv: bool,
+    imid: i32,
+    iside: i32,
+    delta: i32,
+    itheta: i32,
+    qalloc: i32,
 }
 
 // =========================================================================
@@ -663,6 +826,214 @@ fn quant_band(
 }
 
 // =========================================================================
+// quant_band_stereo - matches C bands.c quant_band_stereo() decode path
+// =========================================================================
+fn quant_band_stereo(
+    m: &CeltMode,
+    band_idx: usize,
+    ec: &mut EcCtx,
+    x: &mut [f32],
+    y: &mut [f32],
+    n: usize,
+    mut b: i32,
+    b_blocks: usize, // B
+    lm: i32,
+    ctx: &mut BandCtx,
+    lowband: Option<&[f32]>,
+    lowband_out: Option<&mut [f32]>,
+    fill: u32,
+) -> u32 {
+    let mut cm: u32;
+
+    // Special case for N=1: decode sign bits independently
+    if n == 1 {
+        // Decode X sign
+        let mut sign = 0u32;
+        if ctx.remaining_bits >= 1 << BITRES {
+            sign = ec.dec_bits(1);
+            ctx.remaining_bits -= 1 << BITRES;
+        }
+        x[0] = if sign != 0 { -NORM_SCALING } else { NORM_SCALING };
+        // Decode Y sign
+        sign = 0;
+        if ctx.remaining_bits >= 1 << BITRES {
+            sign = ec.dec_bits(1);
+            ctx.remaining_bits -= 1 << BITRES;
+        }
+        y[0] = if sign != 0 { -NORM_SCALING } else { NORM_SCALING };
+        if let Some(lo) = lowband_out {
+            lo[0] = x[0] * 0.0625; // SHR32(X[0], 4) in float = X[0] / 16
+        }
+        return 1;
+    }
+
+    let orig_fill = fill;
+    let mut fill = fill;
+
+    let sctx = compute_theta(
+        m, band_idx, ec, n, &mut b, b_blocks, lm, ctx, true, &mut fill,
+    );
+    let inv = sctx.inv;
+    let imid = sctx.imid;
+    let iside = sctx.iside;
+    let delta = sctx.delta;
+    let itheta = sctx.itheta;
+    let qalloc = sctx.qalloc;
+
+    let mid = imid as f32 / 32768.0;
+    let side = iside as f32 / 32768.0;
+
+    // N==2 special case: encode side with just one bit
+    if n == 2 {
+        let mbits;
+        let mut sbits = 0i32;
+        // Only need one bit for the side
+        if itheta != 0 && itheta != 16384 {
+            sbits = 1 << BITRES;
+        }
+        mbits = b - sbits;
+        let c = itheta > 8192;
+        ctx.remaining_bits -= qalloc + sbits;
+
+        let mut sign = 0i32;
+        if sbits != 0 {
+            sign = ec.dec_bits(1) as i32;
+        }
+        sign = 1 - 2 * sign;
+
+        // x2/y2 pointers: if c, swap X and Y for decoding
+        // We need to work with temporaries since we can't have two mutable refs
+        let mut x2 = [x[0], x[1]];
+        let mut y2 = [y[0], y[1]];
+
+        if c {
+            // x2 = Y, y2 = X
+            x2 = [y[0], y[1]];
+            y2 = [x[0], x[1]];
+        }
+
+        // Decode x2 with quant_band using orig_fill
+        let cm_val = quant_band(
+            m, band_idx, ec,
+            &mut x2, n, mbits, b_blocks, lm,
+            ctx, Q31ONE,
+            lowband,
+            None,
+            None,
+            orig_fill,
+        );
+        cm = cm_val;
+
+        // Construct y2 from rotation
+        y2[0] = -(sign as f32) * x2[1];
+        y2[1] = (sign as f32) * x2[0];
+
+        // Write back, undoing the swap
+        if c {
+            y[0] = x2[0]; y[1] = x2[1];
+            x[0] = y2[0]; x[1] = y2[1];
+        } else {
+            x[0] = x2[0]; x[1] = x2[1];
+            y[0] = y2[0]; y[1] = y2[1];
+        }
+
+        // Apply mid/side scaling and reconstruct L/R
+        let mx0 = mid * x[0];
+        let mx1 = mid * x[1];
+        let sy0 = side * y[0];
+        let sy1 = side * y[1];
+        x[0] = mx0 - sy0;
+        y[0] = mx0 + sy0;
+        x[1] = mx1 - sy1;
+        y[1] = mx1 + sy1;
+    } else {
+        // Normal split code (N>2)
+        let mbits = 0i32.max(b.min((b - delta) / 2));
+        let mut sbits = b - mbits;
+        ctx.remaining_bits -= qalloc;
+
+        let rebalance = ctx.remaining_bits;
+        if mbits >= sbits {
+            // Decode mid (X) first - in stereo mode no scaling applied (Q31ONE)
+            let mut lowband_out_tmp: Option<Vec<f32>> = lowband_out.as_ref().map(|_| vec![0.0f32; n]);
+            cm = quant_band(
+                m, band_idx, ec,
+                x, n, mbits, b_blocks, lm,
+                ctx, Q31ONE,
+                lowband,
+                lowband_out_tmp.as_deref_mut(),
+                None,
+                fill,
+            );
+            // Copy lowband_out_tmp back if needed
+            if let (Some(tmp), Some(lo)) = (&lowband_out_tmp, lowband_out) {
+                let copy_n = n.min(tmp.len()).min(lo.len());
+                lo[..copy_n].copy_from_slice(&tmp[..copy_n]);
+            }
+
+            let rebalance_amount = mbits - (rebalance - ctx.remaining_bits);
+            if rebalance_amount > 3 << BITRES && itheta != 0 {
+                sbits += rebalance_amount - (3 << BITRES);
+            }
+            // For stereo split, high bits of fill are always zero, so no folding for side
+            cm |= quant_band(
+                m, band_idx, ec,
+                y, n, sbits, b_blocks, lm,
+                ctx, side,
+                None,
+                None,
+                None,
+                fill >> b_blocks,
+            );
+        } else {
+            // Decode side (Y) first
+            cm = quant_band(
+                m, band_idx, ec,
+                y, n, sbits, b_blocks, lm,
+                ctx, side,
+                None,
+                None,
+                None,
+                fill >> b_blocks,
+            );
+            let rebalance_amount = sbits - (rebalance - ctx.remaining_bits);
+            let mut final_mbits = mbits;
+            if rebalance_amount > 3 << BITRES && itheta != 16384 {
+                final_mbits = mbits + rebalance_amount - (3 << BITRES);
+            }
+            // Decode mid (X)
+            let mut lowband_out_tmp: Option<Vec<f32>> = lowband_out.as_ref().map(|_| vec![0.0f32; n]);
+            cm |= quant_band(
+                m, band_idx, ec,
+                x, n, final_mbits, b_blocks, lm,
+                ctx, Q31ONE,
+                lowband,
+                lowband_out_tmp.as_deref_mut(),
+                None,
+                fill,
+            );
+            // Copy lowband_out_tmp back if needed
+            if let (Some(tmp), Some(lo)) = (&lowband_out_tmp, lowband_out) {
+                let copy_n = n.min(tmp.len()).min(lo.len());
+                lo[..copy_n].copy_from_slice(&tmp[..copy_n]);
+            }
+        }
+
+        // stereo_merge for N!=2
+        stereo_merge(x, y, mid, n);
+
+        // Apply inv flag
+        if inv {
+            for j in 0..n {
+                y[j] = -y[j];
+            }
+        }
+    }
+
+    cm
+}
+
+// =========================================================================
 // quant_all_bands - matches C bands.c quant_all_bands() decode path
 // =========================================================================
 pub fn quant_all_bands(
@@ -670,10 +1041,13 @@ pub fn quant_all_bands(
     start: usize,
     end: usize,
     x: &mut [f32],
+    y: Option<&mut [f32]>,
     collapse_masks: &mut [u8],
     pulses: &mut [i32],
     short_blocks: i32,
     spread: i32,
+    dual_stereo: i32,
+    intensity: i32,
     tf_res: &[i32],
     total_bits: i32,
     balance: i32,
@@ -681,19 +1055,23 @@ pub fn quant_all_bands(
     lm: i32,
     coded_bands: usize,
     seed: &mut u32,
+    disable_inv: bool,
 ) {
     let mm = 1usize << lm;
     let b_short = if short_blocks != 0 { mm } else { 1usize };
-    let c = 1usize; // mono for now
+    let c = if y.is_some() { 2usize } else { 1usize };
     let norm_offset = mm * m.ebands[start] as usize;
 
     // Allocate norm buffers for folding
     let norm_end = mm * m.ebands[m.nb_ebands - 1] as usize;
     let norm_size = norm_end - norm_offset;
-    let mut norm = vec![0.0f32; norm_size.max(1)];
+    let mut norm = vec![0.0f32; (c * norm_size).max(1)];
+    // norm2 is the second half when C==2
+    let norm2_offset = norm_size;
 
     let mut lowband_offset = 0usize;
     let mut update_lowband = true;
+    let mut dual_stereo = dual_stereo != 0;
 
     let mut ctx = BandCtx {
         spread,
@@ -701,9 +1079,19 @@ pub fn quant_all_bands(
         remaining_bits: total_bits,
         avoid_split_noise: b_short > 1,
         tf_change: 0,
+        intensity,
+        disable_inv,
     };
 
     let mut bal = balance;
+
+    // We take y out of the Option to work with it mutably in the loop
+    // If y is None, we'll use a dummy reference that's never accessed
+    let have_y = y.is_some();
+    let y_storage: &mut [f32] = match y {
+        Some(y_ref) => y_ref,
+        None => &mut [],
+    };
 
     for i in start..end {
         let tell = ec.tell_frac() as i32;
@@ -724,18 +1112,15 @@ pub fn quant_all_bands(
         } else {
             b = 0;
         }
+
         // Update lowband offset
-        if i > start {
-            let eff_low = mm * m.ebands[i] as usize;
-            if (eff_low >= mm * m.ebands[start] as usize + n || i == start + 1)
-                && (update_lowband || lowband_offset == 0)
-            {
-                lowband_offset = i;
-            }
+        if (mm * m.ebands[i] as usize >= mm * m.ebands[start] as usize + n || i == start + 1)
+            && (update_lowband || lowband_offset == 0)
+        {
+            lowband_offset = i;
         }
 
         // Special hybrid folding for band start+1
-        // C: special_hybrid_folding: OPUS_COPY(&norm[n1], &norm[2*n1 - n2], n2-n1);
         if i == start + 1 {
             let n1 = mm * (m.ebands[start + 1] - m.ebands[start]) as usize;
             if start + 2 <= m.nb_ebands {
@@ -744,8 +1129,16 @@ pub fn quant_all_bands(
                 if copy_len > 0 && 2 * n1 >= n2 {
                     let src_start = 2 * n1 - n2;
                     for j in 0..copy_len {
-                        if src_start + j < norm.len() && n1 + j < norm.len() {
+                        if src_start + j < norm_size && n1 + j < norm_size {
                             norm[n1 + j] = norm[src_start + j];
+                        }
+                    }
+                    // Also copy norm2 when dual_stereo
+                    if dual_stereo {
+                        for j in 0..copy_len {
+                            if src_start + j < norm_size && n1 + j < norm_size {
+                                norm[norm2_offset + n1 + j] = norm[norm2_offset + src_start + j];
+                            }
                         }
                     }
                 }
@@ -769,8 +1162,6 @@ pub fn quant_all_bands(
         let (mut x_cm, mut y_cm);
         if effective_lowband >= 0 {
             let fold_start_bound = effective_lowband as usize + norm_offset;
-            // C: fold_start = lowband_offset; while(M*eBands[--fold_start] > eff+norm_offset);
-            // Pre-decrement: always decrements at least once before checking
             let mut fold_start = lowband_offset;
             loop {
                 fold_start -= 1;
@@ -778,14 +1169,12 @@ pub fn quant_all_bands(
                     break;
                 }
             }
-            // C: fold_end = lowband_offset-1; while(++fold_end < i && M*eBands[fold_end] < eff+norm_offset+N);
             let mut fold_end = lowband_offset;
             while fold_end < i && (mm * m.ebands[fold_end] as usize) < fold_start_bound + n {
                 fold_end += 1;
             }
             x_cm = 0u32;
             y_cm = 0u32;
-            // C: do { ... } while (++fold_i < fold_end); -- always executes at least once
             let mut fold_i = fold_start;
             loop {
                 x_cm |= collapse_masks[fold_i * c] as u32;
@@ -800,43 +1189,127 @@ pub fn quant_all_bands(
             y_cm = x_cm;
         }
 
+        // Switch off dual stereo at intensity boundary
+        if dual_stereo && i as i32 == intensity {
+            dual_stereo = false;
+            // Merge norms: norm[j] = 0.5*(norm[j]+norm2[j])
+            let merge_len = (mm * m.ebands[i] as usize).saturating_sub(norm_offset);
+            for j in 0..merge_len.min(norm_size) {
+                norm[j] = 0.5 * (norm[j] + norm[norm2_offset + j]);
+            }
+        }
+
         // Prepare lowband for folding
-        let lowband_slice = if effective_lowband >= 0 && (effective_lowband as usize) < norm.len() {
-            Some(&norm[effective_lowband as usize..])
+        let lowband_slice = if effective_lowband >= 0 && (effective_lowband as usize) < norm_size {
+            Some(&norm[effective_lowband as usize..norm_size])
         } else {
             None
         };
 
-        // Save remaining_bits for tf_change
+        let lowband2_slice_start = if effective_lowband >= 0 && (effective_lowband as usize) < norm_size {
+            Some(norm2_offset + effective_lowband as usize)
+        } else {
+            None
+        };
 
-        // Decode band (mono path)
         let norm_off_band = (mm * m.ebands[i] as usize).saturating_sub(norm_offset);
-        let lowband_out_valid = !last && norm_off_band + n <= norm.len();
+        let lowband_out_valid = !last && norm_off_band + n <= norm_size;
 
-        let cm;
-        // We need a temporary for lowband_out since we can't borrow norm mutably while also reading it
-        let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
+        if dual_stereo {
+            // Dual stereo: decode X and Y independently with b/2 bits each
+            let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
 
-        cm = quant_band(
-            m, i, ec,
-            &mut x[x_off..x_off + n], n, b, b_short, lm,
-            &mut ctx, Q31ONE,
-            lowband_slice,
-            if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
-            None,
-            x_cm | y_cm,
-        );
+            x_cm = quant_band(
+                m, i, ec,
+                &mut x[x_off..x_off + n], n, b / 2, b_short, lm,
+                &mut ctx, Q31ONE,
+                lowband_slice,
+                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                None,
+                x_cm,
+            );
 
-        // Copy lowband_out back to norm
-        if lowband_out_valid && norm_off_band + n <= norm.len() {
-            let copy_n = n.min(lowband_out_tmp.len());
-            norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+            // Copy lowband_out to norm
+            if lowband_out_valid && norm_off_band + n <= norm_size {
+                let copy_n = n.min(lowband_out_tmp.len());
+                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+            }
+
+            // For Y: use norm2 for folding
+            let lowband2_slice = if let Some(start_idx) = lowband2_slice_start {
+                if start_idx < norm.len() {
+                    // We need to copy to a temp to avoid aliasing issues
+                    Some(norm[start_idx..norm.len().min(start_idx + n * 4)].to_vec())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let mut lowband_out_tmp2 = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
+
+            y_cm = quant_band(
+                m, i, ec,
+                &mut y_storage[x_off..x_off + n], n, b / 2, b_short, lm,
+                &mut ctx, Q31ONE,
+                lowband2_slice.as_deref(),
+                if lowband_out_valid { Some(&mut lowband_out_tmp2) } else { None },
+                None,
+                y_cm,
+            );
+
+            // Copy lowband_out to norm2
+            if lowband_out_valid && norm_off_band + n <= norm_size {
+                let copy_n = n.min(lowband_out_tmp2.len());
+                norm[norm2_offset + norm_off_band..norm2_offset + norm_off_band + copy_n]
+                    .copy_from_slice(&lowband_out_tmp2[..copy_n]);
+            }
+        } else if have_y {
+            // Joint stereo: quant_band_stereo
+            let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
+
+            x_cm = quant_band_stereo(
+                m, i, ec,
+                &mut x[x_off..x_off + n],
+                &mut y_storage[x_off..x_off + n],
+                n, b, b_short, lm,
+                &mut ctx,
+                lowband_slice,
+                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                x_cm | y_cm,
+            );
+            y_cm = x_cm;
+
+            // Copy lowband_out to norm
+            if lowband_out_valid && norm_off_band + n <= norm_size {
+                let copy_n = n.min(lowband_out_tmp.len());
+                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+            }
+        } else {
+            // Mono path
+            let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
+
+            x_cm = quant_band(
+                m, i, ec,
+                &mut x[x_off..x_off + n], n, b, b_short, lm,
+                &mut ctx, Q31ONE,
+                lowband_slice,
+                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                None,
+                x_cm | y_cm,
+            );
+            y_cm = x_cm;
+
+            // Copy lowband_out back to norm
+            if lowband_out_valid && norm_off_band + n <= norm_size {
+                let copy_n = n.min(lowband_out_tmp.len());
+                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+            }
         }
 
-        collapse_masks[i * c] = cm as u8;
-        if c == 2 {
-            collapse_masks[i * c + 1] = cm as u8;
-        }
+        collapse_masks[i * c] = x_cm as u8;
+        collapse_masks[i * c + c - 1] = y_cm as u8;
 
         bal += pulses[i] + tell;
         update_lowband = b > (n as i32) << BITRES;

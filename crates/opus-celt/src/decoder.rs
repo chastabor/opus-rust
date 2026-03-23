@@ -344,15 +344,35 @@ impl CeltDecoder {
         let mut collapse_masks = vec![0u8; c * nb_ebands];
 
 
+        // Split x_norm into X and Y for stereo
+        let y_norm = if c == 2 {
+            let (x_part, y_part) = x_norm.split_at_mut(n);
+            Some((x_part as *mut [f32], y_part as *mut [f32]))
+        } else {
+            None
+        };
+
+        // SAFETY: x_part and y_part are non-overlapping slices from x_norm
+        let (x_ref, y_ref) = if let Some((x_ptr, y_ptr)) = y_norm {
+            unsafe {
+                (&mut *x_ptr, Some(&mut *y_ptr))
+            }
+        } else {
+            (&mut x_norm[..], None)
+        };
+
         quant_all_bands(
             mode,
             start,
             end,
-            &mut x_norm,
+            x_ref,
+            y_ref,
             &mut collapse_masks,
             &mut pulses_vec,
             short_blocks,
             spread_decision,
+            dual_stereo,
+            intensity,
             &tf_res,
             len as i32 * (8 << BITRES) - anti_collapse_rsv,
             balance,
@@ -360,6 +380,7 @@ impl CeltDecoder {
             lm,
             coded_bands,
             &mut self.rng,
+            self.disable_inv,
         );
 
 
