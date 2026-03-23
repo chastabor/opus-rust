@@ -265,13 +265,17 @@ impl OpusEncoder {
 
     /// Decide bandwidth based on bitrate.
     fn decide_bandwidth(&self) -> i32 {
-        if self.bitrate_bps < 8000 {
+        // Thresholds approximate the C reference's bandwidth decision.
+        // Per-channel bitrate determines the highest bandwidth that can be
+        // encoded with acceptable quality.
+        let per_ch = self.bitrate_bps / self.channels.max(1);
+        if per_ch < 10000 {
             OPUS_BANDWIDTH_NARROWBAND
-        } else if self.bitrate_bps < 12000 {
+        } else if per_ch < 14000 {
             OPUS_BANDWIDTH_MEDIUMBAND
-        } else if self.bitrate_bps < 16000 {
+        } else if per_ch < 28000 {
             OPUS_BANDWIDTH_WIDEBAND
-        } else if self.bitrate_bps < 20000 {
+        } else if per_ch < 40000 {
             OPUS_BANDWIDTH_SUPERWIDEBAND
         } else {
             OPUS_BANDWIDTH_FULLBAND

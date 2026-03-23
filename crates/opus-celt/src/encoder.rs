@@ -1148,6 +1148,13 @@ impl CeltEncoder {
 
         let mut nb_available_bytes = nb_compressed_bytes.saturating_sub(nb_filled_bytes);
 
+        // Compute VBR rate early (needed for constrained VBR budget limiting).
+        let vbr_rate = if self.vbr && self.bitrate != 510000 {
+            ((self.bitrate as i64 * frame_size as i64 / mode.fs as i64) as i32) << BITRES
+        } else {
+            0
+        };
+
         local_enc = EcCtx::enc_init(nb_compressed_bytes as u32);
         // Use either the provided encoder or our local one
         let enc_is_external = ec.is_some();
@@ -1156,6 +1163,22 @@ impl CeltEncoder {
         } else {
             &mut local_enc
         };
+
+        // Early constrained VBR budget limiting (matches C reference lines 1941-1958).
+        // Prevents encoding more bits than the VBR reservoir allows, which would
+        // cause enc_shrink to fail later when the main VBR adjustment runs.
+        if vbr_rate > 0 && self.constrained_vbr {
+            let tell = enc.tell();
+            let vbr_bound = vbr_rate;
+            let max_allowed = ((vbr_rate + vbr_bound - self.vbr_reservoir) >> (BITRES + 3))
+                .max(if tell == 1 { 2 } else { 0 })
+                .min(nb_available_bytes as i32);
+            if (max_allowed as usize) < nb_available_bytes {
+                nb_compressed_bytes = nb_filled_bytes + max_allowed as usize;
+                nb_available_bytes = max_allowed as usize;
+                enc.enc_shrink(nb_compressed_bytes as u32);
+            }
+        }
 
         let mut total_bits = nb_compressed_bytes as i32 * 8;
         let mut tell = enc.tell();
@@ -1490,7 +1513,10 @@ impl CeltEncoder {
         // -----------------------------------------------------------------
         // 14b. VBR rate computation
         // -----------------------------------------------------------------
-        let min_allowed = ((enc.tell() + tot_boost + (1 << (BITRES + 3)) - 1) >> (BITRES + 3)) + 2;
+        // min_allowed: smallest packet that won't break the encoder.
+        // Must be at least the physical bytes already written to the range coder.
+        let min_allowed = (((enc.tell() + tot_boost + (1 << (BITRES + 3)) - 1) >> (BITRES + 3)) + 2)
+            .max((enc.offs + enc.end_offs) as i32);
         if self.vbr && self.bitrate != 510000 {
             let lm_diff = mode.max_lm as i32 - lm;
             let vbr_rate = ((self.bitrate as i64 * frame_size as i64 / mode.fs as i64) as i32) << BITRES;

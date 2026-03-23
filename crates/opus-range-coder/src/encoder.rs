@@ -192,13 +192,17 @@ impl EcCtx {
     }
 
     /// Compact the data in the buffer to the target size.
+    /// If `size` is smaller than the data already written (`offs + end_offs`),
+    /// clamps to the minimum viable size to avoid corruption.
     pub fn enc_shrink(&mut self, size: u32) {
-        debug_assert!(self.offs + self.end_offs <= size);
+        let min_size = self.offs + self.end_offs;
+        let size = size.max(min_size);
         let src_start = (self.storage - self.end_offs) as usize;
         let dst_start = (size - self.end_offs) as usize;
         let len = self.end_offs as usize;
-        // Copy end bytes to new position
-        self.buf.copy_within(src_start..src_start + len, dst_start);
+        if src_start != dst_start && len > 0 {
+            self.buf.copy_within(src_start..src_start + len, dst_start);
+        }
         self.storage = size;
     }
 
