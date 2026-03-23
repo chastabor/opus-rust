@@ -6,11 +6,9 @@ use crate::{
     silk_smulwb, silk_smmul,
 };
 
-// Maximum LPC order for Schur recursion (matches SILK_MAX_ORDER_LPC in SigProc_FIX.h)
-const SILK_MAX_ORDER_LPC: usize = 24;
-
-// Maximum shape LPC order for warped autocorrelation (matches MAX_SHAPE_LPC_ORDER in define.h)
-const MAX_SHAPE_LPC_ORDER: usize = 24;
+// Use the shared MAX_SHAPE_LPC_ORDER (=24) from nsq.rs for both Schur recursion and warped autocorrelation
+use crate::nsq::MAX_SHAPE_LPC_ORDER;
+const SILK_MAX_ORDER_LPC: usize = MAX_SHAPE_LPC_ORDER;
 
 // Q-domain constants for warped autocorrelation (from silk/fixed/main_FIX.h)
 const QC: i32 = 10;
@@ -532,6 +530,210 @@ pub fn silk_inner_prod_aligned(in_vec1: &[i16], in_vec2: &[i16], len: usize) -> 
         sum = sum.wrapping_add((in_vec1[i] as i32) * (in_vec2[i] as i32));
     }
     sum
+}
+
+// ============================================================================
+// 8. silk_resampler_down2 - Downsample by a factor 2
+// Ported from silk/resampler_down2.c
+// ============================================================================
+
+/// Allpass filter coefficients for down2 resampler (from silk/resampler_rom.h)
+const SILK_RESAMPLER_DOWN2_0: i16 = 9872;
+const SILK_RESAMPLER_DOWN2_1: i16 = (39809 - 65536) as i16; // = -25727
+
+/// Downsample by a factor 2, using allpass filter pair.
+///
+/// - `s`: state vector (2 elements), preserved between calls
+/// - `out`: output signal, length = floor(in_len / 2)
+/// - `input`: input signal, length = `in_len`
+/// - `in_len`: number of input samples
+pub fn silk_resampler_down2(s: &mut [i32; 2], out: &mut [i16], input: &[i16], in_len: usize) {
+    let len2 = in_len >> 1;
+
+    // Internal variables and state are in Q10 format
+    for k in 0..len2 {
+        // Convert to Q10
+        let in32 = (input[2 * k] as i32) << 10;
+
+        // All-pass section for even input sample
+        let y = in32 - s[0];
+        let x = silk_smlawb(y, y, SILK_RESAMPLER_DOWN2_1 as i32);
+        let mut out32 = s[0] + x;
+        s[0] = in32 + x;
+
+        // Convert to Q10
+        let in32 = (input[2 * k + 1] as i32) << 10;
+
+        // All-pass section for odd input sample, and add to output of previous section
+        let y = in32 - s[1];
+        let x = silk_smulwb(y, SILK_RESAMPLER_DOWN2_0 as i32);
+        out32 = out32 + s[1] + x;
+        s[1] = in32 + x;
+
+        // Add, convert back to int16 and store to output
+        out[k] = silk_sat16(silk_rshift_round(out32, 11));
+    }
+}
+
+// ============================================================================
+// 9. silk_resampler_down2_3 - Downsample by 2/3 (12kHz -> 8kHz)
+// Ported from silk/resampler_down2_3.c
+// ============================================================================
+
+/// AR filter coefficients for 2/3 resampler (from silk/resampler_rom.c)
+const SILK_RESAMPLER_2_3_COEFS_LQ: [i16; 6] = [
+    -2797, -6507,
+     4697, 10739,
+     1567,  8276,
+];
+
+/// Second order AR filter with single delay elements.
+/// Ported from silk/resampler_private_AR2.c.
+fn silk_resampler_private_ar2(
+    s: &mut [i32],       // state [2]
+    out_q8: &mut [i32],  // output Q8
+    input: &[i16],       // input
+    a_q14: &[i16],       // AR coefficients, Q14
+    len: usize,
+) {
+    for k in 0..len {
+        let out32 = s[0].wrapping_add((input[k] as i32) << 8);
+        out_q8[k] = out32;
+        let out32_shifted = out32 << 2;
+        s[0] = silk_smlawb(s[1], out32_shifted, a_q14[0] as i32);
+        s[1] = silk_smulwb(out32_shifted, a_q14[1] as i32);
+    }
+}
+
+/// Downsample by a factor 2/3, low quality.
+/// Used for 12kHz -> 8kHz conversion.
+///
+/// - `s`: state vector (6 elements: [0..3] = FIR buffer, [4..5] = AR2 state)
+/// - `out`: output signal, length = floor(2 * in_len / 3)
+/// - `input`: input signal, length = `in_len`
+/// - `in_len`: number of input samples
+pub fn silk_resampler_down2_3(s: &mut [i32; 6], out: &mut [i16], input: &[i16], in_len: usize) {
+    const ORDER_FIR: usize = 4;
+    const BATCH_SIZE: usize = 480; // RESAMPLER_MAX_BATCH_SIZE_MS * RESAMPLER_MAX_FS_KHZ
+
+    let mut buf = [0i32; BATCH_SIZE + ORDER_FIR];
+
+    // Copy buffered samples to start of buffer
+    buf[..ORDER_FIR].copy_from_slice(&s[..ORDER_FIR]);
+
+    let mut in_offset = 0usize;
+    let mut out_offset = 0usize;
+    let mut remaining = in_len;
+
+    loop {
+        let n_samples_in = remaining.min(BATCH_SIZE);
+
+        // Second-order AR filter (output in Q8)
+        silk_resampler_private_ar2(
+            &mut s[ORDER_FIR..],
+            &mut buf[ORDER_FIR..ORDER_FIR + n_samples_in],
+            &input[in_offset..],
+            &SILK_RESAMPLER_2_3_COEFS_LQ[..2],
+            n_samples_in,
+        );
+
+        // Interpolate filtered signal
+        let mut buf_idx = 0usize;
+        let mut counter = n_samples_in;
+        while counter > 2 {
+            // Inner product (first output sample per 3 inputs)
+            let mut res_q6 = silk_smulwb(buf[buf_idx], SILK_RESAMPLER_2_3_COEFS_LQ[2] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 1], SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 2], SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 3], SILK_RESAMPLER_2_3_COEFS_LQ[4] as i32);
+            out[out_offset] = silk_sat16(silk_rshift_round(res_q6, 6));
+            out_offset += 1;
+
+            // Inner product (second output sample per 3 inputs)
+            res_q6 = silk_smulwb(buf[buf_idx + 1], SILK_RESAMPLER_2_3_COEFS_LQ[4] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 2], SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 3], SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32);
+            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 4], SILK_RESAMPLER_2_3_COEFS_LQ[2] as i32);
+            out[out_offset] = silk_sat16(silk_rshift_round(res_q6, 6));
+            out_offset += 1;
+
+            buf_idx += 3;
+            counter -= 3;
+        }
+
+        in_offset += n_samples_in;
+        remaining -= n_samples_in;
+
+        if remaining > 0 {
+            // Copy last part of filtered signal to beginning of buffer
+            for i in 0..ORDER_FIR {
+                buf[i] = buf[n_samples_in + i];
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Copy last part of filtered signal to the state for the next call
+    let n_samples_in = in_len.min(BATCH_SIZE); // last batch size
+    s[..ORDER_FIR].copy_from_slice(&buf[n_samples_in..n_samples_in + ORDER_FIR]);
+}
+
+// ============================================================================
+// 10. silk_insertion_sort_decreasing_int16 - Partial insertion sort (decreasing)
+// Ported from silk/sort.c
+// ============================================================================
+
+/// Partial insertion sort (decreasing order) for i16 values.
+///
+/// Sorts the array `a` in decreasing order, keeping track of the original
+/// indices in `idx`. Only guarantees the first `k` elements are correctly
+/// sorted (the top-K values).
+///
+/// - `a`: values array (modified in place), length >= `len`
+/// - `idx`: index array (filled), length >= `k`
+/// - `len`: number of elements in `a`
+/// - `k`: number of correctly sorted positions needed
+pub fn silk_insertion_sort_decreasing_int16(
+    a: &mut [i16],
+    idx: &mut [i32],
+    len: usize,
+    k: usize,
+) {
+    debug_assert!(k > 0 && len > 0 && len >= k);
+
+    // Write start indices in index vector
+    for i in 0..k {
+        idx[i] = i as i32;
+    }
+
+    // Sort first K vector elements by value, decreasing order
+    for i in 1..k {
+        let value = a[i] as i32;
+        let mut j = i as i32 - 1;
+        while j >= 0 && value > a[j as usize] as i32 {
+            a[(j + 1) as usize] = a[j as usize];
+            idx[(j + 1) as usize] = idx[j as usize];
+            j -= 1;
+        }
+        a[(j + 1) as usize] = value as i16;
+        idx[(j + 1) as usize] = i as i32;
+    }
+
+    // Check remaining values but only keep top K correct
+    for i in k..len {
+        let value = a[i] as i32;
+        if value > a[k - 1] as i32 {
+            let mut j = k as i32 - 2;
+            while j >= 0 && value > a[j as usize] as i32 {
+                a[(j + 1) as usize] = a[j as usize];
+                idx[(j + 1) as usize] = idx[j as usize];
+                j -= 1;
+            }
+            a[(j + 1) as usize] = value as i16;
+            idx[(j + 1) as usize] = i as i32;
+        }
+    }
 }
 
 #[cfg(test)]

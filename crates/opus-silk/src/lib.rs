@@ -115,6 +115,16 @@ pub const PE_NB_CBKS_STAGE2_EXT: usize = 11;
 pub const PE_NB_CBKS_STAGE3_MAX: usize = 34;
 pub const PE_NB_CBKS_STAGE2_10MS: usize = 3;
 pub const PE_NB_CBKS_STAGE3_10MS: usize = 12;
+pub const PE_SUBFR_LENGTH_MS: i32 = 5;
+pub const PE_LTP_MEM_LENGTH_MS: i32 = 20;
+pub const PE_D_SRCH_LENGTH: usize = 24;
+pub const PE_NB_STAGE3_LAGS: usize = 5;
+pub const PE_NB_CBKS_STAGE2: usize = 3;
+pub const PE_NB_CBKS_STAGE3_MID: usize = 24;
+pub const PE_NB_CBKS_STAGE3_MIN: usize = 16;
+pub const PE_SHORTLAG_BIAS: i32 = 1638;       // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
+pub const PE_PREVLAG_BIAS: i32 = 1638;        // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
+pub const PE_FLATCONTOUR_BIAS: i32 = 1638;    // 0.05 in Q15 = SILK_FIX_CONST(0.05, 15)
 
 // LSF cosine table size
 pub const LSF_COS_TAB_SZ_FIX: usize = 128;

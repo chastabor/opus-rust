@@ -121,6 +121,10 @@ struct EncChannelState {
 
     // Frame counter
     n_frames_encoded: i32,
+
+    // Pitch analysis state (for lag tracking across frames)
+    prev_lag: i32,
+    ltp_corr_q15: i32,
 }
 
 impl EncChannelState {
@@ -153,6 +157,8 @@ impl EncChannelState {
             input_buf: vec![0i16; MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH],
             input_buf_idx: 0,
             n_frames_encoded: 0,
+            prev_lag: 0,
+            ltp_corr_q15: 0,
         }
     }
 
@@ -352,34 +358,58 @@ impl SilkEncoder {
 
         cs.indices.nlsf_interp_coef_q2 = 4; // No interpolation (simplified)
 
-        // 5. Pitch analysis
+        // 5. Pitch analysis using full 3-stage hierarchical search
         let mut pitch_lags = [0i32; MAX_NB_SUBFR];
-        let voiced = pitch_analysis::silk_pitch_analysis_simple(
-            &analysis_buf,
+
+        // Derive pitch estimation complexity from encoder complexity (matches C reference)
+        let pe_complexity = match control.complexity {
+            0 => 0,
+            1 => 1,
+            2 => 0,
+            3 => 1,
+            4..=7 => 1,
+            _ => 2,
+        };
+
+        // Derive search threshold from complexity (matches C reference)
+        let search_thres1_q16 = match control.complexity {
+            0 | 2 => 52429,   // SILK_FIX_CONST(0.8, 16)
+            1 | 3 => 49807,   // SILK_FIX_CONST(0.76, 16)
+            4 | 5 => 48497,   // SILK_FIX_CONST(0.74, 16)
+            6 | 7 => 47186,   // SILK_FIX_CONST(0.72, 16)
+            _ => 45875,       // SILK_FIX_CONST(0.7, 16)
+        };
+        let search_thres2_q13 = 2458; // SILK_FIX_CONST(0.3, 13)
+
+        let ret = pitch_analysis::silk_pitch_analysis_core(
+            &analysis_buf[..analysis_buf_len],
             &mut pitch_lags,
+            &mut cs.indices.lag_index,
+            &mut cs.indices.contour_index,
+            &mut cs.ltp_corr_q15,
+            cs.prev_lag,
+            search_thres1_q16,
+            search_thres2_q13,
             cs.fs_khz,
+            pe_complexity,
             cs.nb_subfr,
-            cs.frame_length,
         );
+
+        let voiced = ret == 0;
 
         // Set signal type
         if voiced {
             cs.indices.signal_type = TYPE_VOICED as i8;
+            cs.prev_lag = pitch_lags[nb_subfr - 1]; // Track lag for next frame
         } else {
             cs.indices.signal_type = TYPE_UNVOICED as i8;
+            cs.prev_lag = 0;
         }
         cs.indices.quant_offset_type = 0; // Low offset
 
-        // 6. Pitch contour and LTP (for voiced frames)
+        // 6. LTP analysis (for voiced frames)
+        // Note: lag_index and contour_index are already set by silk_pitch_analysis_core
         if voiced {
-            pitch_analysis::silk_find_pitch_contour(
-                &mut cs.indices.contour_index,
-                &mut cs.indices.lag_index,
-                &pitch_lags,
-                cs.fs_khz,
-                cs.nb_subfr,
-            );
-
             // LTP analysis: find per_index and ltp_index
             pitch_analysis::silk_find_ltp_params(
                 &mut cs.indices.ltp_index,

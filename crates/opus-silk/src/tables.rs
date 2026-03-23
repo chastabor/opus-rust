@@ -705,3 +705,24 @@ pub static SILK_NLSF_CB_WB: NlsfCbStruct = NlsfCbStruct {
     ec_rates_q5: &SILK_NLSF_CB2_BITS_WB_Q5,
     delta_min_q15: &SILK_NLSF_DELTA_MIN_WB_Q15,
 };
+
+// ---- Pitch estimation stage 3 tables (pitch_est_tables.c) ----
+
+pub const SILK_LAG_RANGE_STAGE3: [[[i32; 2]; 4]; 3] = [
+    // complexity 0
+    [[-5, 8], [-1, 6], [-1, 6], [-4, 10]],
+    // complexity 1
+    [[-6, 10], [-2, 6], [-1, 6], [-5, 10]],
+    // complexity 2
+    [[-9, 12], [-3, 7], [-2, 7], [-7, 13]],
+];
+
+pub const SILK_LAG_RANGE_STAGE3_10_MS: [[i32; 2]; 2] = [
+    [-3, 7], [-2, 7],
+];
+
+pub const SILK_NB_CBK_SEARCHS_STAGE3: [usize; 3] = [
+    16, // PE_NB_CBKS_STAGE3_MIN
+    24, // PE_NB_CBKS_STAGE3_MID
+    34, // PE_NB_CBKS_STAGE3_MAX
+];
