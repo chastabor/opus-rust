@@ -1,7 +1,7 @@
 // Port of silk/resampler.c, silk/resampler_private_up2_HQ.c,
 // silk/resampler_private_IIR_FIR.c - SILK resampler
 
-use crate::{silk_smulwb, silk_smlawb, silk_smlabb, silk_smulbb, silk_sat16, silk_rshift_round};
+use crate::{silk_smulwb, silk_smlawb, silk_smlabb, silk_smulbb, silk_sat16, silk_rshift_round, MAX_FS_KHZ};
 
 /// Resampler state
 #[derive(Clone)]
@@ -170,10 +170,15 @@ pub fn silk_resampler(
             .copy_from_slice(&input[..copy_len]);
     }
 
+    // Copy delay_buf to stack once to avoid borrow conflict with other s fields
+    let mut delay_tmp = [0i16; 48];
+    let delay_len = s.delay_buf.len().min(delay_tmp.len());
+    delay_tmp[..delay_len].copy_from_slice(&s.delay_buf[..delay_len]);
+
     match s.resampler_function {
         ResamplerFunc::Copy => {
-            let copy1 = fs_in.min(out.len()).min(s.delay_buf.len());
-            out[..copy1].copy_from_slice(&s.delay_buf[..copy1]);
+            let copy1 = fs_in.min(out.len()).min(delay_len);
+            out[..copy1].copy_from_slice(&delay_tmp[..copy1]);
 
             let remaining_in = in_len.saturating_sub(fs_in);
             let remaining_out = out.len().saturating_sub(fs_out);
@@ -184,8 +189,7 @@ pub fn silk_resampler(
             }
         }
         ResamplerFunc::Up2Hq => {
-            let delay_buf_clone = s.delay_buf.clone();
-            silk_resampler_private_up2_hq(&mut s.s_iir, out, &delay_buf_clone, fs_in as i32);
+            silk_resampler_private_up2_hq(&mut s.s_iir, out, &delay_tmp[..delay_len], fs_in as i32);
             if n_samples < input.len() && fs_out < out.len() {
                 let remain_len = (in_len as i32 - fs_in as i32).max(0);
                 silk_resampler_private_up2_hq(
@@ -197,16 +201,13 @@ pub fn silk_resampler(
             }
         }
         ResamplerFunc::IirFir => {
-            let delay_buf_clone = s.delay_buf.clone();
-            silk_resampler_private_iir_fir(s, out, &delay_buf_clone, fs_in as i32);
+            silk_resampler_private_iir_fir(s, out, &delay_tmp[..delay_len], fs_in as i32);
             if n_samples < input.len() && fs_out < out.len() {
                 let remain_len = (in_len as i32 - fs_in as i32).max(0);
                 silk_resampler_private_iir_fir_inner(s, &mut out[fs_out..], &input[n_samples..], remain_len);
             }
         }
         ResamplerFunc::DownFir => {
-            // Down FIR not commonly needed for decode path (decode goes up)
-            // but implement basic linear interpolation as fallback
             resample_linear(out, input, in_len, fs_in, fs_out);
         }
     }
@@ -339,9 +340,9 @@ fn silk_resampler_private_iir_fir_inner(
     while remaining > 0 {
         let n_samples_in = remaining.min(s.batch_size) as usize;
 
-        // Allocate buffer: 2 * n_samples_in (for up2x output) + RESAMPLER_ORDER_FIR_12
-        let buf_len = 2 * n_samples_in + RESAMPLER_ORDER_FIR_12;
-        let mut buf = vec![0i16; buf_len];
+        // Buffer for up2x output + FIR filter state. Max batch = 160, so max = 2*160+8 = 328.
+        const MAX_RESAMPLER_BUF: usize = 2 * 10 * MAX_FS_KHZ + RESAMPLER_ORDER_FIR_12;
+        let mut buf = [0i16; MAX_RESAMPLER_BUF];
 
         // Copy buffered FIR samples to start of buffer
         let fir_copy = RESAMPLER_ORDER_FIR_12.min(s.s_fir_i16.len());

@@ -227,11 +227,10 @@ impl SilkDecoder {
             self.channel_state[1].first_frame_after_reset = true;
         }
 
-        let frame_length = self.channel_state[0].frame_length as usize;
         let mut n_samples_out_dec = 0i32;
 
-        // Allocate temp buffers for each channel
-        let mut samples_out1 = vec![vec![0i16; frame_length + 2]; n_ch_internal as usize];
+        // Temp buffers for each channel (stack-allocated, max 2 channels)
+        let mut samples_out1 = [[0i16; MAX_FRAME_LENGTH + 2]; 2];
 
         let has_side = if lost_flag == FLAG_DECODE_NORMAL {
             !decode_only_middle
@@ -304,7 +303,8 @@ impl SilkDecoder {
 
         // Resample and interleave
         let n_ch_min = (n_ch_api as usize).min(n_ch_internal as usize);
-        let mut resample_buf = vec![0i16; n_out];
+        const MAX_RESAMPLE_OUT: usize = MAX_FRAME_LENGTH_MS * 48; // 20ms at 48kHz
+        let mut resample_buf = [0i16; MAX_RESAMPLE_OUT];
 
         for n in 0..n_ch_min {
             resampler::silk_resampler(
@@ -378,7 +378,7 @@ fn silk_decode_frame(
         );
 
         // Decode pulses
-        let mut pulses = vec![0i16; (l + SHELL_CODEC_FRAME_LENGTH - 1) & !(SHELL_CODEC_FRAME_LENGTH - 1)];
+        let mut pulses = [0i16; MAX_FRAME_LENGTH];
         decode_pulses::silk_decode_pulses(
             ps_range_dec,
             &mut pulses,

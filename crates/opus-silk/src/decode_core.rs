@@ -17,10 +17,10 @@ pub fn silk_decode_core(
     let lpc_order = ps_dec.lpc_order as usize;
     let ltp_mem_length = ps_dec.ltp_mem_length as usize;
 
-    let mut s_ltp = vec![0i16; ltp_mem_length];
-    let mut s_ltp_q15 = vec![0i32; ltp_mem_length + frame_length];
-    let mut res_q14 = vec![0i32; subfr_length];
-    let mut s_lpc_q14 = vec![0i32; subfr_length + MAX_LPC_ORDER];
+    let mut s_ltp = [0i16; MAX_LTP_MEM_LENGTH];
+    let mut s_ltp_q15 = [0i32; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH];
+    let mut res_q14 = [0i32; MAX_SUB_FRAME_LENGTH];
+    let mut s_lpc_q14 = [0i32; MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER];
 
     let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10
         [(ps_dec.indices.signal_type >> 1) as usize]

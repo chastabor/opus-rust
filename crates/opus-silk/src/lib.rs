@@ -60,6 +60,8 @@ pub const MAX_SUB_FRAME_LENGTH: usize = SUB_FRAME_LENGTH_MS * MAX_FS_KHZ;
 pub const MAX_FRAME_LENGTH_MS: usize = SUB_FRAME_LENGTH_MS * MAX_NB_SUBFR;
 pub const MAX_FRAME_LENGTH: usize = MAX_FRAME_LENGTH_MS * MAX_FS_KHZ;
 
+pub const MAX_LTP_MEM_LENGTH: usize = LTP_MEM_LENGTH_MS * MAX_FS_KHZ;
+
 // LPC
 pub const MAX_LPC_ORDER: usize = 16;
 pub const MIN_LPC_ORDER: usize = 10;

@@ -136,7 +136,8 @@ fn silk_plc_conceal(
 
     // BWE of LPC coefficients
     nlsf::silk_bwexpander(&mut ps_dec.s_plc.prev_lpc_q12, lpc_order, BWE_COEF_Q16);
-    let a_q12: Vec<i16> = ps_dec.s_plc.prev_lpc_q12[..lpc_order].to_vec();
+    let mut a_q12 = [0i16; MAX_LPC_ORDER];
+    a_q12[..lpc_order].copy_from_slice(&ps_dec.s_plc.prev_lpc_q12[..lpc_order]);
 
     // Compute rand_scale_q14
     let mut rand_scale_q14 = ps_dec.s_plc.rand_scale_q14;
@@ -157,7 +158,7 @@ fn silk_plc_conceal(
     let lag = silk_rshift_round(ps_dec.s_plc.pitch_l_q8, 8);
 
     // Simplified PLC: generate output using LPC synthesis
-    let mut s_lpc_q14 = vec![0i32; ltp_mem_length + frame_length + MAX_LPC_ORDER];
+    let mut s_lpc_q14 = [0i32; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH + MAX_LPC_ORDER];
     let lpc_base = ltp_mem_length - MAX_LPC_ORDER;
     s_lpc_q14[lpc_base..lpc_base + MAX_LPC_ORDER]
         .copy_from_slice(&ps_dec.s_lpc_q14_buf);

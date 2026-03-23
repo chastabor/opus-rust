@@ -123,6 +123,28 @@ pub fn bench_configs() -> Vec<BenchConfig> {
     ]
 }
 
+pub const MAX_PACKET: usize = 4000;
+
+/// Pre-encode packets using the C encoder for decode benchmarks.
+pub fn pre_encode_with_c(cfg: &BenchConfig) -> Vec<Vec<u8>> {
+    use opus_ffi::COpusEncoder;
+    let mut enc = COpusEncoder::new(SAMPLE_RATE, cfg.channels, cfg.application).unwrap();
+    enc.set_max_bandwidth(cfg.max_bandwidth).unwrap();
+    enc.set_complexity(cfg.complexity).unwrap();
+    enc.set_bitrate(cfg.bitrate).unwrap();
+
+    let input_frames = generate_input_frames(cfg);
+    let mut packets = Vec::with_capacity(input_frames.len());
+    for frame in &input_frames {
+        let mut packet = vec![0u8; MAX_PACKET];
+        match enc.encode_float(frame, FRAME_SIZE, &mut packet) {
+            Ok(len) => packets.push(packet[..len as usize].to_vec()),
+            Err(_) => return Vec::new(),
+        }
+    }
+    packets
+}
+
 /// Generate FRAMES_PER_ITER frames of test signal for a given config.
 pub fn generate_input_frames(cfg: &BenchConfig) -> Vec<Vec<f32>> {
     let samples_per_frame = FRAME_SIZE as usize * cfg.channels as usize;
