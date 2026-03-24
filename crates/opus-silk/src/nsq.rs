@@ -164,12 +164,13 @@ fn silk_noise_shape_quantizer(
         nsq.rand_seed = silk_rand(nsq.rand_seed);
 
         // Short-term prediction
+        // C: silk_SMULWB(buf_Q14, coef_Q12) = (buf * (int16)coef) >> 16 → Q10
         let mut lpc_pred_q10: i64 = 0;
         for j in 0..predict_lpc_order {
             lpc_pred_q10 += (nsq.s_lpc_q14[ps_lpc_idx - j] as i64)
-                * (a_q12[j] as i64);
+                * (a_q12[j] as i16 as i64);
         }
-        let lpc_pred_q10 = (lpc_pred_q10 >> 14) as i32;
+        let lpc_pred_q10 = (lpc_pred_q10 >> 16) as i32;
 
         // Long-term prediction
         let ltp_pred_q13 = if signal_type == TYPE_VOICED {

@@ -90,6 +90,8 @@ pub struct OpusEncoder {
     packet_loss_perc: i32,
     /// Final range coder state for testing/verification.
     pub range_final: u32,
+    /// Whether SILK prefill has been done (warms up NSQ state before first real frame).
+    silk_prefilled: bool,
 }
 
 impl OpusEncoder {
@@ -145,6 +147,7 @@ impl OpusEncoder {
             use_inband_fec: false,
             packet_loss_perc: 0,
             range_final: 0,
+            silk_prefilled: false,
         })
     }
 
@@ -463,6 +466,45 @@ impl OpusEncoder {
                 ret
             } else {
                 // Mono SILK
+                // Prefill: C reference (opus_encoder.c:2191-2208) runs a full SILK
+                // encode on the input with suppressed output before the first real
+                // frame. This warms up NSQ state, gains, NLSFs, and input history.
+                // After prefill, n_frames_encoded is reset to 0 so the real encode
+                // uses CODE_INDEPENDENTLY.
+                if !self.silk_prefilled {
+                    // C reference prefill (opus_encoder.c:2191-2206, enc_API.c:237-244):
+                    // Uses a ramped signal with payloadSize_ms=10, complexity=0.
+                    // The ramp covers Fs/400 samples (2.5ms); everything before is zero.
+                    let prefill_rate = silk_internal_rate;
+                    let prefill_samples = (prefill_rate * 10 / 1000) as usize; // 10ms
+                    let ramp_len = (prefill_rate / 400) as usize; // 2.5ms
+                    let mut prefill_pcm = vec![0i16; prefill_samples * stream_channels as usize];
+                    // Copy end of input and apply ramp
+                    let ramp_start = prefill_samples.saturating_sub(ramp_len);
+                    for i in ramp_start..prefill_samples {
+                        let fade = ((i - ramp_start) as i32 * 32767 / ramp_len.max(1) as i32) as i16;
+                        for ch in 0..stream_channels as usize {
+                            let src_i = i.min(silk_samples.saturating_sub(1));
+                            let src = pcm_i16[src_i * stream_channels as usize + ch];
+                            prefill_pcm[i * stream_channels as usize + ch] =
+                                ((src as i32 * fade as i32) >> 15) as i16;
+                        }
+                    }
+
+                    // Use complexity=0 and payloadSize_ms=10 for prefill (matching C)
+                    let prefill_control = SilkEncControl {
+                        payload_size_ms: 10,
+                        complexity: 0,
+                        ..control.clone()
+                    };
+                    let mut prefill_enc = EcCtx::enc_init(1275);
+                    prefill_enc.enc_bit_logp(true, 1);
+                    prefill_enc.enc_bit_logp(false, 1);
+                    self.silk_enc.encode(&prefill_control, &mut prefill_enc, &prefill_pcm);
+                    self.silk_enc.reset_frame_counter();
+                    self.silk_prefilled = true;
+                }
+
                 // Write VAD flag and LBRR flag
                 enc.enc_bit_logp(true, 1);
                 enc.enc_bit_logp(false, 1);

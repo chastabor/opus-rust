@@ -97,8 +97,10 @@ fn silk_nlsf_del_dec_quant(
         }
 
         let idx = (iv + NLSF_QUANT_MAX_AMPLITUDE_EXT) as usize;
-        out0_q10_table[idx] = ((out0 as i64 * quant_step_size_q16 as i64) >> 16) as i32;
-        out1_q10_table[idx] = ((out1 as i64 * quant_step_size_q16 as i64) >> 16) as i32;
+        // C: silk_RSHIFT(silk_SMULBB(out0_Q10, quant_step_size_Q16), 16)
+        // silk_SMULBB truncates both operands to i16 before multiply
+        out0_q10_table[idx] = ((out0 as i16 as i32) * (quant_step_size_q16 as i16 as i32)) >> 16;
+        out1_q10_table[idx] = ((out1 as i16 as i32) * (quant_step_size_q16 as i16 as i32)) >> 16;
     }
 
     let mut n_states: usize = 1;
@@ -121,7 +123,9 @@ fn silk_nlsf_del_dec_quant(
         for j in 0..n_states {
             let pred_q10 = (((pred_coef_q8[i_rev] as i16 as i32) * (prev_out_q10[j] as i32)) >> 8) as i32;
             let res_q10 = in_q10 - pred_q10;
-            let mut ind_tmp = ((inv_quant_step_size_q6 as i32) * res_q10) >> 16;
+            // C: silk_RSHIFT(silk_SMULBB(inv_quant_step_size_Q6, res_Q10), 16)
+            // silk_SMULBB truncates both to i16
+            let mut ind_tmp = ((inv_quant_step_size_q6 as i16 as i32) * (res_q10 as i16 as i32)) >> 16;
             ind_tmp = ind_tmp.clamp(-NLSF_QUANT_MAX_AMPLITUDE_EXT, NLSF_QUANT_MAX_AMPLITUDE_EXT - 1);
             ind[j][i_rev] = ind_tmp as i8;
 
@@ -159,14 +163,16 @@ fn silk_nlsf_del_dec_quant(
             }
 
             let rd_tmp_q25 = rd_q25[j];
-            let diff0 = in_q10 - out0 as i32;
+            // C: silk_MLA(rd_tmp, silk_SMULBB(diff, diff), w) + silk_SMLABB(.., mu, rate)
+            // silk_SMULBB truncates both operands to i16 before multiply
+            let diff0 = (in_q10 - out0 as i32) as i16 as i32;
             rd_q25[j] = rd_tmp_q25
-                .wrapping_add(diff0.wrapping_mul(diff0).wrapping_mul(w_q5[i_rev] as i32))
-                .wrapping_add(mu_q20.wrapping_mul(rate0_q5));
-            let diff1 = in_q10 - out1 as i32;
+                .wrapping_add((diff0 * diff0).wrapping_mul(w_q5[i_rev] as i32))
+                .wrapping_add((mu_q20 as i16 as i32).wrapping_mul(rate0_q5 as i16 as i32));
+            let diff1 = (in_q10 - out1 as i32) as i16 as i32;
             rd_q25[j + n_states] = rd_tmp_q25
-                .wrapping_add(diff1.wrapping_mul(diff1).wrapping_mul(w_q5[i_rev] as i32))
-                .wrapping_add(mu_q20.wrapping_mul(rate1_q5));
+                .wrapping_add((diff1 * diff1).wrapping_mul(w_q5[i_rev] as i32))
+                .wrapping_add((mu_q20 as i16 as i32).wrapping_mul(rate1_q5 as i16 as i32));
         }
 
         if n_states <= NLSF_QUANT_DEL_DEC_STATES / 2 {
@@ -379,6 +385,7 @@ pub fn silk_nlsf_encode(
     for i in 0..order {
         nlsf_indices[i + 1] = temp_indices2[best_offset + i];
     }
+
 
     // Decode back to get the quantized NLSFs
     silk_nlsf_decode(p_nlsf_q15, nlsf_indices, nlsf_cb);

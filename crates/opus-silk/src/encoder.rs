@@ -376,6 +376,22 @@ impl SilkEncoder {
         }
     }
 
+    /// Clear first_frame_after_reset flag (equivalent to C reference prefill effect).
+    pub fn clear_first_frame_after_reset(&mut self) {
+        self.state.first_frame_after_reset = false;
+    }
+
+    /// Reset frame counter after prefill so the next real encode uses CODE_INDEPENDENTLY.
+    /// Keeps all other state (NSQ, gains, NLSFs, input buffer) from the prefill.
+    pub fn reset_frame_counter(&mut self) {
+        self.state.n_frames_encoded = 0;
+    }
+
+    /// Get the NSQ's previous gain (for debugging).
+    pub fn prev_gain_q16(&self) -> i32 {
+        self.state.nsq_state.prev_gain_q16
+    }
+
     /// Encode one SILK frame.
     ///
     /// Returns the number of bytes written, or a negative error code.
@@ -710,7 +726,22 @@ impl SilkEncoder {
             let min_inv_gain_q30 = if cs.first_frame_after_reset {
                 (1i64 << 30) as i32 / 100 // 1/100 in Q30
             } else {
-                (1i64 << 30) as i32 / 10000 // 1/10000 in Q30
+                // C reference: find_pred_coefs_FIX.c lines 126-132
+                // minInvGain = log2lin(16<<7 + LTPredCodGain/3) /
+                //              (MAX_PRED_GAIN * (0.25 + 0.75*quality))
+                // For unvoiced: LTPredCodGain_Q7 = 0
+                let ltp_pred_cod_gain_q7 = 0i32; // TODO: compute for voiced
+                let base = silk_log2lin(silk_smlawb(
+                    16 << 7, ltp_pred_cod_gain_q7, 21845 // SILK_FIX_CONST(1.0/3, 16)
+                )); // Q16
+                let coding_quality_q14 = shape_result.coding_quality_q14;
+                let qual_factor = silk_smlawb(
+                    65536,  // SILK_FIX_CONST(0.25, 18)
+                    196608, // SILK_FIX_CONST(0.75, 18)
+                    coding_quality_q14,
+                ); // Q18
+                let denom = silk_smulww_correct(10000, qual_factor); // MAX_PREDICTION_POWER_GAIN * qual
+                silk_div32_varq(base, denom.max(1), 14)
             };
 
             let mut a_q16 = [0i32; MAX_LPC_ORDER];
@@ -736,8 +767,15 @@ impl SilkEncoder {
 
             let nlsf_cb = get_nlsf_cb(cs.nlsf_cb_sel);
             cs.indices.nlsf_indices = [0i8; MAX_LPC_ORDER + 1];
-            let prev_voiced = cs.prev_signal_type == TYPE_VOICED;
-            let nlsf_mu_q20 = if prev_voiced { 6 << 20 >> 2 } else { 4 << 20 >> 2 };
+            let _prev_voiced = cs.prev_signal_type == TYPE_VOICED;
+            // C reference: NLSF_mu_Q20 = 0.003 - 0.001 * speech_activity (Q20)
+            // speech_activity_Q8 ≈ 256 (active signal). For 10ms: multiply by 1.5.
+            // Range: [2098, 3146] for 20ms packets.
+            let speech_activity_q8: i32 = 256; // TODO: compute from VAD
+            let mut nlsf_mu_q20 = silk_smlawb(3146, -268435, speech_activity_q8); // 0.003 - 0.001*activity
+            if nb_subfr == 2 {
+                nlsf_mu_q20 += nlsf_mu_q20 >> 1; // 1.5x for 10ms
+            }
             let nlsf_survivors = match control.complexity {
                 0 => 2, 1 => 3, 2 => 2, 3 => 4, 4 | 5 => 6, 6 | 7 => 8, _ => 16,
             };
@@ -1054,6 +1092,7 @@ impl SilkEncoder {
                     &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
                 );
             }
+
 
         // Encode indices + pulses
             encode_indices::silk_encode_indices(
