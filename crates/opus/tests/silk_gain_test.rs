@@ -105,3 +105,101 @@ fn silk_16k_gain_analysis() {
         }
     }
 }
+
+/// Test that SILK roundtrip gain ratio is within acceptable range.
+/// The Rust encoder should produce output within 3x of the input level.
+#[test]
+fn test_silk_roundtrip_gain_ratio() {
+    let fs = 16000i32;
+    let mut enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
+    enc.set_bitrate(16000);
+    let mut dec = OpusDecoder::new(fs, 1).unwrap();
+
+    let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
+    let mut pkt = vec![0u8; MAX_PACKET];
+    let mut out = vec![0.0f32; FRAME_SIZE as usize];
+
+    for f in 0..=15 {
+        for i in 0..FRAME_SIZE as usize {
+            let t = (f * FRAME_SIZE as usize + i) as f32 / fs as f32;
+            pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+        }
+        let len = enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32).unwrap();
+        dec.decode_float(Some(&pkt[..len as usize]), &mut out, FRAME_SIZE, false).unwrap();
+    }
+
+    let in_rms = rms(&pcm);
+    let out_rms = rms(&out);
+    let ratio = out_rms / in_rms;
+    assert!(
+        ratio > 0.3 && ratio < 3.0,
+        "SILK roundtrip gain ratio {ratio:.4} should be between 0.3 and 3.0"
+    );
+}
+
+/// Test that SILK decoder correctly decodes C reference packets.
+/// C enc → Rust dec should match C enc → C dec within 6dB.
+#[test]
+fn test_silk_decoder_matches_c_reference() {
+    let fs = 16000i32;
+    let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
+    c_enc.set_bitrate(16000).unwrap();
+    let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
+    let mut rust_dec = OpusDecoder::new(fs, 1).unwrap();
+
+    let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
+    let mut pkt = vec![0u8; MAX_PACKET];
+    let mut c_out = vec![0.0f32; FRAME_SIZE as usize];
+    let mut rust_out = vec![0.0f32; FRAME_SIZE as usize];
+
+    for f in 0..=15 {
+        for i in 0..FRAME_SIZE as usize {
+            let t = (f * FRAME_SIZE as usize + i) as f32 / fs as f32;
+            pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+        }
+        let len = c_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt).unwrap();
+        c_dec.decode_float(Some(&pkt[..len as usize]), &mut c_out, FRAME_SIZE, false).unwrap();
+        rust_dec.decode_float(Some(&pkt[..len as usize]), &mut rust_out, FRAME_SIZE, false).unwrap();
+    }
+
+    let c_rms = rms(&c_out);
+    let r_rms = rms(&rust_out);
+    let ratio = r_rms / c_rms.max(1e-10);
+    assert!(
+        ratio > 0.5 && ratio < 2.0,
+        "C enc → Rust dec gain ({r_rms:.6}) should match C enc → C dec ({c_rms:.6}), ratio={ratio:.4}"
+    );
+}
+
+/// Test that SILK packet sizes are stable across frames.
+/// After warmup, packet sizes shouldn't oscillate wildly.
+#[test]
+fn test_silk_packet_size_stability() {
+    let fs = 16000i32;
+    let mut enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
+    enc.set_bitrate(16000);
+
+    let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
+    let mut pkt = vec![0u8; MAX_PACKET];
+    let mut sizes = Vec::new();
+
+    for f in 0..20 {
+        for i in 0..FRAME_SIZE as usize {
+            let t = (f * FRAME_SIZE as usize + i) as f32 / fs as f32;
+            pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+        }
+        let len = enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32).unwrap();
+        if f >= 5 {
+            // Skip first 5 warmup frames
+            sizes.push(len as usize);
+        }
+    }
+
+    let min_sz = *sizes.iter().min().unwrap();
+    let max_sz = *sizes.iter().max().unwrap();
+    let ratio = max_sz as f64 / min_sz.max(1) as f64;
+    assert!(
+        ratio < 5.0,
+        "Packet sizes should be stable after warmup: min={min_sz} max={max_sz} ratio={ratio:.1}"
+    );
+}

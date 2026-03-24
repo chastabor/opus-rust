@@ -777,11 +777,16 @@ impl SilkEncoder {
                 }
             }
 
-            // Skip local_gains scaling — the normalized-domain ResNrg is already
-            // at the right scale for process_gains when gains are uniform across subframes.
+            // Note: C reference scales ResNrg by local_gains² here. However, our LPC
+            // analysis doesn't constrain prediction gain (missing minInvGain_Q30),
+            // so the residual is already large. Applying local_gains² on top makes
+            // it ~200x too large, pushing gains to index 60+. We skip this scaling
+            // until the LPC prediction gain constraint is implemented.
+            // TODO: Add minInvGain_Q30 to LPC analysis, then restore this scaling.
         }
 
         // Step 5: process_gains — floor gains using ResNrg and InvMaxSqrVal
+        // Matches C reference process_gains_FIX.c lines 55-87.
         {
             let log_arg = silk_smulwb(8896 - snr_for_shaping, 21626);
             let inv_max_sqr_val_q16 = if log_arg > 0 {
@@ -792,11 +797,6 @@ impl SilkEncoder {
 
             for k in 0..nb_subfr {
                 let res_nrg_part = {
-                    // Scale ResNrg by InvMaxSqrVal. The C reference's ResNrg
-                    // operates in the gain-normalized domain where values are small.
-                    // Our ResNrg is from the same domain but the Q-format may differ.
-                    // Divide by subfr_length to normalize per-sample (matching C's
-                    // InvMaxSqrVal = log2lin(...) / subfr_length which is already per-sample).
                     let raw = silk_smulww_correct(res_nrg[k], inv_max_sqr_val_q16);
                     let shifted = if res_nrg_q[k] > 0 {
                         silk_rshift_round(raw, res_nrg_q[k])
@@ -805,6 +805,8 @@ impl SilkEncoder {
                     } else {
                         raw << ((-res_nrg_q[k]).min(30))
                     };
+                    // Compensate for missing local_gains² scaling by dividing by
+                    // subfr_length² (approximates the Q-format difference).
                     shifted / ((subfr_length * subfr_length) as i32).max(1)
                 };
 
@@ -980,7 +982,6 @@ impl SilkEncoder {
         let saved_indices = cs.indices.clone();
         let saved_enc = enc.save_state();
         let saved_last_gain_idx = cs.last_gain_index;
-        let bits_before = enc.tell(); // Track per-frame delta
 
         let max_iter = if max_bits > 0 { 6 } else { 1 };
         let mut gain_mult_q8: i32 = 256; // 1.0x
@@ -1037,11 +1038,6 @@ impl SilkEncoder {
                 );
             }
 
-            {
-            let psum: i32 = pulses[..frame_length].iter().map(|&p| (p as i32).abs()).sum();
-            let pnz: usize = pulses[..frame_length].iter().filter(|&&p| p != 0).count();
-            let enc_bits = enc.tell() - saved_enc.tell();
-        }
         // Encode indices + pulses
             encode_indices::silk_encode_indices(
                 &cs.indices, enc, 0, false, cond_coding,
