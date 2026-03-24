@@ -87,6 +87,8 @@ fn silk_nsq_del_dec_scale_states(
     for i in 0..subfr_length {
         x_sc_q10[i] = silk_smulww_correct(x16[i] as i32, inv_gain_q26);
     }
+    if subfr == 0 {
+    }
 
     // After rewhitening the LTP state is un-scaled, so scale with inv_gain
     if nsq.rewhite_flag != 0 {
@@ -315,6 +317,7 @@ fn silk_noise_shape_quantizer_del_dec(
             let combined_q10 = silk_rshift_round(combined, 4); // Q10
 
             let r_q10 = x_q10[i].wrapping_sub(combined_q10);
+
 
             // Flip sign depending on dither
             let r_q10 = if dd.seed < 0 { -r_q10 } else { r_q10 };

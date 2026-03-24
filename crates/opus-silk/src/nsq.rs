@@ -280,41 +280,52 @@ fn silk_noise_shape_quantizer(
 
         let (q1_q10, q2_q10, rd1_q20, rd2_q20);
 
+        // Rate-distortion: C reference uses silk_SMULBB (truncates to i16) and
+        // silk_SMLABB (truncates b,c to i16). We must match this behavior exactly.
+        #[inline(always)]
+        fn smulbb(a: i32, b: i32) -> i32 {
+            (a as i16 as i32) * (b as i16 as i32)
+        }
+        #[inline(always)]
+        fn smlabb(a: i32, b: i32, c: i32) -> i32 {
+            a + (b as i16 as i32) * (c as i16 as i32)
+        }
+
         if q1_q0 > 0 {
             let q1 = (q1_q0 << 10) - QUANT_LEVEL_ADJUST_Q10 + offset_q10;
             let q2 = q1 + 1024;
             q1_q10 = q1;
             q2_q10 = q2;
-            rd1_q20 = q1.wrapping_mul(lambda_q10);
-            rd2_q20 = q2.wrapping_mul(lambda_q10);
+            rd1_q20 = smulbb(q1, lambda_q10);
+            rd2_q20 = smulbb(q2, lambda_q10);
         } else if q1_q0 == 0 {
             let q1 = offset_q10;
             let q2 = q1 + 1024 - QUANT_LEVEL_ADJUST_Q10;
             q1_q10 = q1;
             q2_q10 = q2;
-            rd1_q20 = q1.wrapping_mul(lambda_q10);
-            rd2_q20 = q2.wrapping_mul(lambda_q10);
+            rd1_q20 = smulbb(q1, lambda_q10);
+            rd2_q20 = smulbb(q2, lambda_q10);
         } else if q1_q0 == -1 {
             let q2 = offset_q10;
             let q1 = q2 - 1024 + QUANT_LEVEL_ADJUST_Q10;
             q1_q10 = q1;
             q2_q10 = q2;
-            rd1_q20 = (-q1).wrapping_mul(lambda_q10);
-            rd2_q20 = q2.wrapping_mul(lambda_q10);
+            rd1_q20 = smulbb(-q1, lambda_q10);
+            rd2_q20 = smulbb(q2, lambda_q10);
         } else {
             // q1_q0 < -1
             let q1 = (q1_q0 << 10) + QUANT_LEVEL_ADJUST_Q10 + offset_q10;
             let q2 = q1 + 1024;
             q1_q10 = q1;
             q2_q10 = q2;
-            rd1_q20 = (-q1).wrapping_mul(lambda_q10);
-            rd2_q20 = (-q2).wrapping_mul(lambda_q10);
+            rd1_q20 = smulbb(-q1, lambda_q10);
+            rd2_q20 = smulbb(-q2, lambda_q10);
         };
 
         let rr1 = r_q10 - q1_q10;
-        let rd1 = rd1_q20.wrapping_add(rr1.wrapping_mul(rr1));
+        let rd1 = smlabb(rd1_q20, rr1, rr1);
         let rr2 = r_q10 - q2_q10;
-        let rd2 = rd2_q20.wrapping_add(rr2.wrapping_mul(rr2));
+        let rd2 = smlabb(rd2_q20, rr2, rr2);
 
         let q1_q10_final = if rd2 < rd1 { q2_q10 } else { q1_q10 };
 

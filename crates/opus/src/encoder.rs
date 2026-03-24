@@ -411,9 +411,12 @@ impl OpusEncoder {
                 self.bitrate_bps
             };
 
-            // Maximum bits for the SILK frame. The C reference sets this to the
-            // packet budget and relies on iterative gain adjustment for bitrate
-            // control. We use the bitrate-derived target as a soft limit.
+            // Maximum bits for the SILK frame. Allow 2x the per-frame bitrate
+            // target for VBR headroom (individual frames may exceed the average),
+            // capped by the packet budget. The C reference similarly allows overrun
+            // on individual frames and relies on VBR averaging.
+            // Use packet budget as max_bits (C reference style). Bitrate control
+            // will come from proper gain adjustment via process_gains.
             let silk_max_bits = (max_data_bytes - 1) * 8;
 
             let control = SilkEncControl {

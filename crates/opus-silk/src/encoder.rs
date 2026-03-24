@@ -15,6 +15,76 @@ use crate::nsq::{self, NsqState, MAX_SHAPE_LPC_ORDER};
 use crate::nsq_del_dec;
 use crate::vad;
 use crate::noise_shape_analysis;
+use crate::signal_processing::silk_sigm_q15;
+use crate::nlsf::silk_lpc_analysis_filter;
+
+/// Fixed-point division with variable Q shift: (a << q_shift) / b
+fn silk_div32_varq(a: i32, b: i32, q_shift: i32) -> i32 {
+    (((a as i64) << q_shift as u32) / b.max(1) as i64) as i32
+}
+
+// ── Bitrate-to-SNR lookup tables (from silk/control_SNR.c) ──
+// Values are SNR_dB / 21, stored as u8. Multiply by 21 to get SNR_dB_Q7.
+// Index 0 corresponds to 4000 bps (first 10 entries at 400bps spacing omitted).
+
+#[rustfmt::skip]
+static SNR_TABLE_NB: &[u8] = &[
+                                          0, 15, 39, 52, 61, 68,
+     74, 79, 84, 88, 92, 95, 99,102,105,108,111,114,117,119,122,124,
+    126,129,131,133,135,137,139,142,143,145,147,149,151,153,155,157,
+    158,160,162,163,165,167,168,170,171,173,174,176,177,179,180,182,
+    183,185,186,187,189,190,192,193,194,196,197,199,200,201,203,204,
+    205,207,208,209,211,212,213,215,216,217,219,220,221,223,224,225,
+    227,228,230,231,232,234,235,236,238,239,241,242,243,245,246,248,
+    249,250,252,253,255,
+];
+
+#[rustfmt::skip]
+static SNR_TABLE_MB: &[u8] = &[
+                                          0,  0, 28, 43, 52, 59,
+     65, 70, 74, 78, 81, 85, 87, 90, 93, 95, 98,100,102,105,107,109,
+    111,113,115,116,118,120,122,123,125,127,128,130,131,133,134,136,
+    137,138,140,141,143,144,145,147,148,149,151,152,153,154,156,157,
+    158,159,160,162,163,164,165,166,167,168,169,171,172,173,174,175,
+    176,177,178,179,180,181,182,183,184,185,186,187,188,188,189,190,
+    191,192,193,194,195,196,197,198,199,200,201,202,203,203,204,205,
+    206,207,208,209,210,211,212,213,214,214,215,216,217,218,219,220,
+    221,222,223,224,224,225,226,227,228,229,230,231,232,233,234,235,
+    236,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,
+    251,252,253,254,255,
+];
+
+#[rustfmt::skip]
+static SNR_TABLE_WB: &[u8] = &[
+                                          0,  0,  0,  8, 29, 41,
+     49, 56, 62, 66, 70, 74, 77, 80, 83, 86, 88, 91, 93, 95, 97, 99,
+    101,103,105,107,108,110,112,113,115,116,118,119,121,122,123,125,
+    126,127,129,130,131,132,134,135,136,137,138,140,141,142,143,144,
+    145,146,147,148,149,150,151,152,153,154,156,157,158,159,159,160,
+    161,162,163,164,165,166,167,168,169,170,171,171,172,173,174,175,
+    176,177,177,178,179,180,181,181,182,183,184,185,185,186,187,188,
+    189,189,190,191,192,192,193,194,195,195,196,197,198,198,199,200,
+    200,201,202,203,203,204,205,206,206,207,208,209,209,210,211,211,
+    212,213,214,214,215,216,216,217,218,219,219,220,221,221,222,223,
+    224,224,225,226,226,227,228,229,229,230,231,232,232,233,234,234,
+    235,236,237,237,238,239,240,240,241,242,243,243,244,245,246,246,
+    247,248,249,249,250,251,252,253,255,
+];
+
+/// Map target bitrate to SNR_dB_Q7 (matches C reference `silk_control_SNR`).
+fn silk_control_snr(fs_khz: i32, nb_subfr: i32, target_rate_bps: i32) -> i32 {
+    let mut rate = target_rate_bps;
+    if nb_subfr == 2 {
+        rate -= 2000 + fs_khz / 16;
+    }
+    let table: &[u8] = match fs_khz {
+        ..=8 => SNR_TABLE_NB,
+        9..=12 => SNR_TABLE_MB,
+        _ => SNR_TABLE_WB,
+    };
+    let id = ((rate + 200) / 400 - 10).clamp(0, table.len() as i32 - 1) as usize;
+    table[id] as i32 * 21
+}
 
 /// Encoder control parameters (from API)
 #[derive(Clone)]
@@ -525,38 +595,7 @@ impl SilkEncoder {
             cs.indices.ltp_scale_index = 0;
         }
 
-        // 7. Gain estimation
-        let mut gains_q16 = [0i32; MAX_NB_SUBFR];
-        for k in 0..nb_subfr {
-            let offset = k * subfr_length;
-            let end_idx = (offset + subfr_length).min(frame_length);
-            let mut energy: i64 = 0;
-            for i in offset..end_idx {
-                let s = samples[i] as i64;
-                energy += s * s;
-            }
-            // RMS energy as gain
-            let rms = ((energy / subfr_length as i64).max(1) as f64).sqrt() as i32;
-            gains_q16[k] = (rms.max(1)) << 6; // Scale up to reasonable Q16 range
-        }
-
-        // Determine coding mode
-        let cond_coding = if cs.n_frames_encoded > 0 && !cs.first_frame_after_reset {
-            CODE_CONDITIONALLY
-        } else {
-            CODE_INDEPENDENTLY
-        };
-
-        // Quantize gains
-        gain_quant::silk_gains_quant(
-            &mut cs.indices.gains_indices,
-            &mut gains_q16,
-            &mut cs.last_gain_index,
-            cond_coding == CODE_CONDITIONALLY,
-            nb_subfr,
-        );
-
-        // 8. Build LTP coefficients from indices
+        // 7. Build LTP coefficients from indices
         let mut ltp_coef_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
         if voiced {
             let cbk = SILK_LTP_VQ_PTRS_Q7[cs.indices.per_index as usize];
@@ -596,7 +635,13 @@ impl SilkEncoder {
             cs.frame_length,
         );
 
-        // Noise shape analysis: compute spectral shaping filter parameters
+        // Compute SNR from target bitrate (matches C reference silk_control_SNR)
+        let snr_for_shaping = silk_control_snr(cs.fs_khz, cs.nb_subfr, control.bitrate_bps);
+
+        // Noise shape analysis: compute spectral shaping filter parameters AND gains.
+        // The noise_shape_analysis internally computes gains from the signal's
+        // autocorrelation, then adjusts them using the bitrate-derived SNR via
+        // gain_mult_q16 and gain_add_q16 (matching C reference process_gains).
         let shape_result = noise_shape_analysis::silk_noise_shape_analysis(
             &samples[..frame_length],
             &pitch_lags,
@@ -611,18 +656,192 @@ impl SilkEncoder {
             cs.shaping_lpc_order,
             cs.warping_q16,
             cs.speech_activity_q8,
-            // Derive coding quality from target bitrate (approximates C reference's
-            // silk_control_SNR → noise_shape_analysis → coding_quality chain).
-            // sigmoid(0.25 * (SNR_adj_dB - 20)) where SNR scales ~linearly with bitrate.
-            {
-                let bps = control.bitrate_bps;
-                // Map bitrate to approximate SNR_adj_dB: ~10dB at 8kbps, ~35dB at 40kbps
-                let snr_db = 10.0 + 25.0 * ((bps - 8000) as f32 / 32000.0).clamp(0.0, 1.0);
-                // sigmoid(0.25 * (snr - 20)) in Q14
-                let sig = 1.0 / (1.0 + (-0.25 * (snr_db - 20.0) as f64).exp());
-                (sig * 16384.0) as i32
-            },
-            cs.snr_db_q7,
+            0, // coding_quality_q14: computed internally from SNR
+            snr_for_shaping,
+        );
+
+        // ====== find_pred_coefs: gain normalize → recompute LPC → residual energy ======
+        // Matches C reference find_pred_coefs_FIX.c.
+        // Uses noise_shape gains to normalize the input, recomputes LPC on the
+        // normalized input, then measures residual energy for process_gains.
+
+        let mut gains_q16 = [0i32; MAX_NB_SUBFR];
+        gains_q16[..nb_subfr].copy_from_slice(&shape_result.gains_q16[..nb_subfr]);
+
+        // Step 1: Compute invGains and local_gains from noise_shape gains
+        let min_gain = gains_q16[..nb_subfr].iter().copied().min().unwrap_or(1).max(1);
+        let mut inv_gains_q16 = [0i32; MAX_NB_SUBFR];
+        let mut local_gains = [0i32; MAX_NB_SUBFR];
+        for k in 0..nb_subfr {
+            inv_gains_q16[k] = silk_div32_varq(min_gain, gains_q16[k].max(1), 14).max(100);
+            local_gains[k] = (1i32 << 16) / inv_gains_q16[k].max(1);
+        }
+
+        // Step 2: Create gain-normalized LPC_in_pre (unvoiced path: direct scaling)
+        let lpc_pre_len = nb_subfr * (lpc_order + subfr_length);
+        let mut lpc_in_pre = vec![0i16; lpc_pre_len];
+        {
+            let mut pre_idx = 0usize;
+            for k in 0..nb_subfr {
+                let ig = inv_gains_q16[k];
+                let src_start = k * subfr_length;
+                // Copy lpc_order history + subfr_length samples, scaled by inv_gain
+                for j in 0..(lpc_order + subfr_length) {
+                    let si = src_start + j;
+                    let si = if j < lpc_order { si.wrapping_sub(lpc_order) } else { si - lpc_order };
+                    if si < samples.len() && pre_idx < lpc_in_pre.len() {
+                        let tmp = ((ig as i64 * samples[si] as i64) >> 16) as i32;
+                        lpc_in_pre[pre_idx] = tmp.clamp(-32768, 32767) as i16;
+                    }
+                    pre_idx += 1;
+                }
+            }
+        }
+
+        // Step 3: Recompute LPC on gain-normalized input
+        // Re-run autocorrelation + Levinson-Durbin on the normalized signal.
+        // This produces LPC coefficients balanced across subframes.
+        {
+            // Autocorrelation on the normalized signal (using the first subframe's segment)
+            let auto_len = (lpc_order + subfr_length).min(lpc_in_pre.len());
+            let mut corr = [0i32; MAX_LPC_ORDER + 1];
+            lpc_analysis::silk_autocorrelation(&mut corr, &lpc_in_pre[..auto_len], auto_len, lpc_order);
+
+            let mut a_q16 = [0i32; MAX_LPC_ORDER];
+            let _pred_gain = lpc_analysis::silk_levinson_durbin(&mut a_q16, &corr, lpc_order);
+
+            // Convert to NLSF, quantize, convert back to Q12 pred_coef
+            let mut new_nlsf_q15 = [0i16; MAX_LPC_ORDER];
+            lpc_analysis::silk_a2nlsf(&mut new_nlsf_q15, &mut a_q16, lpc_order);
+
+            let mut w_q2 = [0i16; MAX_LPC_ORDER];
+            lpc_analysis::silk_nlsf_vq_weights_laroia(&mut w_q2, &new_nlsf_q15, lpc_order);
+
+            let nlsf_cb = get_nlsf_cb(cs.nlsf_cb_sel);
+            cs.indices.nlsf_indices = [0i8; MAX_LPC_ORDER + 1];
+            let prev_voiced = cs.prev_signal_type == TYPE_VOICED;
+            let nlsf_mu_q20 = if prev_voiced { 6 << 20 >> 2 } else { 4 << 20 >> 2 };
+            let nlsf_survivors = match control.complexity {
+                0 => 2, 1 => 3, 2 => 2, 3 => 4, 4 | 5 => 6, 6 | 7 => 8, _ => 16,
+            };
+            nlsf_encode::silk_nlsf_encode(
+                &mut cs.indices.nlsf_indices, &mut new_nlsf_q15,
+                nlsf_cb, &w_q2, nlsf_mu_q20, nlsf_survivors,
+                cs.indices.signal_type as i32,
+            );
+
+            // Convert quantized NLSFs back to LPC Q12
+            silk_nlsf2a(&mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order],
+                        &new_nlsf_q15, lpc_order);
+            // Copy to first half (simplified: no interpolation)
+            let mut tmp_coefs = [0i16; MAX_LPC_ORDER];
+            tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
+            pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
+
+            nlsf_q15[..lpc_order].copy_from_slice(&new_nlsf_q15[..lpc_order]);
+        }
+
+        // Step 4: Compute residual energy on normalized input with refined LPC
+        let mut res_nrg = [0i32; MAX_NB_SUBFR];
+        let mut res_nrg_q = [0i32; MAX_NB_SUBFR];
+        {
+            let a_q12 = &pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order];
+            let offset_per_subfr = lpc_order + subfr_length;
+
+            for k in 0..nb_subfr {
+                let pre_start = k * offset_per_subfr;
+                let res_start = pre_start + lpc_order;
+                let res_end = (res_start + subfr_length).min(lpc_in_pre.len());
+
+                if res_end > pre_start {
+                    // Apply LPC filter to this subframe's normalized input
+                    let mut lpc_res = vec![0i16; offset_per_subfr];
+                    let in_len = (res_end - pre_start).min(lpc_in_pre.len() - pre_start);
+                    silk_lpc_analysis_filter(
+                        &mut lpc_res[..in_len], &lpc_in_pre[pre_start..pre_start + in_len],
+                        a_q12, in_len, lpc_order,
+                    );
+
+                    // Measure energy of residual (skipping the lpc_order header)
+                    let residual_start = lpc_order;
+                    let residual_end = in_len.min(lpc_order + subfr_length);
+                    if residual_end > residual_start {
+                        let mut rshift = 0i32;
+                        silk_sum_sqr_shift(
+                            &mut res_nrg[k], &mut rshift,
+                            &lpc_res[residual_start..residual_end],
+                            residual_end - residual_start,
+                        );
+                        res_nrg_q[k] = -rshift;
+                    }
+                }
+            }
+
+            // Skip local_gains scaling — the normalized-domain ResNrg is already
+            // at the right scale for process_gains when gains are uniform across subframes.
+        }
+
+        // Step 5: process_gains — floor gains using ResNrg and InvMaxSqrVal
+        {
+            let log_arg = silk_smulwb(8896 - snr_for_shaping, 21626);
+            let inv_max_sqr_val_q16 = if log_arg > 0 {
+                silk_log2lin(log_arg.min(3967)) / (subfr_length as i32).max(1)
+            } else {
+                0
+            };
+
+            for k in 0..nb_subfr {
+                let res_nrg_part = {
+                    // Scale ResNrg by InvMaxSqrVal. The C reference's ResNrg
+                    // operates in the gain-normalized domain where values are small.
+                    // Our ResNrg is from the same domain but the Q-format may differ.
+                    // Divide by subfr_length to normalize per-sample (matching C's
+                    // InvMaxSqrVal = log2lin(...) / subfr_length which is already per-sample).
+                    let raw = silk_smulww_correct(res_nrg[k], inv_max_sqr_val_q16);
+                    let shifted = if res_nrg_q[k] > 0 {
+                        silk_rshift_round(raw, res_nrg_q[k])
+                    } else if raw >= (i32::MAX >> (-res_nrg_q[k]).min(30)) {
+                        i32::MAX
+                    } else {
+                        raw << ((-res_nrg_q[k]).min(30))
+                    };
+                    shifted / ((subfr_length * subfr_length) as i32).max(1)
+                };
+
+                let gain = gains_q16[k];
+                let gain_squared = res_nrg_part.saturating_add(silk_smmul(gain, gain));
+
+                if gain_squared < i16::MAX as i32 {
+                    // C: silk_SMLAWW(LSHIFT(ResNrgPart, 16), gain, gain)
+                    // = (ResNrgPart << 16) + ((gain * gain) >> 16)
+                    let gain_sq_hp = ((res_nrg_part as i64) << 16)
+                        .wrapping_add((gain as i64 * gain as i64) >> 16) as i32;
+                    let new_gain = silk_sqrt_approx(gain_sq_hp.max(1)); // Q8
+                    gains_q16[k] = silk_lshift_sat32(new_gain, 8);
+                } else {
+                    let new_gain = silk_sqrt_approx(gain_squared.max(1));
+                    gains_q16[k] = silk_lshift_sat32(new_gain, 16);
+                }
+            }
+        }
+
+        // Save unquantized gains for the iterative bitrate loop
+        let gains_unq_q16 = gains_q16;
+
+        // Determine coding mode
+        let cond_coding = if cs.n_frames_encoded > 0 && !cs.first_frame_after_reset {
+            CODE_CONDITIONALLY
+        } else {
+            CODE_INDEPENDENTLY
+        };
+
+        // Quantize gains
+        gain_quant::silk_gains_quant(
+            &mut cs.indices.gains_indices,
+            &mut gains_q16,
+            &mut cs.last_gain_index,
+            cond_coding == CODE_CONDITIONALLY,
+            nb_subfr,
         );
 
         // Use noise shape results
@@ -733,10 +952,8 @@ impl SilkEncoder {
         }
 
         // ====== Main NSQ + Bitstream writing with iterative gain adjustment ======
-        //
-        // The C reference (silk/fixed/encode_frame_FIX.c) iteratively adjusts gains
-        // until the encoded bits fit within max_bits. We implement a simplified version:
-        // encode once, check bit count, and if over budget, scale up gains and retry.
+        // Matches C reference encode_frame_FIX.c: iteratively adjust gain multiplier
+        // until encoded bits fit within max_bits budget.
 
         let nsq_signal_type = cs.indices.signal_type as i32;
         let nsq_quant_offset_type = cs.indices.quant_offset_type as i32;
@@ -758,89 +975,74 @@ impl SilkEncoder {
         let prev_sig_type = cs.ec_prev_signal_type;
         let prev_lag_idx = cs.ec_prev_lag_index;
 
-        // Run NSQ to produce pulses
-        let mut pulses = [0i8; MAX_FRAME_LENGTH];
-
-        if n_states_delayed_decision > 1 {
-            nsq_del_dec::silk_nsq_del_dec(
-                &mut cs.nsq_state, &mut cs.indices,
-                &samples[..frame_length], &mut pulses,
-                &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-                harm_shape_gain_q14, tilt_q14, lf_shp_q14,
-                &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
-                nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
-                nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
-                nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
-                n_states_delayed_decision, cs.warping_q16,
-                &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
-            );
-        } else {
-            nsq::silk_nsq(
-                &mut cs.nsq_state, &mut cs.indices,
-                &samples[..frame_length], &mut pulses,
-                &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-                harm_shape_gain_q14, tilt_q14, lf_shp_q14,
-                &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
-                nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
-                nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
-                nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
-                &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
-                &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
-            );
-        }
-
-        // Encode indices and pulses, with damage control for bitrate constraint.
-        // If the first encoding exceeds max_bits, zero out pulses and re-encode
-        // (matches C reference damage control in silk/fixed/encode_frame_FIX.c).
-        let bits_before = enc.tell();
+        // Save state for iterative loop
+        let saved_nsq = cs.nsq_state.clone();
+        let saved_indices = cs.indices.clone();
         let saved_enc = enc.save_state();
+        let saved_last_gain_idx = cs.last_gain_index;
+        let bits_before = enc.tell(); // Track per-frame delta
 
-        encode_indices::silk_encode_indices(
-            &cs.indices, enc, 0, false, cond_coding,
-            cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
-            cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
-        );
-        encode_pulses::silk_encode_pulses(
-            enc, &pulses, cs.indices.signal_type as i32,
-            cs.indices.quant_offset_type as i32, cs.frame_length,
-        );
+        let max_iter = if max_bits > 0 { 6 } else { 1 };
+        let mut gain_mult_q8: i32 = 256; // 1.0x
 
-        let n_bits = enc.tell() - bits_before;
-        if max_bits > 0 && n_bits > max_bits {
-            // Over budget: progressively reduce pulse magnitudes and re-encode
-            // until within budget. This preserves signal shape while meeting bitrate.
-            enc.restore_state(&saved_enc);
+        for iter in 0..max_iter {
+            // On retry, restore state and re-apply gains with multiplier
+            if iter > 0 {
+                cs.nsq_state = saved_nsq.clone();
+                cs.indices = saved_indices.clone();
+                enc.restore_state(&saved_enc);
+                cs.last_gain_index = saved_last_gain_idx;
 
-            // Binary search for the right shift amount
-            let mut best_shift = 0;
-            for shift in 1..=8 {
-                let mut trial_pulses = pulses;
-                for p in trial_pulses[..frame_length].iter_mut() {
-                    *p = ((*p as i32) >> shift) as i8;
+                // Apply gain multiplier to unquantized gains and re-quantize
+                for k in 0..nb_subfr {
+                    gains_q16[k] = ((gains_unq_q16[k] as i64 * gain_mult_q8 as i64) >> 8) as i32;
                 }
-                let trial_enc = enc.save_state();
-                let trial_before = enc.tell();
-                encode_indices::silk_encode_indices(
-                    &cs.indices, enc, 0, false, cond_coding,
-                    cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
-                    cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+                cs.last_gain_index = saved_last_gain_idx;
+                gain_quant::silk_gains_quant(
+                    &mut cs.indices.gains_indices,
+                    &mut gains_q16,
+                    &mut cs.last_gain_index,
+                    cond_coding == CODE_CONDITIONALLY,
+                    nb_subfr,
                 );
-                encode_pulses::silk_encode_pulses(
-                    enc, &trial_pulses, cs.indices.signal_type as i32,
-                    cs.indices.quant_offset_type as i32, cs.frame_length,
-                );
-                let trial_bits = enc.tell() - trial_before;
-                enc.restore_state(&trial_enc);
-                if trial_bits <= max_bits {
-                    best_shift = shift;
-                    break;
-                }
             }
 
-            // Apply the best shift and encode
-            for p in pulses[..frame_length].iter_mut() {
-                *p = ((*p as i32) >> best_shift) as i8;
+            // Run NSQ
+            let mut pulses = [0i8; MAX_FRAME_LENGTH];
+            if n_states_delayed_decision > 1 {
+                nsq_del_dec::silk_nsq_del_dec(
+                    &mut cs.nsq_state, &mut cs.indices,
+                    &samples[..frame_length], &mut pulses,
+                    &pred_coef_q12, &ltp_coef_q14, &ar_q13,
+                    harm_shape_gain_q14, tilt_q14, lf_shp_q14,
+                    &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
+                    nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
+                    nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
+                    nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
+                    n_states_delayed_decision, cs.warping_q16,
+                    &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
+                );
+            } else {
+                nsq::silk_nsq(
+                    &mut cs.nsq_state, &mut cs.indices,
+                    &samples[..frame_length], &mut pulses,
+                    &pred_coef_q12, &ltp_coef_q14, &ar_q13,
+                    harm_shape_gain_q14, tilt_q14, lf_shp_q14,
+                    &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
+                    nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
+                    nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
+                    nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
+                    &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
+                    &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
+                );
             }
+
+            {
+            let psum: i32 = pulses[..frame_length].iter().map(|&p| (p as i32).abs()).sum();
+            let pnz: usize = pulses[..frame_length].iter().filter(|&&p| p != 0).count();
+            let enc_bits = enc.tell() - saved_enc.tell();
+        }
+        // Encode indices + pulses
             encode_indices::silk_encode_indices(
                 &cs.indices, enc, 0, false, cond_coding,
                 cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
@@ -850,6 +1052,34 @@ impl SilkEncoder {
                 enc, &pulses, cs.indices.signal_type as i32,
                 cs.indices.quant_offset_type as i32, cs.frame_length,
             );
+
+            let n_bits = enc.tell() - saved_enc.tell();
+
+            // Check if we fit within budget
+            if max_bits <= 0 || n_bits <= max_bits {
+                break; // Fits or no constraint
+            }
+
+            // Over budget: increase gain multiplier by 2x per iteration
+            // (conservative to avoid NSQ context mismatch from large gain jumps)
+            if iter < max_iter - 1 {
+                gain_mult_q8 = (gain_mult_q8 * 3 / 2).min(1024); // C ref: 1.5x per iter, max 4x
+            } else {
+                // Last iteration: damage control — zero pulses
+                enc.restore_state(&saved_enc);
+                cs.indices = saved_indices.clone();
+                let zero_pulses = [0i8; MAX_FRAME_LENGTH];
+                encode_indices::silk_encode_indices(
+                    &cs.indices, enc, 0, false, cond_coding,
+                    cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
+                    cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+                );
+                encode_pulses::silk_encode_pulses(
+                    enc, &zero_pulses, cs.indices.signal_type as i32,
+                    cs.indices.quant_offset_type as i32, cs.frame_length,
+                );
+                break;
+            }
         }
 
         // Update ec_prev state

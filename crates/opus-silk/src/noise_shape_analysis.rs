@@ -470,6 +470,8 @@ pub fn silk_noise_shape_analysis(
         q_nrg >>= 1;
 
         gains_q16[k] = silk_lshift_sat32(tmp32, 16 - q_nrg);
+        if k == 0 {
+        }
 
         // Bandwidth expansion
         bwexpander_32(&mut ar_q24, shaping_order, bw_exp_q16);
@@ -498,6 +500,8 @@ pub fn silk_noise_shape_analysis(
         10486,
     ));
 
+    // Apply gain_mult (SNR-based reduction) and gain_add (minimum floor).
+    // The encoder's process_gains stage will floor these using residual energy.
     for k in 0..nb_subfr_usize {
         gains_q16[k] = silk_smulww_correct(gains_q16[k], gain_mult_q16);
         if gains_q16[k] < 0 {
