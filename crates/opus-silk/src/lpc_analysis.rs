@@ -66,6 +66,20 @@ pub fn silk_levinson_durbin(
     corr: &[i32],
     order: usize,
 ) -> i32 {
+    silk_levinson_durbin_constrained(a_q16, corr, order, 0)
+}
+
+/// Levinson-Durbin with prediction gain constraint.
+/// `min_inv_gain_q30`: minimum inverse gain (0 = no constraint).
+/// When the prediction gain would exceed `1/min_inv_gain`, the recursion
+/// stops and remaining coefficients are zeroed. This matches the C reference's
+/// Burg modified algorithm's gain limiting behavior.
+pub fn silk_levinson_durbin_constrained(
+    a_q16: &mut [i32],
+    corr: &[i32],
+    order: usize,
+    min_inv_gain_q30: i32,
+) -> i32 {
     // Early exit if energy is zero
     if corr[0] == 0 {
         for i in 0..order {
@@ -80,6 +94,8 @@ pub fn silk_levinson_durbin(
 
     // Q24 scaling factor
     let mut error_q24: i64 = (corr[0] as i64) << 24;
+    let corr0_q24 = error_q24;
+    let mut final_order = order;
 
     for m in 0..order {
         // Compute reflection coefficient: k = -sum(a[j]*corr[m+1-j]) / error
@@ -97,6 +113,34 @@ pub fn silk_levinson_durbin(
 
         let rc_q24 = -(acc / (error_q24 >> 24)).clamp(-(1i64 << 24) + 1, (1i64 << 24) - 1);
 
+        // Update error: error *= (1 - k^2)
+        let rc_sq = ((rc_q24 as i128 * rc_q24 as i128) >> 24) as i64;
+        let new_error = error_q24 - ((error_q24 as i128 * rc_sq as i128) >> 24) as i64;
+
+        // Check prediction gain constraint (C: burg_modified_FIX.c line 202)
+        // inv_gain = error / corr[0]. If inv_gain < min_inv_gain, stop.
+        if min_inv_gain_q30 > 0 && new_error > 0 && corr0_q24 > 0 {
+            // inv_gain_q30 ≈ (new_error / corr0) << 30
+            // To avoid overflow: inv_gain_q30 = new_error / (corr0 >> 30)
+            let inv_gain_approx = if corr0_q24 >> 30 > 0 {
+                (new_error / (corr0_q24 >> 30)) as i32
+            } else {
+                i32::MAX
+            };
+            if inv_gain_approx <= min_inv_gain_q30 {
+                // Prediction gain limit reached. Zero remaining coefficients.
+                final_order = m + 1;
+                // Still apply this coefficient but with no further recursion
+                for j in 0..m {
+                    a_new[j] = a_old[j] + ((rc_q24 * a_old[m - 1 - j]) >> 24);
+                }
+                a_new[m] = rc_q24;
+                a_old[..=m].copy_from_slice(&a_new[..=m]);
+                error_q24 = new_error;
+                break;
+            }
+        }
+
         // Update LPC coefficients
         for j in 0..m {
             a_new[j] = a_old[j] + ((rc_q24 * a_old[m - 1 - j]) >> 24);
@@ -106,10 +150,7 @@ pub fn silk_levinson_durbin(
         // Copy new to old
         a_old[..=m].copy_from_slice(&a_new[..=m]);
 
-        // Update error: error *= (1 - k^2)
-        // Use i128 to avoid overflow in intermediate products
-        let rc_sq = ((rc_q24 as i128 * rc_q24 as i128) >> 24) as i64;
-        error_q24 -= ((error_q24 as i128 * rc_sq as i128) >> 24) as i64;
+        error_q24 = new_error;
 
         if error_q24 <= 0 {
             for i in 0..order {
@@ -120,8 +161,12 @@ pub fn silk_levinson_durbin(
     }
 
     // Convert from Q24 to Q16
-    for i in 0..order {
+    for i in 0..final_order {
         a_q16[i] = (a_old[i] >> 8) as i32;
+    }
+    // Zero remaining coefficients
+    for i in final_order..order {
+        a_q16[i] = 0;
     }
 
     // Compute prediction gain: corr[0] / error (in Q24)
@@ -360,4 +405,240 @@ pub fn silk_nlsf_vq_weights_laroia(
         (1i32 << (15 + NLSF_W_Q)) / delta
     };
     p_nlsf_w_q_out[order - 1] = (tmp1_last + tmp2_int).min(i16::MAX as i32) as i16;
+}
+
+// ---- Burg's Modified Algorithm (port of silk/fixed/burg_modified_FIX.c) ----
+
+const QA: i32 = 25;
+const N_BITS_HEAD_ROOM: i32 = 3;
+const MIN_RSHIFTS: i32 = -16;
+const MAX_RSHIFTS: i32 = 32 - QA; // = 7
+// FIND_LPC_COND_FAC = 1e-5f → in Q32: (1e-5 * 2^32) ≈ 42949
+const FIND_LPC_COND_FAC_Q32: i32 = 42949;
+
+/// Burg's modified algorithm for LPC analysis with prediction gain constraint.
+/// Port of silk/fixed/burg_modified_FIX.c.
+///
+/// Computes LPC coefficients and residual energy from input signal,
+/// enforcing a maximum prediction gain via `min_inv_gain_q30`.
+pub fn silk_burg_modified(
+    res_nrg: &mut i32,          // O: Residual energy
+    res_nrg_q: &mut i32,        // O: Residual energy Q value
+    a_q16: &mut [i32],          // O: LPC coefficients (length D)
+    x: &[i16],                  // I: Input signal, length nb_subfr * subfr_length
+    min_inv_gain_q30: i32,      // I: Inverse of max prediction gain
+    subfr_length: usize,        // I: Subframe length (including D preceding samples)
+    nb_subfr: usize,            // I: Number of subframes
+    d: usize,                   // I: LPC order
+) {
+    let mut c_first_row = [0i32; SILK_MAX_ORDER_LPC];
+    let mut c_last_row = [0i32; SILK_MAX_ORDER_LPC];
+    let mut af_qa = [0i32; SILK_MAX_ORDER_LPC];
+    let mut caf = [0i32; SILK_MAX_ORDER_LPC + 1];
+    let mut cab = [0i32; SILK_MAX_ORDER_LPC + 1];
+
+    // Compute total energy C0
+    let mut c0_64: i64 = 0;
+    let total_len = subfr_length * nb_subfr;
+    for i in 0..total_len.min(x.len()) {
+        c0_64 += x[i] as i64 * x[i] as i64;
+    }
+
+    let lz = if c0_64 == 0 { 64 } else { c0_64.leading_zeros() as i32 };
+    let rshifts = (32 + 1 + N_BITS_HEAD_ROOM - lz).clamp(MIN_RSHIFTS, MAX_RSHIFTS);
+
+    let c0 = if rshifts > 0 {
+        (c0_64 >> rshifts) as i32
+    } else {
+        ((c0_64 as i32) << (-rshifts)) as i32
+    };
+
+    // Initialize CAf[0], CAb[0] with conditioning factor
+    let cond_add = silk_smmul(FIND_LPC_COND_FAC_Q32, c0) + 1;
+    caf[0] = c0 + cond_add;
+    cab[0] = caf[0];
+
+    // Compute initial cross-correlations
+    for s in 0..nb_subfr {
+        let x_ptr = &x[s * subfr_length..];
+        for n in 1..=d {
+            let mut acc: i64 = 0;
+            let len = subfr_length.saturating_sub(n).min(x_ptr.len().saturating_sub(n));
+            for i in 0..len {
+                acc += x_ptr[i] as i64 * x_ptr[i + n] as i64;
+            }
+            if rshifts > 0 {
+                c_first_row[n - 1] += (acc >> rshifts) as i32;
+            } else {
+                c_first_row[n - 1] += ((acc as i32) << (-rshifts)) as i32;
+            }
+        }
+    }
+    c_last_row[..d].copy_from_slice(&c_first_row[..d]);
+
+    // Re-initialize (same as above — C reference does this twice)
+    caf[0] = c0 + cond_add;
+    cab[0] = caf[0];
+
+    let mut inv_gain_q30: i32 = 1 << 30;
+    let mut reached_max_gain = false;
+
+    for n in 0..d {
+        // Update correlation rows and C*Af/C*Ab
+        for s in 0..nb_subfr {
+            let x_ptr = &x[s * subfr_length..];
+            if n < x_ptr.len() && subfr_length > n {
+                let x1 = -(x_ptr[n] as i32) << (16 - rshifts).max(0).min(16);
+                let x2 = if subfr_length - n - 1 < x_ptr.len() {
+                    -(x_ptr[subfr_length - n - 1] as i32) << (16 - rshifts).max(0).min(16)
+                } else { 0 };
+                let mut tmp1 = (x_ptr[n] as i32) << (QA - 16).max(0).min(16);
+                let mut tmp2 = if subfr_length - n - 1 < x_ptr.len() {
+                    (x_ptr[subfr_length - n - 1] as i32) << (QA - 16).max(0).min(16)
+                } else { 0 };
+
+                for k in 0..n {
+                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                        c_first_row[k] = silk_smlawb(c_first_row[k], x1, x_ptr[n - k - 1] as i32);
+                    }
+                    if subfr_length > n && subfr_length - n + k < x_ptr.len() {
+                        c_last_row[k] = silk_smlawb(c_last_row[k], x2, x_ptr[subfr_length - n + k] as i32);
+                    }
+                    let atmp_qa = af_qa[k];
+                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                        tmp1 = silk_smlawb(tmp1, atmp_qa, x_ptr[n - k - 1] as i32);
+                    }
+                    if subfr_length > n && subfr_length - n + k < x_ptr.len() {
+                        tmp2 = silk_smlawb(tmp2, atmp_qa, x_ptr[subfr_length - n + k] as i32);
+                    }
+                }
+                tmp1 = (-tmp1) << (32 - QA - rshifts).max(0).min(30);
+                tmp2 = (-tmp2) << (32 - QA - rshifts).max(0).min(30);
+                for k in 0..=n {
+                    if n >= k && n - k < x_ptr.len() {
+                        caf[k] = silk_smlawb(caf[k], tmp1, x_ptr[n - k] as i32);
+                    }
+                    if subfr_length > n && subfr_length - n + k >= 1
+                        && subfr_length - n + k - 1 < x_ptr.len()
+                    {
+                        cab[k] = silk_smlawb(cab[k], tmp2, x_ptr[subfr_length - n + k - 1] as i32);
+                    }
+                }
+            }
+        }
+
+        // Calculate reflection coefficient (C: burg_modified_FIX.c lines 171-197)
+        // Use local accumulators — do NOT modify c_first_row/c_last_row arrays
+        let mut tmp1 = c_first_row[n];
+        let mut tmp2 = c_last_row[n];
+        let mut num: i32 = 0;
+        let mut nrg: i32 = cab[0].wrapping_add(caf[0]);
+        for k in 0..n {
+            let atmp_qa = af_qa[k];
+            let lz = (silk_clz32(atmp_qa.abs()) - 1).max(0).min(32 - QA);
+            let atmp1 = (atmp_qa as u32).wrapping_shl(lz as u32) as i32;
+            let shift = (32 - QA - lz).max(0).min(31);
+
+            tmp1 = tmp1.wrapping_add(silk_smmul(c_last_row[n - k - 1], atmp1) << shift);
+            tmp2 = tmp2.wrapping_add(silk_smmul(c_first_row[n - k - 1], atmp1) << shift);
+            num = num.wrapping_add(silk_smmul(cab[n - k], atmp1) << shift);
+            nrg = nrg.wrapping_add(
+                silk_smmul(cab[k + 1].wrapping_add(caf[k + 1]), atmp1) << shift
+            );
+        }
+        caf[n + 1] = tmp1;
+        cab[n + 1] = tmp2;
+        num = num.wrapping_add(tmp2);
+        num = (-num) << 1;
+
+        // Compute reflection coefficient
+        let rc_q31 = if num.abs() < nrg {
+            silk_div32_varq(num, nrg, 31)
+        } else if num > 0 {
+            i32::MAX
+        } else {
+            i32::MIN
+        };
+
+        // Update inverse prediction gain
+        let tmp1_gain = (1i32 << 30) - silk_smmul(rc_q31, rc_q31);
+        let new_inv_gain = silk_smmul(inv_gain_q30, tmp1_gain) << 2;
+
+        let rc_q31 = if new_inv_gain <= min_inv_gain_q30 {
+            // Max prediction gain exceeded — adjust rc to exactly hit the limit
+            let tmp2_adj = (1i32 << 30) - silk_div32_varq(min_inv_gain_q30, inv_gain_q30, 30);
+            let mut rc_adj = silk_sqrt_approx(tmp2_adj); // Q15
+            if rc_adj > 0 {
+                rc_adj = (rc_adj + tmp2_adj / rc_adj) >> 1; // Newton-Raphson
+                rc_adj <<= 16; // Q15 → Q31
+                if num < 0 { rc_adj = -rc_adj; }
+            }
+            inv_gain_q30 = min_inv_gain_q30;
+            reached_max_gain = true;
+            rc_adj
+        } else {
+            inv_gain_q30 = new_inv_gain;
+            rc_q31
+        };
+
+        // Update AR coefficients
+        for k in 0..((n + 1) >> 1) {
+            let t1 = af_qa[k];
+            let t2 = af_qa[n - k - 1];
+            af_qa[k] = t1.wrapping_add(silk_smmul(t2, rc_q31) << 1);
+            af_qa[n - k - 1] = t2.wrapping_add(silk_smmul(t1, rc_q31) << 1);
+        }
+        af_qa[n] = rc_q31 >> (31 - QA);
+
+        if reached_max_gain {
+            for k in (n + 1)..d {
+                af_qa[k] = 0;
+            }
+            break;
+        }
+
+        // Update C*Af and C*Ab
+        for k in 0..=(n + 1) {
+            let t1 = caf[k];
+            let t2 = cab[n + 1 - k];
+            caf[k] = t1.wrapping_add(silk_smmul(t2, rc_q31) << 1);
+            cab[n + 1 - k] = t2.wrapping_add(silk_smmul(t1, rc_q31) << 1);
+        }
+    }
+
+    // Output LPC coefficients and residual energy
+    if reached_max_gain {
+        for k in 0..d {
+            a_q16[k] = -silk_rshift_round(af_qa[k], QA - 16);
+        }
+        // Subtract energy of preceding D samples from C0
+        let mut c0_adj = c0;
+        for s in 0..nb_subfr {
+            let x_ptr = &x[s * subfr_length..];
+            let mut e: i64 = 0;
+            for i in 0..d.min(x_ptr.len()) {
+                e += x_ptr[i] as i64 * x_ptr[i] as i64;
+            }
+            if rshifts > 0 {
+                c0_adj -= (e >> rshifts) as i32;
+            } else {
+                c0_adj -= (e as i32) << (-rshifts);
+            }
+        }
+        *res_nrg = silk_smmul(inv_gain_q30, c0_adj) << 2;
+        *res_nrg_q = -rshifts;
+    } else {
+        let mut nrg = caf[0];
+        let mut tmp1_sum = 1i32 << 16;
+        for k in 0..d {
+            let atmp1 = silk_rshift_round(af_qa[k], QA - 16);
+            nrg = nrg.wrapping_add(((caf[k + 1] as i64 * atmp1 as i64) >> 16) as i32);
+            tmp1_sum = tmp1_sum.wrapping_add(((atmp1 as i64 * atmp1 as i64) >> 16) as i32);
+            a_q16[k] = -atmp1;
+        }
+        *res_nrg = nrg.wrapping_add(
+            ((silk_smmul(FIND_LPC_COND_FAC_Q32, c0) as i64 * (-tmp1_sum) as i64) >> 16) as i32
+        );
+        *res_nrg_q = -rshifts;
+    }
 }

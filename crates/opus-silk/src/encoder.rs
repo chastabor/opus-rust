@@ -678,19 +678,24 @@ impl SilkEncoder {
         }
 
         // Step 2: Create gain-normalized LPC_in_pre (unvoiced path: direct scaling)
+        // C reference: x_ptr = x - predictLPCOrder, using the analysis buffer which
+        // includes ltp_mem_length of history before the current frame.
         let lpc_pre_len = nb_subfr * (lpc_order + subfr_length);
         let mut lpc_in_pre = vec![0i16; lpc_pre_len];
         {
             let mut pre_idx = 0usize;
+            // analysis_buf layout: [ltp_mem_length history | frame_length body]
+            // Current frame starts at analysis_buf[ltp_mem_length]
+            // History for subframe k starts at analysis_buf[ltp_mem_length + k*subfr_length - lpc_order]
             for k in 0..nb_subfr {
                 let ig = inv_gains_q16[k];
-                let src_start = k * subfr_length;
-                // Copy lpc_order history + subfr_length samples, scaled by inv_gain
+                // Source start: lpc_order samples before subframe k's body
+                let body_start = ltp_mem_length + k * subfr_length;
+                let src_start = body_start - lpc_order;
                 for j in 0..(lpc_order + subfr_length) {
                     let si = src_start + j;
-                    let si = if j < lpc_order { si.wrapping_sub(lpc_order) } else { si - lpc_order };
-                    if si < samples.len() && pre_idx < lpc_in_pre.len() {
-                        let tmp = ((ig as i64 * samples[si] as i64) >> 16) as i32;
+                    if si < analysis_buf.len() && pre_idx < lpc_in_pre.len() {
+                        let tmp = ((ig as i64 * analysis_buf[si] as i64) >> 16) as i32;
                         lpc_in_pre[pre_idx] = tmp.clamp(-32768, 32767) as i16;
                     }
                     pre_idx += 1;
@@ -698,17 +703,29 @@ impl SilkEncoder {
             }
         }
 
-        // Step 3: Recompute LPC on gain-normalized input
-        // Re-run autocorrelation + Levinson-Durbin on the normalized signal.
-        // This produces LPC coefficients balanced across subframes.
+        // Step 3: Recompute LPC on gain-normalized input using Burg's modified algorithm
+        // Matches C reference: find_LPC_FIX.c line 57-63.
+        // Burg receives subfr_length = predictLPCOrder + actual_subfr_length (includes D history).
         {
-            // Autocorrelation on the normalized signal (using the first subframe's segment)
-            let auto_len = (lpc_order + subfr_length).min(lpc_in_pre.len());
-            let mut corr = [0i32; MAX_LPC_ORDER + 1];
-            lpc_analysis::silk_autocorrelation(&mut corr, &lpc_in_pre[..auto_len], auto_len, lpc_order);
+            let min_inv_gain_q30 = if cs.first_frame_after_reset {
+                (1i64 << 30) as i32 / 100 // 1/100 in Q30
+            } else {
+                (1i64 << 30) as i32 / 10000 // 1/10000 in Q30
+            };
 
             let mut a_q16 = [0i32; MAX_LPC_ORDER];
-            let _pred_gain = lpc_analysis::silk_levinson_durbin(&mut a_q16, &corr, lpc_order);
+            let mut burg_res_nrg = 0i32;
+            let mut burg_res_nrg_q = 0i32;
+            lpc_analysis::silk_burg_modified(
+                &mut burg_res_nrg,
+                &mut burg_res_nrg_q,
+                &mut a_q16,
+                &lpc_in_pre,
+                min_inv_gain_q30,
+                lpc_order + subfr_length, // C: subfr_length = predictLPCOrder + subfr_length
+                nb_subfr,
+                lpc_order,
+            );
 
             // Convert to NLSF, quantize, convert back to Q12 pred_coef
             let mut new_nlsf_q15 = [0i16; MAX_LPC_ORDER];
@@ -754,7 +771,6 @@ impl SilkEncoder {
                 let res_end = (res_start + subfr_length).min(lpc_in_pre.len());
 
                 if res_end > pre_start {
-                    // Apply LPC filter to this subframe's normalized input
                     let mut lpc_res = vec![0i16; offset_per_subfr];
                     let in_len = (res_end - pre_start).min(lpc_in_pre.len() - pre_start);
                     silk_lpc_analysis_filter(
@@ -762,7 +778,6 @@ impl SilkEncoder {
                         a_q12, in_len, lpc_order,
                     );
 
-                    // Measure energy of residual (skipping the lpc_order header)
                     let residual_start = lpc_order;
                     let residual_end = in_len.min(lpc_order + subfr_length);
                     if residual_end > residual_start {
@@ -777,12 +792,16 @@ impl SilkEncoder {
                 }
             }
 
-            // Note: C reference scales ResNrg by local_gains² here. However, our LPC
-            // analysis doesn't constrain prediction gain (missing minInvGain_Q30),
-            // so the residual is already large. Applying local_gains² on top makes
-            // it ~200x too large, pushing gains to index 60+. We skip this scaling
-            // until the LPC prediction gain constraint is implemented.
-            // TODO: Add minInvGain_Q30 to LPC analysis, then restore this scaling.
+            // Scale ResNrg by local_gains² (C: residual_energy_FIX.c lines 82-96)
+            for k in 0..nb_subfr {
+                let lz1 = (silk_clz32(res_nrg[k]) - 1).max(0);
+                let lz2 = (silk_clz32(local_gains[k]) - 1).max(0);
+                let tmp32 = (local_gains[k] as u32).wrapping_shl(lz2 as u32) as i32;
+                let tmp32 = silk_smmul(tmp32, tmp32); // Q(2*lz2 - 32)
+                let nrg_shifted = (res_nrg[k] as u32).wrapping_shl(lz1 as u32) as i32;
+                res_nrg[k] = silk_smmul(tmp32, nrg_shifted); // Q(nrgsQ + lz1 + 2*lz2 - 32 - 32)
+                res_nrg_q[k] += lz1 + 2 * lz2 - 32 - 32;
+            }
         }
 
         // Step 5: process_gains — floor gains using ResNrg and InvMaxSqrVal
@@ -805,9 +824,7 @@ impl SilkEncoder {
                     } else {
                         raw << ((-res_nrg_q[k]).min(30))
                     };
-                    // Compensate for missing local_gains² scaling by dividing by
-                    // subfr_length² (approximates the Q-format difference).
-                    shifted / ((subfr_length * subfr_length) as i32).max(1)
+                    shifted
                 };
 
                 let gain = gains_q16[k];
