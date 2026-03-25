@@ -34,6 +34,9 @@ pub fn silk_encode_frame_flp(
     last_gain_index: &mut i8,
     prev_harm_smth: &mut f32,
     prev_tilt_smth: &mut f32,
+    prev_ltp_corr: &mut f32,               // I/O: LTP correlation from previous frame
+    sum_log_gain_q7: &mut i32,             // I/O: cumulative log gain for LTP quantization
+    frame_counter: &mut i32,               // I/O: running frame counter (for seed)
     speech_activity_q8: i32,
     input_quality_bands_q15: &[i32],
     input_tilt_q15: i32,
@@ -108,13 +111,14 @@ pub fn silk_encode_frame_flp(
         speech_activity_q8,
         input_tilt_q15,
         *first_frame_after_reset,
-        0.0, // prev_ltp_corr — TODO: persist across frames
+        *prev_ltp_corr,
     );
     let pitch_lags = pitch_result.pitch_l;
     indices.signal_type = pitch_result.signal_type as i8;
     indices.lag_index = pitch_result.lag_index;
     indices.contour_index = pitch_result.contour_index;
     let ltp_corr = pitch_result.ltp_corr;
+    *prev_ltp_corr = ltp_corr;
     let pred_gain = pitch_result.pred_gain;
 
     // ---- Step 3: Noise shape analysis ----
@@ -172,7 +176,7 @@ pub fn silk_encode_frame_flp(
         &ns_result.gains,
         ns_result.coding_quality,
         indices.signal_type as i32,
-        0, // sum_log_gain_q7 — TODO: persist across frames
+        *sum_log_gain_q7,
         indices,
         prev_nlsf_q15,
         lpc_order,
@@ -188,10 +192,14 @@ pub fn silk_encode_frame_flp(
         &mut nlsf_q15,
     );
 
+    // Update persisted sum_log_gain from LTP quantization
+    *sum_log_gain_q7 = pred_result.sum_log_gain_q7;
+
     // ---- Step 5: Process gains ----
-    let mut gains = ns_result.gains;
-    let cond_coding = !*first_frame_after_reset && false; // first encode in packet: independent
+    // C: condCoding = (nFramesEncoded > 0) ? CODE_CONDITIONALLY : CODE_INDEPENDENTLY
+    let cond_coding = n_frames_encoded > 0 && !*first_frame_after_reset;
     let cond_coding_int = if cond_coding { CODE_CONDITIONALLY } else { CODE_INDEPENDENTLY };
+    let mut gains = ns_result.gains;
     let n_states_del_dec = match complexity {
         0 | 1 => 1i32, 2..=5 => 2, 6 | 7 => 3, _ => 4,
     };
@@ -215,7 +223,8 @@ pub fn silk_encode_frame_flp(
     );
 
     indices.quant_offset_type = ns_result.quant_offset_type;
-    indices.seed = 0; // C uses frameCounter++ & 3, but changing this affects quality metrics
+    indices.seed = (*frame_counter & 3) as i8;
+    *frame_counter += 1;
 
     // ---- LTP scale control (C: silk_LTP_scale_ctrl_FLP) ----
     let ltp_scale_q14 = if indices.signal_type == TYPE_VOICED as i8 {

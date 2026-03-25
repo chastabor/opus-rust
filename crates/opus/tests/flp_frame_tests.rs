@@ -46,6 +46,9 @@ fn encode_frame_flp_produces_output() {
     let mut last_gain_index = 10i8;
     let mut prev_harm_smth = 0.0f32;
     let mut prev_tilt_smth = 0.0f32;
+    let mut prev_ltp_corr = 0.0f32;
+    let mut sum_log_gain_q7 = 0i32;
+    let mut frame_counter = 0i32;
     let input_quality_bands = [16384i32, 16384, 16384, 16384]; // moderate quality
     let snr_db_q7 = 2415; // ~19 dB, typical for 16kbps WB
 
@@ -86,6 +89,9 @@ fn encode_frame_flp_produces_output() {
             &mut last_gain_index,
             &mut prev_harm_smth,
             &mut prev_tilt_smth,
+            &mut prev_ltp_corr,
+            &mut sum_log_gain_q7,
+            &mut frame_counter,
             255, // speech_activity_q8
             &input_quality_bands,
             0, // input_tilt_q15
@@ -147,6 +153,9 @@ fn encode_frame_flp_first_frame() {
     let mut last_gain_index = 10i8;
     let mut prev_harm_smth = 0.0f32;
     let mut prev_tilt_smth = 0.0f32;
+    let mut prev_ltp_corr2 = 0.0f32;
+    let mut sum_log_gain2 = 0i32;
+    let mut frame_counter2 = 0i32;
 
     let input = gen_sine_i16(FRAME_LENGTH as usize, 440.0, 16000.0, 0.5);
 
@@ -169,6 +178,7 @@ fn encode_frame_flp_first_frame() {
         &mut prev_nlsf_q15, &mut prev_signal_type, &mut prev_lag,
         &mut first_frame_after_reset, &mut last_gain_index,
         &mut prev_harm_smth, &mut prev_tilt_smth,
+        &mut prev_ltp_corr2, &mut sum_log_gain2, &mut frame_counter2,
         255, &[16384; 4], 0, 2415, &input,
         FS_KHZ, NB_SUBFR, SUBFR_LENGTH, FRAME_LENGTH,
         LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH, LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
@@ -202,6 +212,9 @@ fn encode_frame_flp_lbrr_enabled() {
     let mut last_gain_index = 10i8;
     let mut prev_harm_smth = 0.0f32;
     let mut prev_tilt_smth = 0.0f32;
+    let mut prev_ltp_corr3 = 0.0f32;
+    let mut sum_log_gain3 = 0i32;
+    let mut frame_counter3 = 0i32;
     let input_quality_bands = [16384i32; 4];
     let snr_db_q7 = 2415;
 
@@ -234,6 +247,7 @@ fn encode_frame_flp_lbrr_enabled() {
             &mut prev_nlsf_q15, &mut prev_signal_type, &mut prev_lag,
             &mut first_frame_after_reset, &mut last_gain_index,
             &mut prev_harm_smth, &mut prev_tilt_smth,
+            &mut prev_ltp_corr3, &mut sum_log_gain3, &mut frame_counter3,
             255, &input_quality_bands, 0, snr_db_q7, &input,
             FS_KHZ, NB_SUBFR, SUBFR_LENGTH, FRAME_LENGTH,
             LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH,

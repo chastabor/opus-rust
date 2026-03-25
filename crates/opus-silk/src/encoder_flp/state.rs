@@ -46,6 +46,11 @@ pub struct SilkEncoderStateFlp {
     pub prev_harm_smth: f32,
     pub prev_tilt_smth: f32,
 
+    // LTP / pitch persistence
+    pub prev_ltp_corr: f32,
+    pub sum_log_gain_q7: i32,
+    pub frame_counter: i32,
+
     // VAD state
     pub vad_state: vad::VadState,
     pub speech_activity_q8: i32,
@@ -101,6 +106,9 @@ impl SilkEncoderStateFlp {
             last_gain_index: 10,
             prev_harm_smth: 0.0,
             prev_tilt_smth: 0.0,
+            prev_ltp_corr: 0.0,
+            sum_log_gain_q7: 0,
+            frame_counter: 0,
             vad_state: vad::VadState::default(),
             speech_activity_q8: 128,
             input_quality_bands_q15: [0; 4],

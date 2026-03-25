@@ -608,6 +608,9 @@ impl OpusEncoder {
                 let nlsf_cb = opus_silk::get_nlsf_cb(self.silk_flp.nlsf_cb_sel);
                 let sf = &mut self.silk_flp;
 
+                // Reset frame-within-packet counter (single-frame packets)
+                sf.n_frames_encoded = 0;
+
                 // Call float frame encoder
                 let bytes = opus_silk::encoder_flp::encode_frame::silk_encode_frame_flp(
                     &mut sf.x_buf,
@@ -620,6 +623,9 @@ impl OpusEncoder {
                     &mut sf.last_gain_index,
                     &mut sf.prev_harm_smth,
                     &mut sf.prev_tilt_smth,
+                    &mut sf.prev_ltp_corr,
+                    &mut sf.sum_log_gain_q7,
+                    &mut sf.frame_counter,
                     sf.speech_activity_q8,
                     &sf.input_quality_bands_q15,
                     sf.input_tilt_q15,
