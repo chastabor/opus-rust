@@ -81,6 +81,37 @@ unsafe extern "C" {
         arch: i32,
     );
 
+    fn silk_NLSF2A(
+        a_q12: *mut i16,         // O: monic whitening filter coefficients in Q12 [d]
+        nlsf_q15: *const i16,    // I: normalized line spectral frequencies in Q15 [d]
+        d: i32,                  // I: filter order (should be even)
+        arch: i32,               // I: run-time architecture
+    );
+
+    fn silk_gains_quant(
+        ind: *mut i8,            // O: gain indices [nb_subfr]
+        gain_q16: *mut i32,      // I/O: gains (quantized out) [nb_subfr]
+        prev_ind: *mut i8,       // I/O: last index in previous frame
+        conditional: i32,        // I: first gain is delta coded if 1
+        nb_subfr: i32,           // I: number of subframes
+    );
+
+    fn silk_gains_dequant(
+        gain_q16: *mut i32,      // O: quantized gains [nb_subfr]
+        ind: *const i8,          // I: gain indices [nb_subfr]
+        prev_ind: *mut i8,       // I/O: last index in previous frame
+        conditional: i32,        // I: first gain is delta coded if 1
+        nb_subfr: i32,           // I: number of subframes
+    );
+
+    fn silk_interpolate(
+        xi: *mut i16,            // O: interpolated vector [d]
+        x0: *const i16,          // I: first vector [d]
+        x1: *const i16,          // I: second vector [d]
+        ifact_q2: i32,           // I: interp. factor, weight on 2nd vector
+        d: i32,                  // I: number of parameters
+    );
+
     fn silk_NLSF_VQ_weights_laroia(
         pNLSFW_Q_OUT: *mut i16,  // O: NLSF weights [order]
         pNLSF_Q15: *const i16,   // I: NLSFs [order]
@@ -375,6 +406,54 @@ pub fn c_silk_a2nlsf(nlsf_q15: &mut [i16], a_q16: &mut [i32], order: usize) {
 // c_silk_burg_modified: only available with OPUS_FIXED_POINT=ON.
 // Verified identical to Rust silk_burg_modified.
 
+/// Call the C reference silk_NLSF2A to convert NLSFs to LPC coefficients.
+/// `a_q12` and `nlsf_q15` must have length >= `order`.
+pub fn c_silk_nlsf2a(a_q12: &mut [i16], nlsf_q15: &[i16], order: usize) {
+    assert!(a_q12.len() >= order && nlsf_q15.len() >= order);
+    unsafe {
+        silk_NLSF2A(a_q12.as_mut_ptr(), nlsf_q15.as_ptr(), order as i32, 0);
+    }
+}
+
+/// Call the C reference silk_gains_quant for gain scalar quantization.
+/// `ind` and `gain_q16` must have length >= `nb_subfr`.
+pub fn c_silk_gains_quant(
+    ind: &mut [i8],
+    gain_q16: &mut [i32],
+    prev_ind: &mut i8,
+    conditional: bool,
+    nb_subfr: usize,
+) {
+    assert!(ind.len() >= nb_subfr && gain_q16.len() >= nb_subfr);
+    unsafe {
+        silk_gains_quant(ind.as_mut_ptr(), gain_q16.as_mut_ptr(), prev_ind, conditional as i32, nb_subfr as i32);
+    }
+}
+
+/// Call the C reference silk_gains_dequant for gain scalar dequantization.
+/// `gain_q16` and `ind` must have length >= `nb_subfr`.
+pub fn c_silk_gains_dequant(
+    gain_q16: &mut [i32],
+    ind: &[i8],
+    prev_ind: &mut i8,
+    conditional: bool,
+    nb_subfr: usize,
+) {
+    assert!(gain_q16.len() >= nb_subfr && ind.len() >= nb_subfr);
+    unsafe {
+        silk_gains_dequant(gain_q16.as_mut_ptr(), ind.as_ptr(), prev_ind, conditional as i32, nb_subfr as i32);
+    }
+}
+
+/// Call the C reference silk_interpolate to interpolate two vectors.
+/// `xi`, `x0`, and `x1` must have length >= `d`.
+pub fn c_silk_interpolate(xi: &mut [i16], x0: &[i16], x1: &[i16], ifact_q2: i32, d: usize) {
+    assert!(xi.len() >= d && x0.len() >= d && x1.len() >= d);
+    unsafe {
+        silk_interpolate(xi.as_mut_ptr(), x0.as_ptr(), x1.as_ptr(), ifact_q2, d as i32);
+    }
+}
+
 pub fn c_silk_nlsf_vq_weights_laroia(weights: &mut [i16], nlsf_q15: &[i16], order: usize) {
     assert!(weights.len() >= order && nlsf_q15.len() >= order);
     unsafe {
@@ -499,6 +578,17 @@ unsafe extern "C" {
 
     fn silk_A2NLSF_FLP(nlsf_q15: *mut i16, a: *const f32, order: i32);
     fn silk_NLSF2A_FLP(a: *mut f32, nlsf_q15: *const i16, order: i32, arch: i32);
+
+    fn silk_LTP_analysis_filter_FLP(
+        ltp_res: *mut f32,       // O: LTP residual [nb_subfr * (pre_length + subfr_length)]
+        x: *const f32,           // I: input signal, with preceding samples
+        b: *const f32,           // I: LTP coefficients [LTP_ORDER * MAX_NB_SUBFR]
+        pitch_l: *const i32,     // I: pitch lags [MAX_NB_SUBFR]
+        inv_gains: *const f32,   // I: inverse quantization gains [MAX_NB_SUBFR]
+        subfr_length: i32,       // I: length of each subframe
+        nb_subfr: i32,           // I: number of subframes
+        pre_length: i32,         // I: preceding samples for each subframe
+    );
 }
 
 pub fn c_silk_burg_modified_flp(
@@ -514,6 +604,39 @@ pub fn c_silk_a2nlsf_flp(nlsf_q15: &mut [i16], a: &[f32], order: usize) {
 
 pub fn c_silk_nlsf2a_flp(a: &mut [f32], nlsf_q15: &[i16], order: usize) {
     unsafe { silk_NLSF2A_FLP(a.as_mut_ptr(), nlsf_q15.as_ptr(), order as i32, 0) }
+}
+
+/// Call the C reference silk_LTP_analysis_filter_FLP.
+/// `ltp_res` must have length >= `nb_subfr * (pre_length + subfr_length)`.
+/// `x` is the input signal with preceding samples.
+/// `b` must have length >= `LTP_ORDER * nb_subfr` (LTP coefficients per subframe).
+/// `pitch_l` and `inv_gains` must have length >= `nb_subfr`.
+pub fn c_silk_ltp_analysis_filter_flp(
+    ltp_res: &mut [f32],
+    x: &[f32],
+    b: &[f32],
+    pitch_l: &[i32],
+    inv_gains: &[f32],
+    subfr_length: usize,
+    nb_subfr: usize,
+    pre_length: usize,
+) {
+    assert!(ltp_res.len() >= nb_subfr * (pre_length + subfr_length));
+    const LTP_ORDER: usize = 5;
+    assert!(b.len() >= LTP_ORDER * nb_subfr);
+    assert!(pitch_l.len() >= nb_subfr && inv_gains.len() >= nb_subfr);
+    unsafe {
+        silk_LTP_analysis_filter_FLP(
+            ltp_res.as_mut_ptr(),
+            x.as_ptr(),
+            b.as_ptr(),
+            pitch_l.as_ptr(),
+            inv_gains.as_ptr(),
+            subfr_length as i32,
+            nb_subfr as i32,
+            pre_length as i32,
+        );
+    }
 }
 
 // Float residual energy
