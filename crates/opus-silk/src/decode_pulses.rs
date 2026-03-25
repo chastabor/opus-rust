@@ -27,26 +27,26 @@ pub fn silk_decode_pulses(
     let mut n_lshifts = [0i32; MAX_NB_SHELL_BLOCKS];
 
     let cdf = &SILK_PULSES_PER_BLOCK_ICDF[rate_level_index];
-    for i in 0..iter {
-        n_lshifts[i] = 0;
-        sum_pulses[i] = ps_range_dec.dec_icdf(cdf, 8) as i32;
+    for (sum_pulse, n_lshift) in sum_pulses.iter_mut().zip(n_lshifts.iter_mut()).take(iter) {
+        *n_lshift = 0;
+        *sum_pulse = ps_range_dec.dec_icdf(cdf, 8) as i32;
 
         // LSB indication
-        while sum_pulses[i] == SILK_MAX_PULSES as i32 + 1 {
-            n_lshifts[i] += 1;
+        while *sum_pulse == SILK_MAX_PULSES as i32 + 1 {
+            *n_lshift += 1;
             // When we've already got 10 LSBs, shift the table
-            let offset = if n_lshifts[i] == 10 { 1 } else { 0 };
-            sum_pulses[i] = ps_range_dec
+            let offset = if *n_lshift == 10 { 1 } else { 0 };
+            *sum_pulse = ps_range_dec
                 .dec_icdf(&SILK_PULSES_PER_BLOCK_ICDF[N_RATE_LEVELS - 1][offset..], 8)
                 as i32;
         }
     }
 
     // Shell decoding
-    for i in 0..iter {
+    for (i, &sum_pulses_i) in sum_pulses.iter().enumerate().take(iter) {
         let offset = i * SHELL_CODEC_FRAME_LENGTH;
-        if sum_pulses[i] > 0 {
-            silk_shell_decoder(&mut pulses[offset..], ps_range_dec, sum_pulses[i]);
+        if sum_pulses_i > 0 {
+            silk_shell_decoder(&mut pulses[offset..], ps_range_dec, sum_pulses_i);
         } else {
             for j in 0..SHELL_CODEC_FRAME_LENGTH {
                 pulses[offset + j] = 0;
@@ -167,8 +167,7 @@ fn silk_decode_signs(
     let n_blocks =
         (length as usize + SHELL_CODEC_FRAME_LENGTH / 2) >> LOG2_SHELL_CODEC_FRAME_LENGTH;
 
-    for i in 0..n_blocks {
-        let p = sum_pulses[i];
+    for (i, &p) in sum_pulses.iter().enumerate().take(n_blocks) {
         if p > 0 {
             icdf[0] = SILK_SIGN_ICDF[icdf_offset + ((p & 0x1F) as usize).min(6)];
             for j in 0..SHELL_CODEC_FRAME_LENGTH {

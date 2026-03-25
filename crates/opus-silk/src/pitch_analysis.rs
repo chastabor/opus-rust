@@ -36,6 +36,7 @@ const SCRATCH_SIZE: usize = 22;
 ///   Stage 1: Coarse search at 4kHz with CSTRIDE_4KHZ candidates
 ///   Stage 2: Refinement at 8kHz with d_comp candidate expansion
 ///   Stage 3: Full-rate per-subframe refinement (only if fs_khz > 8)
+#[allow(clippy::too_many_arguments)]
 pub fn silk_pitch_analysis_core(
     frame_unscaled: &[i16], // Input signal
     pitch_out: &mut [i32],  // Output pitch lags per subframe [nb_subfr]
@@ -50,7 +51,7 @@ pub fn silk_pitch_analysis_core(
     nb_subfr: i32,          // 2 or 4
 ) -> i32 {
     debug_assert!(fs_khz == 8 || fs_khz == 12 || fs_khz == 16);
-    debug_assert!(complexity >= 0 && complexity <= 2);
+    debug_assert!((0..=2).contains(&complexity));
 
     let nb_subfr_usize = nb_subfr as usize;
 
@@ -133,8 +134,8 @@ pub fn silk_pitch_analysis_core(
     let mut c_buf = [0i16; PE_MAX_NB_SUBFR * CSTRIDE_8KHZ];
 
     // Zero out area used for 4kHz stage
-    for i in 0..(nb_subfr_usize >> 1) * CSTRIDE_4KHZ {
-        c_buf[i] = 0;
+    for item in c_buf.iter_mut().take((nb_subfr_usize >> 1) * CSTRIDE_4KHZ) {
+        *item = 0;
     }
 
     // target_ptr starts at frame_4kHz offset = sf_length_4kHz * 4 = SF_LENGTH_4KHZ * 4
@@ -147,10 +148,10 @@ pub fn silk_pitch_analysis_core(
         // Compute cross-correlations using batch xcorr
         // xcorr32[d] = inner_prod(target, target - MAX_LAG_4KHZ + d) for d in 0..CSTRIDE_4KHZ
         let mut xcorr32 = [0i32; CSTRIDE_4KHZ];
-        for d in 0..CSTRIDE_4KHZ {
+        for (d, xcorr32_d) in xcorr32.iter_mut().enumerate().take(CSTRIDE_4KHZ) {
             let lag = MAX_LAG_4KHZ - d; // d=0 -> lag=MAX_LAG, d=CSTRIDE-1 -> lag=MIN_LAG
             let basis_start = target_start - lag;
-            xcorr32[d] = silk_inner_prod_aligned(
+            *xcorr32_d = silk_inner_prod_aligned(
                 &frame_4khz[target_start..],
                 &frame_4khz[basis_start..],
                 SF_LENGTH_8KHZ,
@@ -226,8 +227,8 @@ pub fn silk_pitch_analysis_core(
     let cmax = c_buf[0] as i32; // Q14
     if cmax < 3276 {
         // SILK_FIX_CONST(0.2, 14) = 3276
-        for k in 0..nb_subfr_usize {
-            pitch_out[k] = 0;
+        for item in pitch_out.iter_mut().take(nb_subfr_usize) {
+            *item = 0;
         }
         *ltp_corr_q15 = 0;
         *lag_index = 0;
@@ -251,9 +252,9 @@ pub fn silk_pitch_analysis_core(
     // Expand candidates using convolution
     // D_COMP_STRIDE = 134, fits on stack
     let mut d_comp = [0i16; D_COMP_STRIDE];
-    for i in 0..length_d_srch {
-        let idx = d_srch[i] as usize;
-        if idx >= D_COMP_MIN && idx < D_COMP_MAX {
+    for &d_srch_i in d_srch.iter().take(length_d_srch) {
+        let idx = d_srch_i as usize;
+        if (D_COMP_MIN..D_COMP_MAX).contains(&idx) {
             d_comp[idx - D_COMP_MIN] = 1;
         }
     }
@@ -298,8 +299,8 @@ pub fn silk_pitch_analysis_core(
     // ========================================================================
 
     // Zero out C buffer for 8kHz stage
-    for i in 0..nb_subfr_usize * CSTRIDE_8KHZ {
-        c_buf[i] = 0;
+    for item in c_buf.iter_mut().take(nb_subfr_usize * CSTRIDE_8KHZ) {
+        *item = 0;
     }
 
     let target_offset_8khz = (PE_LTP_MEM_LENGTH_MS * 8) as usize;
@@ -314,8 +315,8 @@ pub fn silk_pitch_analysis_core(
         )
         .wrapping_add(1);
 
-        for j in 0..length_d_comp {
-            let d = d_comp[j] as usize;
+        for &d_comp_j in d_comp.iter().take(length_d_comp) {
+            let d = d_comp_j as usize;
             if target_start < d {
                 continue;
             }
@@ -353,7 +354,7 @@ pub fn silk_pitch_analysis_core(
         if fs_khz == 12 {
             prev_lag_8khz = (prev_lag_8khz << 1) / 3;
         } else if fs_khz == 16 {
-            prev_lag_8khz = prev_lag_8khz >> 1;
+            prev_lag_8khz >>= 1;
         }
         prev_lag_log2_q7 = silk_lin2log(prev_lag_8khz);
     }
@@ -374,12 +375,12 @@ pub fn silk_pitch_analysis_core(
         lag_cb_stage2_is_10ms = true;
     }
 
-    for k_idx in 0..length_d_srch {
-        let d = d_srch[k_idx] as i32;
+    for d_srch_k in d_srch.iter().take(length_d_srch) {
+        let d = *d_srch_k;
         let mut cc = [0i32; PE_NB_CBKS_STAGE2_EXT];
 
-        for j in 0..nb_cbk_search {
-            cc[j] = 0;
+        for (j, cc_j) in cc.iter_mut().enumerate().take(nb_cbk_search) {
+            *cc_j = 0;
             for i in 0..nb_subfr_usize {
                 let d_subfr = if lag_cb_stage2_is_10ms {
                     d + SILK_CB_LAGS_STAGE2_10_MS[i][j] as i32
@@ -388,7 +389,7 @@ pub fn silk_pitch_analysis_core(
                 };
                 let c_idx = i * CSTRIDE_8KHZ + (d_subfr as usize) - (MIN_LAG_8KHZ - 2);
                 if c_idx < nb_subfr_usize * CSTRIDE_8KHZ {
-                    cc[j] += c_buf[c_idx] as i32;
+                    *cc_j += c_buf[c_idx] as i32;
                 }
             }
         }
@@ -396,9 +397,9 @@ pub fn silk_pitch_analysis_core(
         // Find best codebook
         let mut cc_max_new = i32::MIN;
         let mut cb_imax_new = 0usize;
-        for i in 0..nb_cbk_search {
-            if cc[i] > cc_max_new {
-                cc_max_new = cc[i];
+        for (i, &cc_i) in cc.iter().enumerate().take(nb_cbk_search) {
+            if cc_i > cc_max_new {
+                cc_max_new = cc_i;
                 cb_imax_new = i;
             }
         }
@@ -406,7 +407,7 @@ pub fn silk_pitch_analysis_core(
         // Bias towards shorter lags
         let lag_log2_q7 = silk_lin2log(d);
         let mut cc_max_new_b =
-            cc_max_new - ((silk_smulbb(nb_subfr * PE_SHORTLAG_BIAS, lag_log2_q7 as i32)) >> 7); // Q13
+            cc_max_new - ((silk_smulbb(nb_subfr * PE_SHORTLAG_BIAS, lag_log2_q7)) >> 7); // Q13
 
         // Bias towards previous lag
         if prev_lag_8khz > 0 {
@@ -441,8 +442,8 @@ pub fn silk_pitch_analysis_core(
 
     if lag == -1 {
         // No suitable candidate found
-        for k in 0..nb_subfr_usize {
-            pitch_out[k] = 0;
+        for item in pitch_out.iter_mut().take(nb_subfr_usize) {
+            *item = 0;
         }
         *ltp_corr_q15 = 0;
         *lag_index = 0;
@@ -451,7 +452,7 @@ pub fn silk_pitch_analysis_core(
     }
 
     // Output normalized correlation
-    *ltp_corr_q15 = (silk_div32(cc_max, nb_subfr as i32)) << 2;
+    *ltp_corr_q15 = (silk_div32(cc_max, nb_subfr)) << 2;
     if *ltp_corr_q15 < 0 {
         *ltp_corr_q15 = 0;
     }
@@ -467,9 +468,9 @@ pub fn silk_pitch_analysis_core(
         if fs_khz == 12 {
             lag = (lag * 3) >> 1;
         } else if fs_khz == 16 {
-            lag = lag << 1;
+            lag <<= 1;
         } else {
-            lag = lag * 3;
+            lag *= 3;
         }
 
         lag = lag.clamp(min_lag as i32, max_lag as i32);
@@ -490,14 +491,13 @@ pub fn silk_pitch_analysis_core(
         }
 
         // Set up codebook parameters for stage 3
-        let nb_cbk_search_st3: usize;
         let use_10ms = nb_subfr != PE_MAX_NB_SUBFR as i32;
 
-        if !use_10ms {
-            nb_cbk_search_st3 = SILK_NB_CBK_SEARCHS_STAGE3[complexity as usize];
+        let nb_cbk_search_st3: usize = if !use_10ms {
+            SILK_NB_CBK_SEARCHS_STAGE3[complexity as usize]
         } else {
-            nb_cbk_search_st3 = PE_NB_CBKS_STAGE3_10MS;
-        }
+            PE_NB_CBKS_STAGE3_10MS
+        };
 
         // Calculate the correlations and energies needed in stage 3
         // Max = PE_MAX_NB_SUBFR * PE_NB_CBKS_STAGE3_MAX = 4 * 34 = 136 entries
@@ -526,7 +526,6 @@ pub fn silk_pitch_analysis_core(
             use_10ms,
         );
 
-        let mut lag_counter = 0usize;
         let contour_bias_q15 = silk_div32(PE_FLATCONTOUR_BIAS, lag);
 
         // Compute energy of target
@@ -538,7 +537,7 @@ pub fn silk_pitch_analysis_core(
         )
         .wrapping_add(1);
 
-        for d in start_lag..=end_lag {
+        for (lag_counter, d) in (start_lag..=end_lag).enumerate() {
             for j in 0..nb_cbk_search_st3 {
                 let mut cross_corr = 0i32;
                 let mut energy = energy_target;
@@ -549,15 +548,14 @@ pub fn silk_pitch_analysis_core(
                         energy.wrapping_add(energies_st3[k * nb_cbk_search_st3 + j][lag_counter]);
                 }
 
-                let cc_max_new;
-                if cross_corr > 0 {
+                let cc_max_new = if cross_corr > 0 {
                     let raw = silk_div32_varq(cross_corr, energy, 14); // Q13
                     // Reduce depending on flatness of contour
                     let diff = i16::MAX as i32 - contour_bias_q15.wrapping_mul(j as i32); // Q15
-                    cc_max_new = silk_smulwb(raw, diff); // Q14
+                    silk_smulwb(raw, diff) // Q14
                 } else {
-                    cc_max_new = 0;
-                }
+                    0
+                };
 
                 // Check lag is valid
                 let first_lag_offset = if use_10ms {
@@ -572,7 +570,6 @@ pub fn silk_pitch_analysis_core(
                     cb_imax = j;
                 }
             }
-            lag_counter += 1;
         }
 
         for k in 0..nb_subfr_usize {
@@ -581,8 +578,7 @@ pub fn silk_pitch_analysis_core(
             } else {
                 SILK_CB_LAGS_STAGE3[k][cb_imax] as i32
             };
-            pitch_out[k] =
-                (lag_new + offset).clamp(min_lag as i32, (PE_MAX_LAG_MS * fs_khz) as i32);
+            pitch_out[k] = (lag_new + offset).clamp(min_lag as i32, PE_MAX_LAG_MS * fs_khz);
         }
         *lag_index = (lag_new - min_lag as i32) as i16;
         *contour_index = cb_imax as i8;
@@ -594,7 +590,7 @@ pub fn silk_pitch_analysis_core(
             } else {
                 SILK_CB_LAGS_STAGE2[k][cb_imax] as i32
             };
-            pitch_out[k] = (lag + offset).clamp(MIN_LAG_8KHZ as i32, (PE_MAX_LAG_MS * 8) as i32);
+            pitch_out[k] = (lag + offset).clamp(MIN_LAG_8KHZ as i32, PE_MAX_LAG_MS * 8);
         }
         *lag_index = (lag - MIN_LAG_8KHZ as i32) as i16;
         *contour_index = cb_imax as i8;
@@ -609,6 +605,7 @@ pub fn silk_pitch_analysis_core(
 ///
 /// For each subframe and each codebook entry, compute PE_NB_STAGE3_LAGS
 /// cross-correlation values spanning the lag search window [start_lag-2..start_lag+2].
+#[allow(clippy::too_many_arguments)]
 fn silk_p_ana_calc_corr_st3(
     cross_corr_st3: &mut [[i32; PE_NB_STAGE3_LAGS]],
     frame: &[i16],
@@ -646,10 +643,10 @@ fn silk_p_ana_calc_corr_st3(
 
         // celt_pitch_xcorr(target, target - start_lag - lag_high, xcorr32, sf_length, n_lags)
         let basis_offset = target_start as i32 - start_lag as i32 - lag_high;
-        for j_idx in 0..n_lags {
+        for (j_idx, xcorr_item) in xcorr32.iter_mut().enumerate().take(n_lags) {
             let basis_start = basis_offset as usize + j_idx;
             if basis_start + sf_length <= frame.len() && target_start + sf_length <= frame.len() {
-                xcorr32[j_idx] = silk_inner_prod_aligned(
+                *xcorr_item = silk_inner_prod_aligned(
                     &frame[target_start..],
                     &frame[basis_start..],
                     sf_length,
@@ -688,6 +685,7 @@ fn silk_p_ana_calc_corr_st3(
 /// For each subframe and each codebook entry, compute PE_NB_STAGE3_LAGS
 /// energy values spanning the lag search window, using recursive energy
 /// computation.
+#[allow(clippy::too_many_arguments)]
 fn silk_p_ana_calc_energy_st3(
     energies_st3: &mut [[i32; PE_NB_STAGE3_LAGS]],
     frame: &[i16],
@@ -794,8 +792,8 @@ pub fn silk_pitch_analysis_simple(
 
     if input.len() < expected_len {
         // Not enough data -- fall back to unvoiced
-        for k in 0..nb_subfr as usize {
-            pitch_lags[k] = min_lag as i32;
+        for item in pitch_lags.iter_mut().take(nb_subfr as usize) {
+            *item = min_lag as i32;
         }
         return false;
     }
@@ -828,8 +826,8 @@ pub fn silk_pitch_analysis_simple(
     // ret == 0 means voiced, ret == 1 means unvoiced
     if ret != 0 {
         // Unvoiced -- set some safe default lags
-        for k in 0..nb_subfr as usize {
-            pitch_lags[k] = min_lag as i32;
+        for item in pitch_lags.iter_mut().take(nb_subfr as usize) {
+            *item = min_lag as i32;
         }
         false
     } else {
@@ -903,6 +901,7 @@ pub fn silk_find_pitch_contour(
 /// codebook (3 codebooks with 8/16/32 entries), find the best entry by minimizing
 /// prediction error. Select the codebook (per_index) and entry (ltp_index[k]) with
 /// lowest total error.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_find_ltp_params(
     ltp_index: &mut [i8],
     per_index: &mut i8,
@@ -926,15 +925,15 @@ pub fn silk_find_ltp_params(
     let mut residual = [0i32; MAX_NB_SUBFR * MAX_SUB_FRAME_LENGTH];
 
     // Compute LPC residual: r[n] = x[n] - sum(a[k] * x[n-k-1])
-    for n in 0..total_len {
+    for (n, res_item) in residual.iter_mut().enumerate().take(total_len) {
         let abs_n = offset + n;
         let mut pred: i64 = 0;
         for k in 0..lpc_ord {
-            if abs_n >= k + 1 {
+            if abs_n > k {
                 pred += (pred_coef_q12[k] as i64) * (input[abs_n - k - 1] as i64);
             }
         }
-        residual[n] = (input[abs_n] as i32) - ((pred >> 12) as i32);
+        *res_item = (input[abs_n] as i32) - ((pred >> 12) as i32);
     }
 
     // For each LTP codebook, compute total error across all subframes
@@ -963,18 +962,16 @@ pub fn silk_find_ltp_params(
             let mut best_entry_error = i64::MAX;
             let mut best_entry = 0usize;
 
-            for entry in 0..n_entries {
-                let b = &codebook[entry]; // [i8; 5] LTP coefficients in Q7
-
+            for (entry, cb_entry) in codebook.iter().enumerate().take(n_entries) {
                 let mut error: i64 = 0;
                 for n in 0..subfr_len {
                     let abs_n = sf_start + n;
                     // LTP prediction: sum(b[k] * residual[n - lag + 2 - k]) for k=0..4
                     let mut ltp_pred: i64 = 0;
-                    for k in 0..LTP_ORDER {
+                    for (k, b_k) in cb_entry.iter().enumerate().take(LTP_ORDER) {
                         let lag_idx = abs_n as i64 - lag as i64 + 2 - k as i64;
                         if lag_idx >= 0 && (lag_idx as usize) < total_len {
-                            ltp_pred += (b[k] as i64) * (residual[lag_idx as usize] as i64);
+                            ltp_pred += (*b_k as i64) * (residual[lag_idx as usize] as i64);
                         }
                     }
                     ltp_pred >>= 7; // Q7 -> Q0
@@ -1001,9 +998,7 @@ pub fn silk_find_ltp_params(
     }
 
     *per_index = best_per as i8;
-    for sf in 0..nb_subfr_usize {
-        ltp_index[sf] = best_ltp_indices[sf];
-    }
+    ltp_index[..nb_subfr_usize].copy_from_slice(&best_ltp_indices[..nb_subfr_usize]);
 }
 
 #[cfg(test)]

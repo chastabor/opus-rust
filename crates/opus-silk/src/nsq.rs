@@ -32,6 +32,12 @@ pub struct NsqState {
     pub rewhite_flag: i32,
 }
 
+impl Default for NsqState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NsqState {
     pub fn new() -> Self {
         Self {
@@ -52,6 +58,7 @@ impl NsqState {
 }
 
 /// Scale states for the NSQ (matching silk_nsq_scale_states)
+#[allow(clippy::too_many_arguments)]
 fn silk_nsq_scale_states(
     nsq: &mut NsqState,
     x16: &[i16],
@@ -131,6 +138,7 @@ fn silk_nsq_scale_states(
 }
 
 /// Per-sample noise shape quantizer (matching silk_noise_shape_quantizer)
+#[allow(clippy::too_many_arguments)]
 fn silk_noise_shape_quantizer(
     nsq: &mut NsqState,
     signal_type: i32,
@@ -166,8 +174,8 @@ fn silk_noise_shape_quantizer(
         // Short-term prediction
         // C: silk_SMULWB(buf_Q14, coef_Q12) = (buf * (int16)coef) >> 16 → Q10
         let mut lpc_pred_q10: i64 = 0;
-        for j in 0..predict_lpc_order {
-            lpc_pred_q10 += (nsq.s_lpc_q14[ps_lpc_idx - j] as i64) * (a_q12[j] as i16 as i64);
+        for (j, a_q12_item) in a_q12.iter().enumerate().take(predict_lpc_order) {
+            lpc_pred_q10 += (nsq.s_lpc_q14[ps_lpc_idx - j] as i64) * (*a_q12_item as i64);
         }
         let lpc_pred_q10 = (lpc_pred_q10 >> 16) as i32;
 
@@ -175,11 +183,11 @@ fn silk_noise_shape_quantizer(
         let ltp_pred_q13 = if signal_type == TYPE_VOICED {
             let pred_lag_base = nsq.s_ltp_buf_idx as i64 - lag as i64 + (LTP_ORDER / 2) as i64;
             let mut acc: i64 = 2; // rounding bias
-            for k in 0..LTP_ORDER {
+            for (k, b_q14_item) in b_q14.iter().enumerate().take(LTP_ORDER) {
                 let idx = (pred_lag_base - k as i64) as usize;
                 if idx < s_ltp_q15.len() {
                     // silk_SMLAWB: a + ((b * (c as i16)) >> 16)
-                    acc += ((s_ltp_q15[idx] as i64) * (b_q14[k] as i64)) >> 16;
+                    acc += ((s_ltp_q15[idx] as i64) * (*b_q14_item as i64)) >> 16;
                 }
             }
             acc as i32
@@ -390,6 +398,7 @@ fn silk_noise_shape_quantizer(
 /// Port of silk_NSQ_c from silk/NSQ.c.
 /// Performs noise-shaped quantization of the input signal, producing
 /// quantized pulse signal and reconstructed signal.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_nsq(
     nsq: &mut NsqState,
     indices: &mut SideInfoIndices,
@@ -438,9 +447,9 @@ pub fn silk_nsq(
     let lsf_interpolation_flag = if nlsf_interp_coef_q2 == 4 { 0 } else { 1 };
 
     let total_len = ltp_mem_len + frame_len;
-    let mut s_ltp_q15 = &mut scratch_s_ltp_q15[..total_len];
+    let s_ltp_q15 = &mut scratch_s_ltp_q15[..total_len];
     let s_ltp = &mut scratch_s_ltp[..total_len];
-    let mut x_sc_q10 = &mut scratch_x_sc_q10[..subfr_len];
+    let x_sc_q10 = &mut scratch_x_sc_q10[..subfr_len];
     for v in s_ltp_q15.iter_mut() {
         *v = 0;
     }
@@ -497,9 +506,9 @@ pub fn silk_nsq(
         silk_nsq_scale_states(
             nsq,
             &x16[x16_offset..],
-            &mut x_sc_q10,
-            &s_ltp,
-            &mut s_ltp_q15,
+            x_sc_q10,
+            s_ltp,
+            s_ltp_q15,
             k,
             ltp_scale_q14,
             gains_q16,
@@ -510,7 +519,7 @@ pub fn silk_nsq(
         );
 
         // Use caller-provided scratch for xq output to avoid double-borrowing nsq
-        let mut xq_tmp = &mut scratch_xq_tmp[..subfr_len];
+        let xq_tmp = &mut scratch_xq_tmp[..subfr_len];
         for v in xq_tmp.iter_mut() {
             *v = 0;
         }
@@ -518,10 +527,10 @@ pub fn silk_nsq(
         silk_noise_shape_quantizer(
             nsq,
             signal_type,
-            &x_sc_q10,
+            x_sc_q10,
             &mut pulses[pulses_offset..],
-            &mut xq_tmp,
-            &mut s_ltp_q15,
+            xq_tmp,
+            s_ltp_q15,
             a_q12,
             b_q14,
             ar_shp_q13,

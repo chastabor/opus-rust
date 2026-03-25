@@ -20,6 +20,7 @@ const LAMBDA_QUANT_OFFSET: f32 = 0.8;
 /// On input, `gains` contains the noise_shape gains (pre-floor).
 /// On output, `gains` contains the quantized gains (post-floor, post-quant).
 /// Returns lambda (rate-distortion tradeoff parameter).
+#[allow(clippy::too_many_arguments)]
 pub fn silk_process_gains_flp(
     gains: &mut [f32; MAX_NB_SUBFR], // I/O: per-subframe gains
     res_nrg: &[f32; MAX_NB_SUBFR],   // I: residual energy per subframe
@@ -40,8 +41,8 @@ pub fn silk_process_gains_flp(
     // Gain reduction for voiced (LTP coding gain high)
     if signal_type == TYPE_VOICED {
         let s = 1.0 - 0.5 * silk_sigmoid_f32(0.25 * (ltp_pred_cod_gain - 12.0));
-        for k in 0..nb_subfr {
-            gains[k] *= s;
+        for item in gains.iter_mut().take(nb_subfr) {
+            *item *= s;
         }
     }
 
@@ -94,14 +95,12 @@ pub fn silk_process_gains_flp(
         [indices.quant_offset_type as usize] as f32
         / 1024.0;
 
-    let lambda = LAMBDA_OFFSET
+    LAMBDA_OFFSET
         + LAMBDA_DELAYED_DECISIONS * n_states_delayed_decision as f32
         + LAMBDA_SPEECH_ACT * speech_activity_q8 as f32 * (1.0 / 256.0)
         + LAMBDA_INPUT_QUALITY * input_quality
         + LAMBDA_CODING_QUALITY * coding_quality
-        + LAMBDA_QUANT_OFFSET * quant_offset;
-
-    lambda
+        + LAMBDA_QUANT_OFFSET * quant_offset
 }
 
 /// Simple sigmoid approximation matching C silk_sigmoid.

@@ -28,7 +28,7 @@ fn silk_nlsf_vq(
     n_vectors: usize,
     order: usize,
 ) {
-    for i in 0..n_vectors {
+    for (i, err_q24_i) in err_q24.iter_mut().enumerate().take(n_vectors) {
         let cb_offset = i * order;
         let mut sum_error_q24: i32 = 0;
         let mut pred_q24: i32 = 0;
@@ -53,7 +53,7 @@ fn silk_nlsf_vq(
 
             m -= 2;
         }
-        err_q24[i] = sum_error_q24;
+        *err_q24_i = sum_error_q24;
     }
 }
 
@@ -62,6 +62,7 @@ fn silk_nlsf_vq(
 /// Port of silk_NLSF_del_dec_quant from silk/NLSF_del_dec_quant.c.
 /// Uses a multi-state trellis with bounded path tracking.
 /// Returns RD value in Q25.
+#[allow(clippy::too_many_arguments)]
 fn silk_nlsf_del_dec_quant(
     indices: &mut [i8],
     x_q10: &[i16],
@@ -122,13 +123,11 @@ fn silk_nlsf_del_dec_quant(
         let in_q10 = x_q10[i_rev] as i32;
 
         for j in 0..n_states {
-            let pred_q10 =
-                (((pred_coef_q8[i_rev] as i16 as i32) * (prev_out_q10[j] as i32)) >> 8) as i32;
+            let pred_q10 = ((pred_coef_q8[i_rev] as i16 as i32) * (prev_out_q10[j] as i32)) >> 8;
             let res_q10 = in_q10 - pred_q10;
             // C: silk_RSHIFT(silk_SMULBB(inv_quant_step_size_Q6, res_Q10), 16)
             // silk_SMULBB truncates both to i16
-            let mut ind_tmp =
-                ((inv_quant_step_size_q6 as i16 as i32) * (res_q10 as i16 as i32)) >> 16;
+            let mut ind_tmp = ((inv_quant_step_size_q6 as i32) * (res_q10 as i16 as i32)) >> 16;
             ind_tmp = ind_tmp.clamp(
                 -NLSF_QUANT_MAX_AMPLITUDE_EXT,
                 NLSF_QUANT_MAX_AMPLITUDE_EXT - 1,
@@ -206,9 +205,7 @@ fn silk_nlsf_del_dec_quant(
                     rd_min_q25[j] = rd_q25[j + NLSF_QUANT_DEL_DEC_STATES];
                     rd_q25[j] = rd_min_q25[j];
                     rd_q25[j + NLSF_QUANT_DEL_DEC_STATES] = rd_max_q25[j];
-                    let tmp = prev_out_q10[j];
-                    prev_out_q10[j] = prev_out_q10[j + NLSF_QUANT_DEL_DEC_STATES];
-                    prev_out_q10[j + NLSF_QUANT_DEL_DEC_STATES] = tmp;
+                    prev_out_q10.swap(j, j + NLSF_QUANT_DEL_DEC_STATES);
                     ind_sort[j] = j + NLSF_QUANT_DEL_DEC_STATES;
                 } else {
                     rd_min_q25[j] = rd_q25[j];
@@ -257,16 +254,19 @@ fn silk_nlsf_del_dec_quant(
     // Last sample: find winner, copy indices and return RD value
     let mut ind_tmp = 0usize;
     let mut min_q25 = i32::MAX;
-    for j in 0..(2 * NLSF_QUANT_DEL_DEC_STATES) {
-        if min_q25 > rd_q25[j] {
-            min_q25 = rd_q25[j];
+    for (j, &rd_val) in rd_q25
+        .iter()
+        .enumerate()
+        .take(2 * NLSF_QUANT_DEL_DEC_STATES)
+    {
+        if min_q25 > rd_val {
+            min_q25 = rd_val;
             ind_tmp = j;
         }
     }
 
-    for j in 0..order_usize {
-        indices[j] = ind[ind_tmp & (NLSF_QUANT_DEL_DEC_STATES - 1)][j];
-    }
+    indices[..order_usize]
+        .copy_from_slice(&ind[ind_tmp & (NLSF_QUANT_DEL_DEC_STATES - 1)][..order_usize]);
     indices[0] += (ind_tmp >> NLSF_QUANT_DEL_DEC_STATES_LOG2) as i8;
 
     if min_q25 < 0 {
@@ -277,8 +277,8 @@ fn silk_nlsf_del_dec_quant(
 
 /// Insertion sort with index tracking (find top n elements)
 fn insertion_sort_increasing(arr: &mut [i32], idx: &mut [i32], len: usize) {
-    for i in 0..len {
-        idx[i] = i as i32;
+    for (i, idx_i) in idx.iter_mut().enumerate().take(len) {
+        *idx_i = i as i32;
     }
     for i in 1..len {
         let val = arr[i];
@@ -384,18 +384,17 @@ pub fn silk_nlsf_encode(
     // Find the lowest rate-distortion error
     let mut best_index = 0usize;
     let mut best_rd = rd_q25[0];
-    for s in 1..n_survivors {
-        if rd_q25[s] < best_rd {
-            best_rd = rd_q25[s];
+    for (s, &rd_val) in rd_q25.iter().enumerate().take(n_survivors).skip(1) {
+        if rd_val < best_rd {
+            best_rd = rd_val;
             best_index = s;
         }
     }
 
     nlsf_indices[0] = temp_indices1[best_index] as i8;
     let best_offset = best_index * MAX_LPC_ORDER;
-    for i in 0..order {
-        nlsf_indices[i + 1] = temp_indices2[best_offset + i];
-    }
+    nlsf_indices[1..(order + 1)]
+        .copy_from_slice(&temp_indices2[best_offset..(order + best_offset)]);
 
     // Decode back to get the quantized NLSFs
     silk_nlsf_decode(p_nlsf_q15, nlsf_indices, nlsf_cb);

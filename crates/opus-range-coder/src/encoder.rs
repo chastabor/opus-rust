@@ -24,7 +24,7 @@ impl EcCtx {
     /// Output a symbol with carry propagation.
     fn enc_carry_out(&mut self, c: i32) {
         if c as u32 != EC_SYM_MAX {
-            let carry = (c >> EC_SYM_BITS as i32) as i32;
+            let carry = c >> EC_SYM_BITS;
             if self.rem >= 0 {
                 self.error |= self.write_byte((self.rem + carry) as u32);
             }
@@ -248,7 +248,7 @@ impl EcCtx {
                     self.error = -1;
                 } else {
                     let neg_l = -l;
-                    if self.offs + self.end_offs >= self.storage && neg_l < used as i32 {
+                    if self.offs + self.end_offs >= self.storage && neg_l < used {
                         let window = window & ((1u32 << neg_l as u32) - 1);
                         self.error = -1;
                         self.buf[(self.storage - self.end_offs - 1) as usize] |= window as u8;

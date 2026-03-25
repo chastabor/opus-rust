@@ -22,6 +22,7 @@ use crate::LA_SHAPE_MS;
 /// Port of silk_encode_frame_FLP (encode_frame_FLP.c).
 ///
 /// Returns the number of payload bytes written.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_encode_frame_flp(
     // Persistent encoder state
     x_buf: &mut [f32], // I/O: float analysis buffer (ltp_mem + la_shape + frame)
@@ -157,7 +158,7 @@ pub fn silk_encode_frame_flp(
 
     // ---- Step 4: Find prediction coefficients (with LTP for voiced) ----
     let use_interpolated = complexity >= 5;
-    let n_survivors = match complexity {
+    let n_survivors: i32 = match complexity {
         0 => 2,
         1 => 3,
         2 => 2,
@@ -165,7 +166,7 @@ pub fn silk_encode_frame_flp(
         4 | 5 => 6,
         6 | 7 => 8,
         _ => 16,
-    } as i32;
+    };
 
     let mut pred_coef = [[0.0f32; MAX_LPC_ORDER]; 2];
     let mut res_nrg = [0.0f32; MAX_NB_SUBFR];

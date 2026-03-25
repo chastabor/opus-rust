@@ -8,6 +8,7 @@ use opus_range_coder::EcCtx;
 
 /// Encode side-information parameters to payload.
 /// Mirror of silk_decode_indices -- produces a bitstream the decoder can read.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_encode_indices(
     indices: &SideInfoIndices,
     enc: &mut EcCtx,
@@ -72,12 +73,12 @@ pub fn silk_encode_indices(
         indices.nlsf_indices[0] as usize,
     );
 
-    for i in 0..order {
+    for (i, ec_ix_item) in ec_ix.iter().enumerate().take(order) {
         let nlsf_idx = indices.nlsf_indices[i + 1] as i32;
         if nlsf_idx >= NLSF_QUANT_MAX_AMPLITUDE {
             enc.enc_icdf(
                 (2 * NLSF_QUANT_MAX_AMPLITUDE) as usize,
-                &nlsf_cb.ec_icdf[ec_ix[i] as usize..],
+                &nlsf_cb.ec_icdf[*ec_ix_item as usize..],
                 8,
             );
             enc.enc_icdf(
@@ -86,7 +87,7 @@ pub fn silk_encode_indices(
                 8,
             );
         } else if nlsf_idx <= -NLSF_QUANT_MAX_AMPLITUDE {
-            enc.enc_icdf(0, &nlsf_cb.ec_icdf[ec_ix[i] as usize..], 8);
+            enc.enc_icdf(0, &nlsf_cb.ec_icdf[*ec_ix_item as usize..], 8);
             enc.enc_icdf(
                 (-nlsf_idx - NLSF_QUANT_MAX_AMPLITUDE) as usize,
                 &SILK_NLSF_EXT_ICDF,
@@ -95,7 +96,7 @@ pub fn silk_encode_indices(
         } else {
             enc.enc_icdf(
                 (nlsf_idx + NLSF_QUANT_MAX_AMPLITUDE) as usize,
-                &nlsf_cb.ec_icdf[ec_ix[i] as usize..],
+                &nlsf_cb.ec_icdf[*ec_ix_item as usize..],
                 8,
             );
         }
@@ -115,7 +116,7 @@ pub fn silk_encode_indices(
         let mut encode_absolute_lag_index = true;
         if cond_coding == CODE_CONDITIONALLY && ec_prev_signal_type == TYPE_VOICED {
             let delta_lag_index = indices.lag_index as i32 - ec_prev_lag_index as i32;
-            if delta_lag_index >= -8 && delta_lag_index <= 11 {
+            if (-8..=11).contains(&delta_lag_index) {
                 // Delta encoding
                 enc.enc_icdf((delta_lag_index + 9) as usize, &SILK_PITCH_DELTA_ICDF, 8);
                 encode_absolute_lag_index = false;

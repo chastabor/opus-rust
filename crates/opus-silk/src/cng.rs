@@ -23,11 +23,11 @@ fn silk_cng_exc(exc_q14: &mut [i32], exc_buf_q14: &[i32], length: usize, rand_se
     }
 
     let mut seed = *rand_seed;
-    for i in 0..length {
+    for item in exc_q14.iter_mut().take(length) {
         seed = silk_rand(seed);
         let idx = ((seed >> 24) as usize) & exc_mask;
         if idx < exc_buf_q14.len() {
-            exc_q14[i] = exc_buf_q14[idx];
+            *item = exc_buf_q14[idx];
         }
     }
     *rand_seed = seed;

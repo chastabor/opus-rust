@@ -91,6 +91,7 @@ pub struct EncoderScratch {
 /// but since `coef[2] == 1.0` for 48 kHz this simplifies to:
 ///   `out[i] = pcm[i * cc] - mem;  mem = coef[0] * pcm[i * cc]`
 /// If `clip`, clamp the signal value to `[-65536, 65536]` before filtering.
+#[allow(clippy::too_many_arguments)]
 pub fn celt_preemphasis(
     pcm: &[f32],
     out: &mut [f32],
@@ -118,8 +119,8 @@ pub fn celt_preemphasis(
 
     let nu = n / upsample;
     if upsample != 1 {
-        for i in 0..n {
-            out[i] = 0.0;
+        for item in out.iter_mut().take(n) {
+            *item = 0.0;
         }
     }
     for i in 0..nu {
@@ -134,9 +135,9 @@ pub fn celt_preemphasis(
     }
 
     // Apply pre-emphasis using coef[0] only (coef[1]==0 for standard modes)
-    for i in 0..n {
-        let x = out[i];
-        out[i] = x - m;
+    for item in out.iter_mut().take(n) {
+        let x = *item;
+        *item = x - m;
         m = coef0 * x;
     }
     *mem = m;
@@ -148,6 +149,7 @@ pub fn celt_preemphasis(
 /// `input` is `CC * (B*N + overlap)` samples, where each channel occupies
 /// a contiguous block of `B*N + overlap` samples.
 /// `freq` is `CC * B * N` (or `C * B * N` after downmix) frequency-domain output.
+#[allow(clippy::too_many_arguments)]
 fn compute_mdcts(
     mode: &CeltMode,
     short_blocks: i32,
@@ -225,19 +227,19 @@ fn tf_encode(
     let budget = enc.storage as i32 * 8;
     let mut tell = enc.tell();
     let mut logp = if is_transient { 2u32 } else { 4u32 };
-    let tf_select_rsv = lm > 0 && tell + logp as i32 + 1 <= budget;
+    let tf_select_rsv = lm > 0 && tell + (logp as i32) < budget;
     let budget = budget - if tf_select_rsv { 1 } else { 0 };
     let mut curr = 0i32;
     let mut tf_changed = 0i32;
 
-    for i in start..end {
+    for item in tf_res.iter_mut().take(end).skip(start) {
         if tell + logp as i32 <= budget {
-            enc.enc_bit_logp(tf_res[i] ^ curr != 0, logp);
+            enc.enc_bit_logp(*item ^ curr != 0, logp);
             tell = enc.tell();
-            curr = tf_res[i];
+            curr = *item;
             tf_changed |= curr;
         } else {
-            tf_res[i] = curr;
+            *item = curr;
         }
         logp = if is_transient { 4 } else { 5 };
     }
@@ -253,9 +255,9 @@ fn tf_encode(
         0
     };
 
-    for i in start..end {
-        tf_res[i] = TF_SELECT_TABLE[lm as usize]
-            [4 * is_transient as usize + 2 * tf_select as usize + tf_res[i] as usize]
+    for item in tf_res.iter_mut().take(end).skip(start) {
+        *item = TF_SELECT_TABLE[lm as usize]
+            [4 * is_transient as usize + 2 * tf_select as usize + *item as usize]
             as i32;
     }
 }
@@ -301,8 +303,8 @@ fn transient_analysis(
             tmp[i] = y;
         }
         // Clear first 12 samples (filter startup)
-        for i in 0..12.min(len) {
-            tmp[i] = 0.0;
+        for item in tmp.iter_mut().take(12.min(len)) {
+            *item = 0.0;
         }
 
         // Forward masking pass
@@ -336,7 +338,7 @@ fn transient_analysis(
         let mut unmask = 0i32;
         let mut i = 12;
         while i < len2.saturating_sub(5) {
-            let id = (64.0 * norm * (tmp[i] + 1e-15)).max(0.0).min(127.0) as usize;
+            let id = (64.0 * norm * (tmp[i] + 1e-15)).clamp(0.0, 127.0) as usize;
             unmask += INV_TABLE[id] as i32;
             i += 4;
         }
@@ -358,7 +360,7 @@ fn transient_analysis(
 
     // Compute tf_estimate
     let tf_max = (27.0 * mask_metric as f32).sqrt() - 42.0;
-    let tf_max = tf_max.max(0.0).min(163.0);
+    let tf_max = tf_max.clamp(0.0, 163.0);
     let tf_estimate = (0.0069 * tf_max - 0.139).max(0.0).sqrt().min(1.0);
 
     (is_transient, tf_estimate, weak_transient)
@@ -621,18 +623,18 @@ fn dynalloc_analysis(
 
     // CBR halving
     if (!vbr || constrained_vbr) && !is_transient {
-        for i in start..end {
-            follower[i] *= 0.5;
+        for item in follower.iter_mut().take(end).skip(start) {
+            *item *= 0.5;
         }
     }
 
     // Band weighting
-    for i in start..end {
+    for (i, item) in follower.iter_mut().enumerate().take(end).skip(start) {
         if i < 8 {
-            follower[i] *= 2.0;
+            *item *= 2.0;
         }
         if i >= 12 {
-            follower[i] *= 0.5;
+            *item *= 0.5;
         }
     }
 
@@ -654,16 +656,14 @@ fn dynalloc_analysis(
         const MAX_BOOST_QUANTA: f32 = 2.0;
         let boost = (follower[i] / DB_PER_QUANTA)
             .round()
-            .max(0.0)
-            .min(MAX_BOOST_QUANTA) as i32;
+            .clamp(0.0, MAX_BOOST_QUANTA) as i32;
         let boost_bits = boost * quanta * (1 << BITRES);
 
         // CBR cap
         if !vbr || (constrained_vbr && !is_transient) {
-            let cap = ((2 * effective_bytes / 3) as i32) << (BITRES + 3);
+            let cap = (2 * effective_bytes / 3) << (BITRES + 3);
             if boost_total + boost_bits > cap {
-                offsets[i] =
-                    ((cap - boost_total).max(0) / ((quanta * (1 << BITRES)).max(1))) as i32;
+                offsets[i] = (cap - boost_total).max(0) / ((quanta * (1 << BITRES)).max(1));
                 *tot_boost = cap;
                 break;
             }
@@ -697,7 +697,7 @@ fn stereo_analysis(m: &CeltMode, x: &[f32], lm: i32, n0: usize) -> i32 {
         }
     }
 
-    sum_ms *= 0.707107; // 1/sqrt(2)
+    sum_ms *= std::f32::consts::FRAC_1_SQRT_2;
 
     let thetas = if lm <= 1 { 5 } else { 13 };
     let band13 = m.ebands[13.min(m.nb_ebands)] as i32;
@@ -745,7 +745,7 @@ fn compute_vbr(
         let coded_stereo_dof =
             ((m.ebands[coded_stereo_bands] as i32) << lm) - coded_stereo_bands as i32;
         if coded_bins_total > 0 && coded_stereo_dof > 0 {
-            let max_frac = (0.8 * coded_stereo_dof as f32 / coded_bins_total as f32) as f32;
+            let max_frac = 0.8 * coded_stereo_dof as f32 / coded_bins_total as f32;
             let saving = stereo_saving.min(1.0);
             let save_amount =
                 ((saving - 0.1) * coded_stereo_dof as f32 * (1 << BITRES) as f32) as i32;
@@ -840,7 +840,7 @@ fn run_prefilter(
         let mut pi = 0usize;
         pitch_search(
             &pitch_buf[max_period >> 1..],
-            &pitch_buf,
+            pitch_buf,
             n,
             max_period - 3 * min_period,
             &mut pi,
@@ -849,7 +849,7 @@ fn run_prefilter(
 
         // Remove doubling
         gain1 = remove_doubling(
-            &pitch_buf,
+            pitch_buf,
             max_period,
             min_period,
             n,
@@ -932,7 +932,7 @@ fn run_prefilter(
             comb_filter(
                 inp,
                 inp_start,
-                &pre,
+                pre,
                 pre_base + max_period,
                 old_period,
                 old_period,
@@ -950,7 +950,7 @@ fn run_prefilter(
         comb_filter(
             inp,
             inp_start + offset,
-            &pre,
+            pre,
             pre_base + max_period + offset,
             old_period,
             pitch_index,
@@ -992,7 +992,7 @@ fn run_prefilter(
             comb_filter(
                 inp,
                 in_base + offset,
-                &pre,
+                pre,
                 pre_base + offset,
                 old_period,
                 pitch_index,
@@ -1035,7 +1035,7 @@ fn run_prefilter(
 impl CeltEncoder {
     /// Create a new CELT encoder for the given sample rate and channel count.
     pub fn new(sample_rate: i32, channels: usize) -> Result<Self, i32> {
-        if channels < 1 || channels > 2 {
+        if !(1..=2).contains(&channels) {
             return Err(-1);
         }
         let mode = CeltMode::get_mode();
@@ -1204,14 +1204,12 @@ impl CeltEncoder {
         };
 
         // For CBR, compute the actual packet size from bitrate
-        if !self.vbr || self.bitrate == 510000 {
-            if self.bitrate != 510000 {
-                let tmp = (self.bitrate as i64 * frame_size as i64) as i64;
-                let new_bytes = 2i32
-                    .max(nb_compressed_bytes as i32)
-                    .min(((tmp + 4 * mode.fs as i64) / (8 * mode.fs as i64)) as i32);
-                nb_compressed_bytes = new_bytes as usize;
-            }
+        if !self.vbr && self.bitrate != 510000 {
+            let tmp = self.bitrate as i64 * frame_size as i64;
+            let new_bytes = 2i32
+                .max(nb_compressed_bytes as i32)
+                .min(((tmp + 4 * mode.fs as i64) / (8 * mode.fs as i64)) as i32);
+            nb_compressed_bytes = new_bytes as usize;
         }
 
         let mut nb_available_bytes = nb_compressed_bytes.saturating_sub(nb_filled_bytes);
@@ -1264,14 +1262,18 @@ impl CeltEncoder {
         let sample_max = {
             let mut smax = self.overlap_max;
             let non_overlap_len = cc * (n - overlap) / self.upsample;
-            for i in 0..non_overlap_len.min(pcm.len()) {
-                smax = smax.max(pcm[i].abs());
+            for item in pcm.iter().take(non_overlap_len.min(pcm.len())) {
+                smax = smax.max(item.abs());
             }
             let overlap_start = non_overlap_len;
             let overlap_pcm_len = cc * overlap / self.upsample;
             let mut overlap_max = 0.0f32;
-            for i in overlap_start..(overlap_start + overlap_pcm_len).min(pcm.len()) {
-                overlap_max = overlap_max.max(pcm[i].abs());
+            for item in pcm
+                .iter()
+                .take((overlap_start + overlap_pcm_len).min(pcm.len()))
+                .skip(overlap_start)
+            {
+                overlap_max = overlap_max.max(item.abs());
             }
             self.overlap_max = overlap_max;
             smax.max(overlap_max)
@@ -1415,7 +1417,7 @@ impl CeltEncoder {
         let mut band_e = [0.0f32; MAX_CC * NB_EBANDS];
         let mut band_log_e = [0.0f32; MAX_CC * NB_EBANDS];
 
-        compute_band_energies(mode, &freq, &mut band_e, eff_end, c, lm);
+        compute_band_energies(mode, freq, &mut band_e, eff_end, c, lm);
 
         if self.lfe {
             for i in 2..end {
@@ -1478,8 +1480,8 @@ impl CeltEncoder {
         // 11. TF encode (all zeros for simplified encoder)
         // -----------------------------------------------------------------
         let mut tf_res = [0i32; NB_EBANDS];
-        for i in 0..nb_ebands {
-            tf_res[i] = if is_transient { 1 } else { 0 };
+        for item in tf_res.iter_mut().take(nb_ebands) {
+            *item = if is_transient { 1 } else { 0 };
         }
         let tf_select = 0i32;
         tf_encode(start, end, is_transient, &mut tf_res, lm, tf_select, enc);
@@ -1500,7 +1502,7 @@ impl CeltEncoder {
             } else {
                 self.spread_decision = spreading_decision(
                     mode,
-                    &x_norm,
+                    x_norm,
                     &mut self.tonal_average,
                     self.spread_decision,
                     &mut self.hf_average,
@@ -1548,7 +1550,7 @@ impl CeltEncoder {
 
         // Encode dynamic allocation
         let mut dynalloc_logp = 6i32;
-        let total_bits_shifted = nb_compressed_bytes as i32 * 8 << BITRES;
+        let total_bits_shifted = (nb_compressed_bytes as i32 * 8) << BITRES;
         let mut total_boost = 0i32;
         tell = enc.tell_frac() as i32;
         for i in start..end {
@@ -1591,7 +1593,7 @@ impl CeltEncoder {
             } else {
                 alloc_trim = alloc_trim_analysis(
                     mode,
-                    &x_norm,
+                    x_norm,
                     &band_log_e,
                     end,
                     lm,
@@ -1639,9 +1641,9 @@ impl CeltEncoder {
                 self.lfe,
                 false,
             );
-            let target = target + enc.tell() as i32;
+            let target = target + enc.tell();
             let mut nb_avail = (target + (1 << (BITRES + 2))) >> (BITRES + 3);
-            nb_avail = nb_avail.max(min_allowed as i32);
+            nb_avail = nb_avail.max(min_allowed);
             nb_avail = nb_avail.min(nb_compressed_bytes as i32);
 
             // VBR reservoir update
@@ -1691,7 +1693,7 @@ impl CeltEncoder {
 
         // For stereo, determine intensity and dual_stereo
         let mut dual_stereo = if c == 2 {
-            stereo_analysis(mode, &x_norm, lm, n)
+            stereo_analysis(mode, x_norm, lm, n)
         } else {
             0
         };

@@ -9,6 +9,7 @@ const MAX_SUM_LOG_GAIN_Q7: i32 = ((MAX_SUM_LOG_GAIN_DB / 6.0) * 128.0) as i32;
 
 /// Entropy-constrained matrix-weighted VQ for 5-element LTP vectors.
 /// Port of silk_VQ_WMat_EC_c (VQ_WMat_EC.c).
+#[allow(clippy::too_many_arguments)]
 fn silk_vq_wmat_ec(
     ind: &mut i8,
     res_nrg_q15: &mut i32,
@@ -82,7 +83,7 @@ fn silk_vq_wmat_ec(
 
         if sum1_q15 >= 0 {
             // Translate residual energy to bits: high-rate assumption (6dB = 1 bit/sample)
-            let bits_res_q8 = (subfr_len as i32) * (silk_lin2log(sum1_q15 + penalty) - (15 << 7));
+            let bits_res_q8 = subfr_len * (silk_lin2log(sum1_q15 + penalty) - (15 << 7));
             // Reduce codelength by half ("-1"): cl_Q5[k] << (3-1)
             let bits_tot_q8 = bits_res_q8 + ((cl_q5[k] as i32) << 2);
             if bits_tot_q8 <= *rate_dist_q8 {
@@ -98,6 +99,7 @@ fn silk_vq_wmat_ec(
 /// Quantize LTP gains (port of silk_quant_LTP_gains from quant_LTP_gains.c).
 ///
 /// Searches 3 codebooks with different rate/distortion tradeoffs.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_quant_ltp_gains(
     b_q14: &mut [i16; MAX_NB_SUBFR * LTP_ORDER],
     cbk_index: &mut [i8; MAX_NB_SUBFR],
@@ -127,7 +129,7 @@ pub fn silk_quant_ltp_gains(
         let mut rate_dist_q7 = 0i32;
         let mut sum_log_gain_tmp_q7 = *sum_log_gain_q7;
 
-        for j in 0..nb_subfr {
+        for (j, temp_idx_j) in temp_idx.iter_mut().enumerate().take(nb_subfr) {
             let max_gain_q7 =
                 silk_log2lin(MAX_SUM_LOG_GAIN_Q7 - sum_log_gain_tmp_q7 + (7 << 7)) - gain_safety;
 
@@ -154,7 +156,7 @@ pub fn silk_quant_ltp_gains(
                 cbk_size,
             );
 
-            temp_idx[j] = ind;
+            *temp_idx_j = ind;
 
             // Saturating add for residual energy and rate-distortion
             res_nrg_q15 = res_nrg_q15.saturating_add(res_nrg_q15_subfr);
@@ -198,6 +200,7 @@ pub fn silk_quant_ltp_gains(
 ///
 /// Converts float correlation matrices to Q17, calls the fixed-point quantizer,
 /// and converts results back to float.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_quant_ltp_gains_flp(
     b: &mut [f32; MAX_NB_SUBFR * LTP_ORDER], // O: quantized LTP gains (float)
     cbk_index: &mut [i8; MAX_NB_SUBFR],      // O: codebook indices

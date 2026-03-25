@@ -27,6 +27,7 @@ pub struct PitchLagsResult {
 ///
 /// `x` points to x_frame (start of analysis frame in x_buf).
 /// The function accesses x - ltp_mem_length for the LPC analysis.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_find_pitch_lags_flp(
     x_buf: &[f32], // full x_buf (includes ltp_mem + la_shape + frame)
     ltp_mem_length: usize,
@@ -120,8 +121,8 @@ pub fn silk_find_pitch_lags_flp(
     result.res_pitch = res;
 
     let mut res_i16 = vec![0i16; buf_len];
-    for i in 0..buf_len {
-        res_i16[i] = silk_sat16(result.res_pitch[i].round() as i32);
+    for (i, res_i16_i) in res_i16.iter_mut().enumerate().take(buf_len) {
+        *res_i16_i = silk_sat16(result.res_pitch[i].round() as i32);
     }
 
     // Call pitch estimator (reuses existing fixed-point implementation)

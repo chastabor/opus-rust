@@ -56,8 +56,8 @@ pub fn silk_decode_indices(
         ps_dec.indices.nlsf_indices[0] as usize,
     );
 
-    for i in 0..order {
-        let mut ix_val = ps_range_dec.dec_icdf(&nlsf_cb.ec_icdf[ec_ix[i] as usize..], 8) as i32;
+    for (i, &ec_ix_i) in ec_ix.iter().enumerate().take(order) {
+        let mut ix_val = ps_range_dec.dec_icdf(&nlsf_cb.ec_icdf[ec_ix_i as usize..], 8) as i32;
         if ix_val == 0 {
             ix_val -= ps_range_dec.dec_icdf(&SILK_NLSF_EXT_ICDF, 8) as i32;
         } else if ix_val == 2 * NLSF_QUANT_MAX_AMPLITUDE {

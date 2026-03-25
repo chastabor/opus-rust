@@ -33,7 +33,7 @@ fn silk_sigmoid(x: f32) -> f32 {
 /// C: silk_log2(x) = 3.32192809488736 * log10(x)
 #[inline]
 fn silk_log2_f(x: f64) -> f32 {
-    (3.32192809488736 * x.log10()) as f32
+    (std::f64::consts::LOG2_10 * x.log10()) as f32
 }
 
 /// C: warped_gain (lines 39-53)
@@ -53,16 +53,16 @@ fn warped_true2monic_coefs(coefs: &mut [f32], lambda: f32, limit: f32, order: us
         coefs[i - 1] -= lambda * coefs[i];
     }
     let mut gain = (1.0 - lambda * lambda) / (1.0 + lambda * coefs[0]);
-    for i in 0..order {
-        coefs[i] *= gain;
+    for item in coefs.iter_mut().take(order) {
+        *item *= gain;
     }
 
     for iter in 0..10 {
         // Find maximum absolute value
         let mut maxabs = -1.0f32;
         let mut ind = 0;
-        for i in 0..order {
-            let tmp = coefs[i].abs();
+        for (i, &coef) in coefs.iter().enumerate().take(order) {
+            let tmp = coef.abs();
             if tmp > maxabs {
                 maxabs = tmp;
                 ind = i;
@@ -77,8 +77,8 @@ fn warped_true2monic_coefs(coefs: &mut [f32], lambda: f32, limit: f32, order: us
             coefs[i - 1] += lambda * coefs[i];
         }
         gain = 1.0 / gain;
-        for i in 0..order {
-            coefs[i] *= gain;
+        for item in coefs.iter_mut().take(order) {
+            *item *= gain;
         }
 
         // Apply bandwidth expansion
@@ -91,8 +91,8 @@ fn warped_true2monic_coefs(coefs: &mut [f32], lambda: f32, limit: f32, order: us
             coefs[i - 1] -= lambda * coefs[i];
         }
         gain = (1.0 - lambda * lambda) / (1.0 + lambda * coefs[0]);
-        for i in 0..order {
-            coefs[i] *= gain;
+        for item in coefs.iter_mut().take(order) {
+            *item *= gain;
         }
     }
 }
@@ -102,8 +102,8 @@ fn limit_coefs(coefs: &mut [f32], limit: f32, order: usize) {
     for iter in 0..10 {
         let mut maxabs = -1.0f32;
         let mut ind = 0;
-        for i in 0..order {
-            let tmp = coefs[i].abs();
+        for (i, &coef) in coefs.iter().enumerate().take(order) {
+            let tmp = coef.abs();
             if tmp > maxabs {
                 maxabs = tmp;
                 ind = i;
@@ -132,6 +132,7 @@ pub struct NoiseShapeResult {
 }
 
 /// Faithful port of silk_noise_shape_analysis_FLP (lines 147-350).
+#[allow(clippy::too_many_arguments)]
 pub fn silk_noise_shape_analysis_flp(
     // Signal: x points to x_frame, which has la_shape samples before the actual frame
     x: &[f32],
@@ -347,8 +348,8 @@ pub fn silk_noise_shape_analysis_flp(
 
     let tilt: f32;
     if signal_type == TYPE_VOICED {
-        for k in 0..nb_subfr {
-            let b = 0.2 / fs_khz as f32 + 3.0 / pitch_l[k].max(1) as f32;
+        for (k, &pitch_l_k) in pitch_l.iter().enumerate().take(nb_subfr) {
+            let b = 0.2 / fs_khz as f32 + 3.0 / pitch_l_k.max(1) as f32;
             result.lf_ma_shp[k] = -1.0 + b;
             result.lf_ar_shp[k] = 1.0 - b - b * strength_lf;
         }
@@ -369,16 +370,15 @@ pub fn silk_noise_shape_analysis_flp(
     }
 
     // ---- HARMONIC SHAPING CONTROL (C lines 327-339) ----
-    let harm_shape_gain: f32;
-    if signal_type == TYPE_VOICED {
+    let harm_shape_gain: f32 = if signal_type == TYPE_VOICED {
         let mut hsg = HARMONIC_SHAPING;
         hsg += HIGH_RATE_OR_LOW_QUALITY_HARMONIC_SHAPING
             * (1.0 - (1.0 - result.coding_quality) * result.input_quality);
         hsg *= ltp_corr.max(0.0).sqrt();
-        harm_shape_gain = hsg;
+        hsg
     } else {
-        harm_shape_gain = 0.0;
-    }
+        0.0
+    };
 
     // ---- SMOOTH OVER SUBFRAMES (C lines 344-349) ----
     for k in 0..nb_subfr {

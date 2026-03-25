@@ -7,6 +7,7 @@ use opus_range_coder::EcCtx;
 // =========================================================================
 // denormalise_bands - matches C bands.c denormalise_bands() for float
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 pub fn denormalise_bands(
     m: &CeltMode,
     x: &[f32],
@@ -25,8 +26,8 @@ pub fn denormalise_bands(
     }
     let (start, end) = if silence { (0, 0) } else { (start, end) };
     if silence {
-        for i in 0..n {
-            freq[i] = 0.0;
+        for item in freq.iter_mut().take(n) {
+            *item = 0.0;
         }
         return;
     }
@@ -36,8 +37,8 @@ pub fn denormalise_bands(
     // Zero up to the start band
     if start != 0 {
         let start_pos = mm * m.ebands[start] as usize;
-        for j in 0..start_pos {
-            freq[j] = 0.0;
+        for item in freq.iter_mut().take(start_pos) {
+            *item = 0.0;
         }
     }
 
@@ -55,14 +56,15 @@ pub fn denormalise_bands(
     }
 
     // Zero from bound to end
-    for i in bound..n {
-        freq[i] = 0.0;
+    for item in freq.iter_mut().take(n).skip(bound) {
+        *item = 0.0;
     }
 }
 
 // =========================================================================
 // anti_collapse - matches C bands.c anti_collapse() for float decode path
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 pub fn anti_collapse(
     m: &CeltMode,
     x: &mut [f32],
@@ -80,7 +82,7 @@ pub fn anti_collapse(
 ) {
     for i in start..end {
         let n0 = (m.ebands[i + 1] - m.ebands[i]) as usize;
-        let depth = (celt_udiv(1 + pulses[i], (m.ebands[i + 1] - m.ebands[i]) as i32) >> lm) as i32;
+        let depth = celt_udiv(1 + pulses[i], (m.ebands[i + 1] - m.ebands[i]) as i32) >> lm;
         let thresh = 0.5 * celt_exp2(-0.125 * depth as f32);
         let sqrt_1 = celt_rsqrt((n0 << lm) as f32);
 
@@ -94,7 +96,7 @@ pub fn anti_collapse(
             let ediff = (log_e[ch * m.nb_ebands + i] - prev1.min(prev2)).max(0.0);
             let mut r = 2.0 * celt_exp2(-ediff);
             if lm == 3 {
-                r *= 1.41421356;
+                r *= std::f32::consts::SQRT_2;
             }
             let r = thresh.min(r) * sqrt_1;
 
@@ -127,7 +129,7 @@ pub fn anti_collapse(
 // =========================================================================
 pub fn haar1(x: &mut [f32], n0: usize, stride: usize) {
     let n0 = n0 >> 1;
-    let inv_sqrt2 = 0.70710678f32;
+    let inv_sqrt2 = std::f32::consts::FRAC_1_SQRT_2;
     for i in 0..stride {
         for j in 0..n0 {
             let tmp1 = inv_sqrt2 * x[stride * 2 * j + i];
@@ -186,7 +188,7 @@ fn deinterleave_hadamard(x: &mut [f32], n0: usize, stride: usize, hadamard: bool
 // =========================================================================
 #[allow(dead_code)]
 fn stereo_split(x: &mut [f32], y: &mut [f32], n: usize) {
-    let inv_sqrt2: f32 = 0.70710678;
+    let inv_sqrt2: f32 = std::f32::consts::FRAC_1_SQRT_2;
     for j in 0..n {
         let l = inv_sqrt2 * x[j];
         let r = inv_sqrt2 * y[j];
@@ -238,6 +240,7 @@ fn compute_qn(n: usize, b: i32, offset: i32, pulse_cap: i32, stereo: bool) -> i3
 // compute_theta - decode stereo/split theta parameter
 // Matches C bands.c compute_theta() decode path
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 fn compute_theta(
     m: &CeltMode,
     band_idx: usize,
@@ -278,12 +281,11 @@ fn compute_theta(
             let x0 = qn / 2;
             let ft = (p0 * (x0 + 1) + x0) as u32;
             let fs = ec.decode(ft) as i32;
-            let x;
-            if fs < (x0 + 1) * p0 {
-                x = fs / p0;
+            let x = if fs < (x0 + 1) * p0 {
+                fs / p0
             } else {
-                x = x0 + 1 + (fs - (x0 + 1) * p0);
-            }
+                x0 + 1 + (fs - (x0 + 1) * p0)
+            };
             let fl = if x <= x0 {
                 p0 * x
             } else {
@@ -303,15 +305,15 @@ fn compute_theta(
             // Triangular PDF
             let ft = ((qn >> 1) + 1) * ((qn >> 1) + 1);
             let fm = ec.decode(ft as u32);
-            if (fm as i32) < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
+            if (fm as i32) < (((qn >> 1) * ((qn >> 1) + 1)) >> 1) {
                 itheta = ((isqrt32(8 * fm + 1) as i32 - 1) >> 1) as i32;
                 let fs = itheta + 1;
-                let fl = itheta * (itheta + 1) >> 1;
+                let fl = (itheta * (itheta + 1)) >> 1;
                 ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
             } else {
                 itheta = (2 * (qn + 1) - isqrt32(8 * (ft as u32 - fm - 1) + 1) as i32) >> 1;
                 let fs = qn + 1 - itheta;
-                let fl = ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1);
+                let fl = ft - (((qn + 1 - itheta) * (qn + 2 - itheta)) >> 1);
                 ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
             }
         }
@@ -363,7 +365,7 @@ fn exp_rotation1(x: &mut [f32], len: usize, stride: usize, c: f32, s: f32) {
         x[i] = c * x1 + ms * x2;
     }
     // Backward pass
-    if len >= 2 * stride + 1 {
+    if len > 2 * stride {
         for i in (0..=(len - 2 * stride - 1)).rev() {
             let x1 = x[i];
             let x2 = x[i + stride];
@@ -438,8 +440,8 @@ fn extract_collapse_mask(iy: &[i32], n: usize, b: usize) -> u32 {
 // =========================================================================
 fn normalise_residual(iy: &[i32], x: &mut [f32], n: usize, ryy: f32, gain: f32) {
     if ryy < 1e-30 {
-        for i in 0..n {
-            x[i] = 0.0;
+        for item in x.iter_mut().take(n) {
+            *item = 0.0;
         }
         return;
     }
@@ -517,6 +519,7 @@ trait QuantMode {
 
     /// Compute/decode theta for stereo split.
     /// Decoder uses compute_theta (reads). Encoder uses compute_theta_enc (writes).
+    #[allow(clippy::too_many_arguments)]
     fn compute_theta_stereo(
         m: &CeltMode,
         band_idx: usize,
@@ -580,16 +583,16 @@ impl QuantMode for Decode {
             // Triangular PDF
             let ft = ((qn >> 1) + 1) * ((qn >> 1) + 1);
             let fm = ec.decode(ft as u32);
-            if (fm as i32) < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
+            if (fm as i32) < (((qn >> 1) * ((qn >> 1) + 1)) >> 1) {
                 let it = ((isqrt32(8 * fm + 1) as i32 - 1) >> 1) as i32;
                 let fs = it + 1;
-                let fl = it * (it + 1) >> 1;
+                let fl = (it * (it + 1)) >> 1;
                 ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
                 return celt_udiv(it * 16384, qn);
             } else {
                 let it = (2 * (qn + 1) - isqrt32(8 * (ft as u32 - fm - 1) + 1) as i32) >> 1;
                 let fs = qn + 1 - it;
-                let fl = ft - ((qn + 1 - it) * (qn + 2 - it) >> 1);
+                let fl = ft - (((qn + 1 - it) * (qn + 2 - it)) >> 1);
                 ec.dec_update(fl as u32, (fl + fs) as u32, ft as u32);
                 return celt_udiv(it * 16384, qn);
             }
@@ -664,7 +667,7 @@ impl QuantMode for Encode {
         let side_val = celt_sqrt(e_r);
         let mut itheta =
             (0.5 + 16384.0 * side_val.atan2(mid_val) / std::f32::consts::FRAC_PI_2).floor() as i32;
-        itheta = itheta.max(0).min(16384);
+        itheta = itheta.clamp(0, 16384);
         itheta = (itheta * qn + 8192) / 16384;
 
         if b0 > 1 {
@@ -674,10 +677,10 @@ impl QuantMode for Encode {
             let fl;
             let fh;
             if itheta <= qn >> 1 {
-                fl = itheta * (itheta + 1) >> 1;
+                fl = (itheta * (itheta + 1)) >> 1;
                 fh = fl + itheta + 1;
             } else {
-                fl = ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1);
+                fl = ft - (((qn + 1 - itheta) * (qn + 2 - itheta)) >> 1);
                 fh = fl + (qn + 1 - itheta);
             }
             ec.encode(fl as u32, fh as u32, ft as u32);
@@ -685,6 +688,7 @@ impl QuantMode for Encode {
         celt_udiv(itheta * 16384, qn)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compute_theta_stereo(
         m: &CeltMode,
         band_idx: usize,
@@ -718,6 +722,7 @@ impl QuantMode for Encode {
 // =========================================================================
 // quant_partition_generic - unified encode/decode partition quantization
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 fn quant_partition_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -756,12 +761,11 @@ fn quant_partition_generic<M: QuantMode>(
         let qn = compute_qn(half_n, b, offset, pulse_cap, false);
 
         let tell = ec.tell_frac();
-        let itheta;
-        if qn != 1 {
-            itheta = M::code_split_theta(ec, x, half_n, qn, b0);
+        let itheta = if qn != 1 {
+            M::code_split_theta(ec, x, half_n, qn, b0)
         } else {
-            itheta = 0;
-        }
+            0
+        };
         let qalloc = ec.tell_frac() as i32 - tell as i32;
 
         let b_left = b - qalloc;
@@ -894,29 +898,29 @@ fn quant_partition_generic<M: QuantMode>(
             };
             let fill = fill & cm_mask;
             if fill == 0 {
-                for j in 0..n {
-                    x[j] = 0.0;
+                for item in x.iter_mut().take(n) {
+                    *item = 0.0;
                 }
-            } else {
-                if let Some(lb) = lowband {
-                    // Folded spectrum
-                    for j in 0..n {
-                        ctx.seed = celt_lcg_rand(ctx.seed);
-                        let tmp: f32 = 1.0 / 256.0;
-                        let tmp = if ctx.seed & 0x8000 != 0 { tmp } else { -tmp };
-                        x[j] = lb[j.min(lb.len() - 1)] + tmp;
-                    }
-                } else {
-                    // Noise
-                    for j in 0..n {
-                        ctx.seed = celt_lcg_rand(ctx.seed);
-                        x[j] = (ctx.seed as i32 >> 20) as f32;
-                    }
+            } else if let Some(lb) = lowband {
+                // Folded spectrum
+                for j in 0..n {
+                    ctx.seed = celt_lcg_rand(ctx.seed);
+                    let tmp: f32 = 1.0 / 256.0;
+                    let tmp = if ctx.seed & 0x8000 != 0 { tmp } else { -tmp };
+                    x[j] = lb[j.min(lb.len() - 1)] + tmp;
                 }
                 renormalise_vector(&mut x[..n], n, gain);
-                return if lowband.is_some() { fill } else { cm_mask };
+                return fill;
+            } else {
+                // Noise
+                for item in x.iter_mut().take(n) {
+                    ctx.seed = celt_lcg_rand(ctx.seed);
+                    *item = (ctx.seed as i32 >> 20) as f32;
+                }
+                renormalise_vector(&mut x[..n], n, gain);
+                return cm_mask;
             }
-            return 0;
+            0
         }
     }
 }
@@ -924,6 +928,7 @@ fn quant_partition_generic<M: QuantMode>(
 // =========================================================================
 // quant_band_generic - unified encode/decode band quantization
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 fn quant_band_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -965,24 +970,20 @@ fn quant_band_generic<M: QuantMode>(
 
     // Copy lowband to scratch if needed for modifications
     let mut lowband_copy: Option<Vec<f32>> = None;
-    if let Some(lb) = lowband {
-        if recombine > 0 || ((n_b & 1) == 0 && tf_change < 0) || b0 > 1 {
-            lowband_copy = Some(lb[..n.min(lb.len())].to_vec());
-        }
+    if let Some(lb) =
+        lowband.filter(|_| recombine > 0 || ((n_b & 1) == 0 && tf_change < 0) || b0 > 1)
+    {
+        lowband_copy = Some(lb[..n.min(lb.len())].to_vec());
     }
 
     // Apply recombine haar transforms
     for k in 0..recombine {
         // Encoder: also apply haar on X before encoding
-        if M::TRANSFORM_X {
-            if n >> k >= 2 {
-                haar1(x, n >> k, 1 << k);
-            }
+        if M::TRANSFORM_X && n >> k >= 2 {
+            haar1(x, n >> k, 1 << k);
         }
-        if let Some(ref mut lb) = lowband_copy {
-            if n >> k >= 2 {
-                haar1(lb, n >> k, 1 << k);
-            }
+        if let Some(ref mut lb) = lowband_copy.as_mut().filter(|_| n >> k >= 2) {
+            haar1(lb, n >> k, 1 << k);
         }
         fill = BIT_INTERLEAVE_TABLE[(fill & 0xF) as usize] as u32
             | (BIT_INTERLEAVE_TABLE[((fill >> 4) & 0xF) as usize] as u32) << 2;
@@ -1060,6 +1061,7 @@ fn quant_band_generic<M: QuantMode>(
 // =========================================================================
 // quant_band_stereo_generic - unified encode/decode stereo band quantization
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 fn quant_band_stereo_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -1110,13 +1112,12 @@ fn quant_band_stereo_generic<M: QuantMode>(
 
     // N==2 special case: encode side with just one bit
     if n == 2 {
-        let mbits;
         let mut sbits = 0i32;
         // Only need one bit for the side
         if itheta != 0 && itheta != 16384 {
             sbits = 1 << BITRES;
         }
-        mbits = b - sbits;
+        let mbits = b - sbits;
         let c = itheta > 8192;
         ctx.remaining_bits -= qalloc + sbits;
 
@@ -1265,8 +1266,8 @@ fn quant_band_stereo_generic<M: QuantMode>(
 
         // Apply inv flag
         if inv {
-            for j in 0..n {
-                y[j] = -y[j];
+            for item in y.iter_mut().take(n) {
+                *item = -*item;
             }
         }
     }
@@ -1277,6 +1278,7 @@ fn quant_band_stereo_generic<M: QuantMode>(
 // =========================================================================
 // quant_all_bands_generic - unified encode/decode all bands quantization
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 fn quant_all_bands_generic<M: QuantMode>(
     m: &CeltMode,
     start: usize,
@@ -1336,7 +1338,7 @@ fn quant_all_bands_generic<M: QuantMode>(
 
     for i in start..end {
         let tell = ec.tell_frac() as i32;
-        let n = (mm * (m.ebands[i + 1] - m.ebands[i]) as usize) as usize;
+        let n = mm * (m.ebands[i + 1] - m.ebands[i]) as usize;
         let x_off = mm * m.ebands[i] as usize;
         let last = i == end - 1;
 
@@ -1346,13 +1348,12 @@ fn quant_all_bands_generic<M: QuantMode>(
         }
         ctx.remaining_bits = total_bits - tell - 1;
 
-        let b;
-        if i <= coded_bands.saturating_sub(1) {
+        let b = if i <= coded_bands.saturating_sub(1) {
             let curr_balance = celt_sudiv(bal, (coded_bands - i).min(3) as i32);
-            b = 0i32.max(16383i32.min((ctx.remaining_bits + 1).min(pulses[i] + curr_balance)));
+            0i32.max(16383i32.min((ctx.remaining_bits + 1).min(pulses[i] + curr_balance)))
         } else {
-            b = 0;
-        }
+            0
+        };
 
         // Update lowband offset
         if (mm * m.ebands[i] as usize >= mm * m.ebands[start] as usize + n || i == start + 1)
@@ -1386,7 +1387,7 @@ fn quant_all_bands_generic<M: QuantMode>(
             }
         }
 
-        let tf_change = tf_res[i] as i32;
+        let tf_change = tf_res[i];
         ctx.tf_change = tf_change;
 
         // Get effective lowband for folding
@@ -1406,7 +1407,7 @@ fn quant_all_bands_generic<M: QuantMode>(
             let mut fold_start = lowband_offset;
             loop {
                 fold_start -= 1;
-                if !((mm * m.ebands[fold_start] as usize) > fold_start_bound) {
+                if (mm * m.ebands[fold_start] as usize) <= fold_start_bound {
                     break;
                 }
             }
@@ -1606,6 +1607,7 @@ fn quant_all_bands_generic<M: QuantMode>(
 // =========================================================================
 // Public API wrappers - decode path
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 pub fn quant_all_bands(
     m: &CeltMode,
     start: usize,
@@ -1764,14 +1766,14 @@ fn op_pvq_search(x: &[f32], iy: &mut [i32], n: usize, k: usize) -> f32 {
 
     // Initial quantization: round to nearest integer
     let mut k_left = k as i32;
-    for j in 0..n {
-        iy[j] = 0;
+    for item in iy.iter_mut().take(n) {
+        *item = 0;
     }
 
     // Greedy search: assign pulses one at a time
     // First pass: absolute value rounding
-    for j in 0..n {
-        sum += x[j].abs();
+    for item in x.iter().take(n) {
+        sum += item.abs();
     }
 
     if sum < 1e-10 {
@@ -1854,17 +1856,16 @@ fn alg_quant(
 /// Compute stereo angle itheta from actual X and Y signals.
 /// Matches C stereo_itheta() in bands.c.
 fn stereo_itheta(x: &[f32], y: &[f32], n: usize, _stereo: bool) -> i32 {
-    let mut itheta;
     let e_l = 1e-27 + celt_inner_prod(x, x, n);
     let e_r = 1e-27 + celt_inner_prod(y, y, n);
     let mid = celt_sqrt(e_l);
     let side = celt_sqrt(e_r);
-    itheta = (0.5 + 16384.0 * side.atan2(mid) / std::f32::consts::FRAC_PI_2).floor() as i32;
-    itheta = itheta.max(0).min(16384);
-    itheta
+    let itheta = (0.5 + 16384.0 * side.atan2(mid) / std::f32::consts::FRAC_PI_2).floor() as i32;
+    itheta.clamp(0, 16384)
 }
 
 /// Encode-side compute_theta: compute and encode the split angle.
+#[allow(clippy::too_many_arguments)]
 fn compute_theta_enc(
     m: &CeltMode,
     band_idx: usize,
@@ -1910,12 +1911,11 @@ fn compute_theta_enc(
             let p0: i32 = 3;
             let x0 = qn / 2;
             let ft = (p0 * (x0 + 1) + x0) as u32;
-            let fl;
-            if itheta <= x0 {
-                fl = p0 * itheta;
+            let fl = if itheta <= x0 {
+                p0 * itheta
             } else {
-                fl = (itheta - 1 - x0) + (x0 + 1) * p0;
-            }
+                (itheta - 1 - x0) + (x0 + 1) * p0
+            };
             let fh = if itheta <= x0 {
                 p0 * (itheta + 1)
             } else {
@@ -1930,10 +1930,10 @@ fn compute_theta_enc(
             let fl;
             let fh;
             if itheta <= qn >> 1 {
-                fl = itheta * (itheta + 1) >> 1;
+                fl = (itheta * (itheta + 1)) >> 1;
                 fh = fl + itheta + 1;
             } else {
-                fl = ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1);
+                fl = ft - (((qn + 1 - itheta) * (qn + 2 - itheta)) >> 1);
                 fh = fl + (qn + 1 - itheta);
             }
             ec.encode(fl as u32, fh as u32, ft as u32);
@@ -1975,6 +1975,7 @@ fn compute_theta_enc(
 // =========================================================================
 // Public API wrapper - encode path
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
 pub fn quant_all_bands_enc(
     m: &CeltMode,
     start: usize,

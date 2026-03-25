@@ -125,17 +125,15 @@ fn silk_decode_pitch(
                     .clamp(min_lag, max_lag);
             }
         }
+    } else if nb_subfr == PE_MAX_NB_SUBFR as i32 {
+        for k in 0..nb_subfr as usize {
+            pitch_lags[k] = (lag + SILK_CB_LAGS_STAGE3[k][contour_index as usize] as i32)
+                .clamp(min_lag, max_lag);
+        }
     } else {
-        if nb_subfr == PE_MAX_NB_SUBFR as i32 {
-            for k in 0..nb_subfr as usize {
-                pitch_lags[k] = (lag + SILK_CB_LAGS_STAGE3[k][contour_index as usize] as i32)
-                    .clamp(min_lag, max_lag);
-            }
-        } else {
-            for k in 0..nb_subfr as usize {
-                pitch_lags[k] = (lag + SILK_CB_LAGS_STAGE3_10_MS[k][contour_index as usize] as i32)
-                    .clamp(min_lag, max_lag);
-            }
+        for k in 0..nb_subfr as usize {
+            pitch_lags[k] = (lag + SILK_CB_LAGS_STAGE3_10_MS[k][contour_index as usize] as i32)
+                .clamp(min_lag, max_lag);
         }
     }
 }

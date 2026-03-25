@@ -19,10 +19,10 @@ pub fn silk_corr_vector_flp(
     order: usize,   // LTP_ORDER (5)
     xt: &mut [f32], // [order] output
 ) {
-    for lag in 0..order {
+    for (lag, xt_lag) in xt.iter_mut().enumerate().take(order) {
         // ptr1 = x + (order-1) - lag = x + (order-1-lag)
         let col_start = order - 1 - lag;
-        xt[lag] = silk_inner_product_flp(&x[col_start..col_start + l], &t[..l]) as f32;
+        *xt_lag = silk_inner_product_flp(&x[col_start..col_start + l], &t[..l]) as f32;
     }
 }
 
@@ -40,7 +40,7 @@ pub fn silk_corr_matrix_flp(
 
     // Diagonal: XX[j][j] = energy of column j
     let mut energy = silk_energy_flp(&x[col0..col0 + l]);
-    xx[0 * order + 0] = energy as f32; // XX[0][0]
+    xx[0] = energy as f32; // XX[0][0]
     for j in 1..order {
         // Update energy: add x[col0-j]^2, subtract x[col0+L-j]^2
         energy += x[col0 - j] as f64 * x[col0 - j] as f64
@@ -52,8 +52,8 @@ pub fn silk_corr_matrix_flp(
     for lag in 1..order {
         let col_lag = col0 - lag; // first sample of column `lag`
         let mut e = silk_inner_product_flp(&x[col0..col0 + l], &x[col_lag..col_lag + l]);
-        xx[lag * order + 0] = e as f32; // XX[lag][0]
-        xx[0 * order + lag] = e as f32; // XX[0][lag] (symmetric)
+        xx[lag * order] = e as f32; // XX[lag][0]
+        xx[lag] = e as f32; // XX[0][lag] (symmetric)
 
         for j in 1..(order - lag) {
             // Update: add contribution from new samples
@@ -88,13 +88,13 @@ pub fn silk_find_ltp_flp(
 ) {
     let order = LTP_ORDER;
 
-    for k in 0..nb_subfr {
+    for (k, &lag_k) in lag.iter().enumerate().take(nb_subfr) {
         // r_ptr = start of subframe k's residual
         let r_start = res_frame_offset + k * subfr_length;
 
         // lag_ptr = r_ptr - (lag[k] + LTP_ORDER/2)
         // This gives the lagged signal aligned for the 5-tap filter
-        let lag_offset = lag[k] as usize + order / 2;
+        let lag_offset = lag_k as usize + order / 2;
         let lag_start = r_start - lag_offset;
 
         // Compute correlation matrix XX for this subframe
@@ -145,6 +145,7 @@ pub fn silk_find_ltp_flp(
 /// x_offset for the pitch lag access.
 ///
 /// Output: `ltp_res` has nb_subfr * (pre_length + subfr_length) samples.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_ltp_analysis_filter_flp(
     ltp_res: &mut [f32],
     x_buf: &[f32],                       // full signal buffer

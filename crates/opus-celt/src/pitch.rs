@@ -5,6 +5,7 @@ use crate::tables::*;
 /// Comb filter for postfilter.
 /// Matches C celt.c comb_filter() for the float case.
 /// Operates in-place: y and x point to the same buffer at the same offset.
+#[allow(clippy::too_many_arguments)]
 pub fn comb_filter_inplace(
     buf: &mut [f32],
     offset: usize,
@@ -85,6 +86,7 @@ pub fn comb_filter_inplace(
 /// In C, this is called as `comb_filter(y_ptr, x_ptr, ...)` where x_ptr has history before it.
 /// In Rust, we use `(x_buf, x_off)` so that `x_buf[x_off - T1]` is valid (no negative indices).
 /// Similarly `(y_buf, y_off)` for the output.
+#[allow(clippy::too_many_arguments)]
 pub fn comb_filter(
     y_buf: &mut [f32],
     y_off: usize,
@@ -141,9 +143,8 @@ pub fn comb_filter(
     }
 
     if g1 == 0.0 {
-        for i in actual_overlap..n {
-            y_buf[y_off + i] = x_buf[x_off + i];
-        }
+        y_buf[(actual_overlap + y_off)..(n + y_off)]
+            .copy_from_slice(&x_buf[(actual_overlap + x_off)..(n + x_off)]);
         return;
     }
 
@@ -160,8 +161,8 @@ pub fn comb_filter(
 /// 5-tap FIR filter applied in-place.
 fn celt_fir5(x: &mut [f32], num: &[f32; 5], len: usize) {
     let mut mem = [0.0f32; 5];
-    for i in 0..len {
-        let sum = x[i]
+    for item in x.iter_mut().take(len) {
+        let sum = *item
             + num[0] * mem[0]
             + num[1] * mem[1]
             + num[2] * mem[2]
@@ -171,8 +172,8 @@ fn celt_fir5(x: &mut [f32], num: &[f32; 5], len: usize) {
         mem[3] = mem[2];
         mem[2] = mem[1];
         mem[1] = mem[0];
-        mem[0] = x[i];
-        x[i] = sum;
+        mem[0] = *item;
+        *item = sum;
     }
 }
 
@@ -180,13 +181,13 @@ fn celt_fir5(x: &mut [f32], num: &[f32; 5], len: usize) {
 /// Port of pitch.c pitch_downsample (float path, factor=2).
 pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
     // Downsample by 2 with 3-tap filter
-    for i in 1..len {
-        x_lp[i] = 0.25 * x[0][2 * i - 1] + 0.5 * x[0][2 * i] + 0.25 * x[0][2 * i + 1];
+    for (i, item) in x_lp.iter_mut().enumerate().take(len).skip(1) {
+        *item = 0.25 * x[0][2 * i - 1] + 0.5 * x[0][2 * i] + 0.25 * x[0][2 * i + 1];
     }
     x_lp[0] = 0.25 * x[0][1] + 0.5 * x[0][0];
     if c == 2 {
-        for i in 1..len {
-            x_lp[i] += 0.25 * x[1][2 * i - 1] + 0.5 * x[1][2 * i] + 0.25 * x[1][2 * i + 1];
+        for (i, item) in x_lp.iter_mut().enumerate().take(len).skip(1) {
+            *item += 0.25 * x[1][2 * i - 1] + 0.5 * x[1][2 * i] + 0.25 * x[1][2 * i + 1];
         }
         x_lp[0] += 0.25 * x[1][1] + 0.5 * x[1][0];
     }
@@ -199,8 +200,8 @@ pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
     ac[0] *= 1.0001;
 
     // Lag windowing
-    for i in 1..=4 {
-        ac[i] -= ac[i] * (0.008 * i as f32) * (0.008 * i as f32);
+    for (i, item) in ac.iter_mut().enumerate().skip(1) {
+        *item -= *item * (0.008 * i as f32) * (0.008 * i as f32);
     }
 
     // LPC analysis (order 4)
@@ -209,9 +210,9 @@ pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
 
     // Bandwidth expansion: multiply each coef by 0.9^(i+1)
     let mut tmp = 1.0f32;
-    for i in 0..4 {
+    for item in &mut lpc {
         tmp *= 0.9;
-        lpc[i] *= tmp;
+        *item *= tmp;
     }
 
     // Add a zero to make 5-tap
@@ -283,8 +284,8 @@ fn find_best_pitch(
     best_pitch[1] = 1;
 
     let mut syy = 1.0f32;
-    for j in 0..len {
-        syy += y[j] * y[j];
+    for item in y.iter().take(len) {
+        syy += item * item;
     }
 
     for i in 0..max_pitch {
@@ -339,10 +340,10 @@ pub fn pitch_search(x_lp: &[f32], y: &[f32], len: usize, max_pitch: usize, pitch
     }
 
     // Coarse search with 4x decimation
-    celt_pitch_xcorr(&x_lp4, &y_lp4, xcorr, len4, max_pitch4);
+    celt_pitch_xcorr(x_lp4, y_lp4, xcorr, len4, max_pitch4);
 
     let mut best_pitch = [0usize; 2];
-    find_best_pitch(&xcorr, &y_lp4, len4, max_pitch4, &mut best_pitch);
+    find_best_pitch(xcorr, y_lp4, len4, max_pitch4, &mut best_pitch);
 
     // Finer search with 2x decimation
     for i in 0..max_pitch2 {
@@ -355,7 +356,7 @@ pub fn pitch_search(x_lp: &[f32], y: &[f32], len: usize, max_pitch: usize, pitch
         let sum = celt_inner_prod(&x_lp[..len2], &y[i..i + len2], len2);
         xcorr[i] = sum.max(-1.0);
     }
-    find_best_pitch(&xcorr, y, len2, max_pitch2, &mut best_pitch);
+    find_best_pitch(xcorr, y, len2, max_pitch2, &mut best_pitch);
 
     // Refine by pseudo-interpolation
     let offset;
@@ -441,6 +442,7 @@ pub fn remove_doubling(
     let mut g = g0;
 
     // Look for any pitch at T/k
+    #[allow(clippy::needless_range_loop)]
     for k in 2..=15 {
         let t1 = (2 * t0_val + k) / (2 * k);
         if t1 < minperiod {
@@ -501,9 +503,9 @@ pub fn remove_doubling(
 
     // Refine with interpolation
     let mut xcorr = [0.0f32; 3];
-    for k in 0..3usize {
+    for (k, item) in xcorr.iter_mut().enumerate() {
         let lag = t + k - 1;
-        xcorr[k] = celt_inner_prod(&x[base..base + n], &x[base - lag..base - lag + n], n);
+        *item = celt_inner_prod(&x[base..base + n], &x[base - lag..base - lag + n], n);
     }
     let offset;
     if (xcorr[2] - xcorr[0]) > 0.7 * (xcorr[1] - xcorr[0]) {

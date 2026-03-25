@@ -60,7 +60,7 @@ fn kf_factor(n: usize) -> Vec<i16> {
     let mut facbuf = vec![0i16; 64];
 
     loop {
-        while n % p != 0 {
+        while !n.is_multiple_of(p) {
             match p {
                 4 => p = 2,
                 2 => p = 3,
@@ -84,9 +84,7 @@ fn kf_factor(n: usize) -> Vec<i16> {
     n = nbak;
     // Reverse the order to get the radix 4 at the end
     for i in 0..(stages / 2) {
-        let tmp = facbuf[2 * i];
-        facbuf[2 * i] = facbuf[2 * (stages - i - 1)];
-        facbuf[2 * (stages - i - 1)] = tmp;
+        facbuf.swap(2 * i, 2 * (stages - i - 1));
     }
     // Compute m values
     for i in 0..stages {
@@ -157,10 +155,10 @@ pub fn opus_fft(st: &KissFftState, fin: &[KissFftCpx], fout: &mut [KissFftCpx]) 
     assert!(fin.len() >= n);
     assert!(fout.len() >= n);
     // Bit-reverse copy with scaling
-    for i in 0..n {
+    for (i, item) in fin.iter().enumerate().take(n) {
         let rev = st.bitrev[i];
-        fout[rev].r = fin[i].r * st.scale;
-        fout[rev].i = fin[i].i * st.scale;
+        fout[rev].r = item.r * st.scale;
+        fout[rev].i = item.i * st.scale;
     }
     opus_fft_impl(st, fout);
 }
@@ -358,7 +356,7 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 fn kf_bfly3(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[KissFftCpx]) {
     let group_size = 3 * m;
     let n_groups = n / group_size;
-    let epi3_i = -0.86602540378_f32; // sin(-2pi/3)
+    let epi3_i = -0.866_025_4_f32; // sin(-2pi/3)
 
     for i in 0..n_groups {
         let base = i * group_size;
@@ -407,9 +405,9 @@ fn kf_bfly3(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 fn kf_bfly5(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[KissFftCpx]) {
     let group_size = 5 * m;
     let n_groups = n / group_size;
-    let ya_r: f32 = 0.30901699;
+    let ya_r: f32 = 0.309_017;
     let ya_i: f32 = -0.95105652;
-    let yb_r: f32 = -0.80901699;
+    let yb_r: f32 = -0.809_017;
     let yb_i: f32 = -0.58778525;
 
     for i in 0..n_groups {

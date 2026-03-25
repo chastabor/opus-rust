@@ -7,12 +7,12 @@ pub fn celt_exp2(x: f32) -> f32 {
         return 0.0;
     }
     let frac = x - integer as f32;
-    const A0: f32 = 9.999999403953552246093750000000e-01;
-    const A1: f32 = 6.931530833244323730468750000000e-01;
-    const A2: f32 = 2.401536107063293457031250000000e-01;
-    const A3: f32 = 5.582631751894950866699218750000e-02;
-    const A4: f32 = 8.989339694380760192871093750000e-03;
-    const A5: f32 = 1.877576694823801517486572265625e-03;
+    const A0: f32 = 9.999_999_4e-1;
+    const A1: f32 = 6.931_531e-1;
+    const A2: f32 = 2.401_536_1e-1;
+    const A3: f32 = 5.582_631_8e-2;
+    const A4: f32 = 8.989_34e-3;
+    const A5: f32 = 1.877_576_7e-3;
     let poly = A0 + frac * (A1 + frac * (A2 + frac * (A3 + frac * (A4 + frac * A5))));
     let bits = poly.to_bits();
     let result_bits = ((bits as i32).wrapping_add(integer << 23)) as u32 & 0x7fffffff;
@@ -55,7 +55,7 @@ pub fn bitexact_log2tan(isin: i32, icos: i32) -> i32 {
     let ls = ec_ilog(isin as u32);
     let icos = icos << (15 - lc);
     let isin = isin << (15 - ls);
-    (ls as i32 - lc as i32) * (1 << 11) + frac_mul16(isin, frac_mul16(isin, -2597) + 7932)
+    (ls - lc) * (1 << 11) + frac_mul16(isin, frac_mul16(isin, -2597) + 7932)
         - frac_mul16(icos, frac_mul16(icos, -2597) + 7932)
 }
 
@@ -82,7 +82,7 @@ pub fn isqrt32(mut val: u32) -> u32 {
         return 0;
     }
     let mut g: u32 = 0;
-    let mut bshift = (ec_ilog(val) as i32 - 1) >> 1;
+    let mut bshift = (ec_ilog(val) - 1) >> 1;
     let mut b = 1u32 << bshift;
     loop {
         let t = (((g as u64) << 1) + b as u64) << bshift as u64;
@@ -131,8 +131,8 @@ pub fn celt_inner_prod(x: &[f32], y: &[f32], n: usize) -> f32 {
 /// Maximum absolute value of a float slice.
 pub fn celt_maxabs(x: &[f32], len: usize) -> f32 {
     let mut maxval = 0.0f32;
-    for i in 0..len {
-        maxval = maxval.max(x[i].abs());
+    for item in x.iter().take(len) {
+        maxval = maxval.max(item.abs());
     }
     maxval
 }
@@ -146,11 +146,11 @@ pub fn celt_rcp(x: f32) -> f32 {
 /// Renormalize a vector to have the given target gain.
 pub fn renormalise_vector(x: &mut [f32], n: usize, gain: f32) {
     let mut e = 1e-27f32;
-    for i in 0..n {
-        e += x[i] * x[i];
+    for item in x.iter().take(n) {
+        e += item * item;
     }
     let g = gain / e.sqrt();
-    for i in 0..n {
-        x[i] *= g;
+    for item in x.iter_mut().take(n) {
+        *item *= g;
     }
 }

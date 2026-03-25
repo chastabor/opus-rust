@@ -79,6 +79,12 @@ pub struct SilkEncoderStateFlp {
     pub lbrr_scratch_xq_tmp: Vec<i16>,
 }
 
+impl Default for SilkEncoderStateFlp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SilkEncoderStateFlp {
     pub fn new() -> Self {
         Self {

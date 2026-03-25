@@ -14,9 +14,9 @@ pub fn silk_stereo_decode_pred(ps_range_dec: &mut EcCtx, pred_q13: &mut [i32; 2]
     ix[0][2] = ix0_2;
     ix[1][2] = ix1_2;
 
-    for ch in 0..2 {
-        ix[ch][0] = ps_range_dec.dec_icdf(&SILK_UNIFORM3_ICDF, 8) as i32;
-        ix[ch][1] = ps_range_dec.dec_icdf(&SILK_UNIFORM5_ICDF, 8) as i32;
+    for ix_ch in &mut ix {
+        ix_ch[0] = ps_range_dec.dec_icdf(&SILK_UNIFORM3_ICDF, 8) as i32;
+        ix_ch[1] = ps_range_dec.dec_icdf(&SILK_UNIFORM5_ICDF, 8) as i32;
     }
 
     // Dequantize

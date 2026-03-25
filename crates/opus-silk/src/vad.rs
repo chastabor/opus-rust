@@ -191,13 +191,13 @@ fn silk_vad_get_noise_levels(xnrg: &[i32; VAD_N_BANDS], state: &mut VadState) {
         0
     };
 
-    for k in 0..VAD_N_BANDS {
+    for (k, &xnrg_k) in xnrg.iter().enumerate().take(VAD_N_BANDS) {
         // Get old noise level estimate for current band
         let nl = state.nl[k];
         debug_assert!(nl >= 0);
 
         // Add bias
-        let nrg = add_pos_sat32(xnrg[k], state.noise_level_bias[k]);
+        let nrg = add_pos_sat32(xnrg_k, state.noise_level_bias[k]);
         debug_assert!(nrg > 0);
 
         // Invert energies
@@ -269,7 +269,7 @@ fn decimate_into_bands(
             + decimated_framelength2,
     ];
     let x_len = x_offset[3] + decimated_framelength1;
-    let mut x = &mut x_out[..x_len];
+    let x = &mut x_out[..x_len];
 
     // Stage 1: 0-8 kHz -> 0-4 kHz (low, outL) and 4-8 kHz (high, outH)
     // C: silk_ana_filt_bank_1(pIn, &AnaState[0], X, &X[X_offset[3]], frame_length)
@@ -277,7 +277,7 @@ fn decimate_into_bands(
     silk_ana_filt_bank_1(
         input,
         &mut state.ana_state,
-        &mut x,
+        x,
         0,           // lp_offset: low band (0-4 kHz) at start of buffer
         x_offset[3], // hp_offset: high band (4-8 kHz) at X_offset[3]
         frame_length,
@@ -290,9 +290,9 @@ fn decimate_into_bands(
     input_stage2_buf[..decimated_framelength1].copy_from_slice(&x[..decimated_framelength1]);
     let input_stage2 = &input_stage2_buf[..decimated_framelength1];
     silk_ana_filt_bank_1(
-        &input_stage2,
+        input_stage2,
         &mut state.ana_state1,
-        &mut x,
+        x,
         0,           // lp_offset: low band (0-2 kHz) at start
         x_offset[2], // hp_offset: high band (2-4 kHz)
         decimated_framelength1 as i32,
@@ -304,9 +304,9 @@ fn decimate_into_bands(
     input_stage3_buf[..decimated_framelength2].copy_from_slice(&x[..decimated_framelength2]);
     let input_stage3 = &input_stage3_buf[..decimated_framelength2];
     silk_ana_filt_bank_1(
-        &input_stage3,
+        input_stage3,
         &mut state.ana_state2,
-        &mut x,
+        x,
         0,           // lp_offset: low band (0-1 kHz)
         x_offset[1], // hp_offset: high band (1-2 kHz)
         decimated_framelength2 as i32,
@@ -321,6 +321,7 @@ fn decimate_into_bands(
 ///
 /// `is_20ms_frame` and `is_10ms_frame` flags control frame-length-dependent
 /// adjustments that depend on knowledge of `fs_kHz`.
+#[allow(clippy::too_many_arguments)]
 fn silk_vad_compute(
     state: &mut VadState,
     sa_q8: &mut i32,
@@ -452,9 +453,9 @@ fn silk_vad_compute(
 
     // ---- Scale the sigmoid output based on power levels ----
     let mut speech_nrg_total = 0i32;
-    for b in 0..VAD_N_BANDS {
+    for (b, &xnrg_b) in xnrg.iter().enumerate().take(VAD_N_BANDS) {
         // Accumulate signal-without-noise energies, higher frequency bands have more weight
-        speech_nrg_total += (b as i32 + 1) * ((xnrg[b] - state.nl[b]) >> 4);
+        speech_nrg_total += (b as i32 + 1) * ((xnrg_b - state.nl[b]) >> 4);
     }
 
     if is_20ms_frame {
@@ -566,6 +567,7 @@ pub fn silk_vad_get_sa_q8(
 ///
 /// # Returns
 /// 0 on success
+#[allow(clippy::too_many_arguments)]
 pub fn silk_vad_get_sa_q8_ex(
     state: &mut VadState,
     sa_q8: &mut i32,

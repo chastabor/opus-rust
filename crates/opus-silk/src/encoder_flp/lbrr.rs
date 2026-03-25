@@ -20,6 +20,12 @@ pub struct LbrrState {
     pub prev_last_gain_index: i8,
 }
 
+impl Default for LbrrState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LbrrState {
     pub fn new() -> Self {
         Self {
@@ -112,7 +118,7 @@ pub fn silk_lbrr_encode_flp(
     // Boost gains for LBRR
     if n_frames_encoded == 0 || lbrr.flags[n_frames_encoded - 1] == 0 {
         // First frame in packet or previous frame not LBRR coded
-        lbrr.prev_last_gain_index = lbrr.prev_last_gain_index; // keep current
+        // lbrr.prev_last_gain_index stays unchanged (keep current)
 
         lbrr_indices.gains_indices[0] = ((lbrr_indices.gains_indices[0] as i32
             + lbrr.gain_increases)

@@ -51,16 +51,18 @@ pub fn pulses2bits(m: &CeltMode, band: usize, lm: i32, k: i32) -> i32 {
 
 /// Initialize band caps.
 pub fn init_caps(m: &CeltMode, cap: &mut [i32], lm: i32, c: i32) {
-    for i in 0..m.nb_ebands {
+    for (i, item) in cap.iter_mut().enumerate().take(m.nb_ebands) {
         let n = ((m.ebands[i + 1] - m.ebands[i]) as i32) << lm;
-        cap[i] = ((m.cache.caps[m.nb_ebands * (2 * lm as usize + c as usize - 1) + i] as i32) + 64)
+        *item = (((m.cache.caps[m.nb_ebands * (2 * lm as usize + c as usize - 1) + i] as i32)
+            + 64)
             * c
-            * n
+            * n)
             >> 2;
     }
 }
 
 /// Compute bit allocation, returning the number of coded bands.
+#[allow(clippy::too_many_arguments)]
 pub fn clt_compute_allocation(
     m: &CeltMode,
     start: usize,
@@ -83,8 +85,8 @@ pub fn clt_compute_allocation(
     let len = m.nb_ebands;
     let skip_start = {
         let mut ss = start;
-        for j in start..end {
-            if offsets[j] > 0 {
+        for (j, item) in offsets.iter().enumerate().take(end).skip(start) {
+            if *item > 0 {
                 ss = j;
             }
         }
@@ -115,13 +117,13 @@ pub fn clt_compute_allocation(
     let mut trim_offset = vec![0i32; len];
 
     for j in start..end {
-        thresh[j] =
-            (c << BITRES).max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
-        trim_offset[j] = c
+        thresh[j] = (c << BITRES)
+            .max(((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32)) << lm << BITRES) >> 4);
+        trim_offset[j] = (c
             * (m.ebands[j + 1] - m.ebands[j]) as i32
             * (alloc_trim - 5 - lm)
             * (end as i32 - j as i32 - 1)
-            * (1 << (lm + BITRES))
+            * (1 << (lm + BITRES)))
             >> 6;
         if ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm == 1 {
             trim_offset[j] -= c << BITRES;
@@ -137,7 +139,7 @@ pub fn clt_compute_allocation(
         let mut psum = 0i32;
         for j in (start..end).rev() {
             let n = (m.ebands[j + 1] - m.ebands[j]) as i32;
-            let mut bitsj = c * n * (m.alloc_vectors[mid as usize][j] as i32) << lm >> 2;
+            let mut bitsj = (c * n * (m.alloc_vectors[mid as usize][j] as i32)) << lm >> 2;
             if bitsj > 0 {
                 bitsj = (bitsj + trim_offset[j]).max(0);
             }
@@ -160,11 +162,11 @@ pub fn clt_compute_allocation(
 
     for j in start..end {
         let n = (m.ebands[j + 1] - m.ebands[j]) as i32;
-        let mut bits1j = c * n * (m.alloc_vectors[lo as usize][j] as i32) << lm >> 2;
+        let mut bits1j = (c * n * (m.alloc_vectors[lo as usize][j] as i32)) << lm >> 2;
         let mut bits2j = if hi >= m.nb_alloc_vectors as i32 {
             cap[j]
         } else {
-            c * n * (m.alloc_vectors[hi as usize][j] as i32) << lm >> 2
+            (c * n * (m.alloc_vectors[hi as usize][j] as i32)) << lm >> 2
         };
         if bits1j > 0 {
             bits1j = (bits1j + trim_offset[j]).max(0);
@@ -182,7 +184,7 @@ pub fn clt_compute_allocation(
     }
 
     // Interpolate bits
-    let coded_bands = interp_bits2pulses(
+    interp_bits2pulses(
         m,
         start,
         end,
@@ -204,10 +206,10 @@ pub fn clt_compute_allocation(
         c,
         lm,
         ec,
-    );
-    coded_bands
+    )
 }
 
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 fn interp_bits2pulses(
     m: &CeltMode,
     start: usize,
@@ -376,9 +378,9 @@ fn interp_bits2pulses(
             if n == 2 {
                 offset += den << BITRES >> 2;
             }
-            if bits[j] + offset < den * 2 << BITRES {
+            if bits[j] + offset < (den * 2) << BITRES {
                 offset += nc_log_n >> 2;
-            } else if bits[j] + offset < den * 3 << BITRES {
+            } else if bits[j] + offset < (den * 3) << BITRES {
                 offset += nc_log_n >> 3;
             }
 
@@ -392,7 +394,7 @@ fn interp_bits2pulses(
             } else {
                 0
             };
-            bits[j] -= c * ebits[j] << BITRES;
+            bits[j] -= (c * ebits[j]) << BITRES;
         } else {
             let excess = (bit - (c << BITRES)).max(0);
             bits[j] = bit - excess;
@@ -409,7 +411,7 @@ fn interp_bits2pulses(
         if excess > 0 {
             let extra_fine = (excess >> (stereo + BITRES)).min(MAX_FINE_BITS - ebits[j]);
             ebits[j] += extra_fine;
-            let extra_bits = extra_fine * c << BITRES;
+            let extra_bits = (extra_fine * c) << BITRES;
             fine_priority[j] = if extra_bits >= excess - bal { 1 } else { 0 };
             excess -= extra_bits;
         }
@@ -464,8 +466,8 @@ pub fn clt_compute_allocation_enc(
     let len = m.nb_ebands;
     let skip_start = {
         let mut ss = start;
-        for j in start..end {
-            if offsets[j] > 0 {
+        for (j, item) in offsets.iter().enumerate().take(end).skip(start) {
+            if *item > 0 {
                 ss = j;
             }
         }
@@ -496,13 +498,13 @@ pub fn clt_compute_allocation_enc(
     let mut trim_offset = vec![0i32; len];
 
     for j in start..end {
-        thresh[j] =
-            (c << BITRES).max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
-        trim_offset[j] = c
+        thresh[j] = (c << BITRES)
+            .max(((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32)) << lm << BITRES) >> 4);
+        trim_offset[j] = (c
             * (m.ebands[j + 1] - m.ebands[j]) as i32
             * (alloc_trim - 5 - lm)
             * (end as i32 - j as i32 - 1)
-            * (1 << (lm + BITRES))
+            * (1 << (lm + BITRES)))
             >> 6;
         if ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm == 1 {
             trim_offset[j] -= c << BITRES;
@@ -518,7 +520,7 @@ pub fn clt_compute_allocation_enc(
         let mut psum = 0i32;
         for j in (start..end).rev() {
             let n = (m.ebands[j + 1] - m.ebands[j]) as i32;
-            let mut bitsj = c * n * (m.alloc_vectors[mid as usize][j] as i32) << lm >> 2;
+            let mut bitsj = (c * n * (m.alloc_vectors[mid as usize][j] as i32)) << lm >> 2;
             if bitsj > 0 {
                 bitsj = (bitsj + trim_offset[j]).max(0);
             }
@@ -541,11 +543,11 @@ pub fn clt_compute_allocation_enc(
 
     for j in start..end {
         let n = (m.ebands[j + 1] - m.ebands[j]) as i32;
-        let mut bits1j = c * n * (m.alloc_vectors[lo as usize][j] as i32) << lm >> 2;
+        let mut bits1j = (c * n * (m.alloc_vectors[lo as usize][j] as i32)) << lm >> 2;
         let mut bits2j = if hi >= m.nb_alloc_vectors as i32 {
             cap[j]
         } else {
-            c * n * (m.alloc_vectors[hi as usize][j] as i32) << lm >> 2
+            (c * n * (m.alloc_vectors[hi as usize][j] as i32)) << lm >> 2
         };
         if bits1j > 0 {
             bits1j = (bits1j + trim_offset[j]).max(0);
@@ -563,7 +565,7 @@ pub fn clt_compute_allocation_enc(
     }
 
     // Interpolate bits (encoder version)
-    let coded_bands = interp_bits2pulses_enc(
+    interp_bits2pulses_enc(
         m,
         start,
         end,
@@ -587,13 +589,12 @@ pub fn clt_compute_allocation_enc(
         ec,
         prev_coded_bands,
         signal_bandwidth,
-    );
-    coded_bands
+    )
 }
 
 /// Encoder version of interp_bits2pulses.
 /// Writes skip/intensity/dual_stereo decisions to the bitstream.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 fn interp_bits2pulses_enc(
     m: &CeltMode,
     start: usize,
@@ -698,7 +699,7 @@ fn interp_bits2pulses_enc(
             };
 
             let keep = coded_bands <= start + 2
-                || (band_bits > (depth_threshold * bw << lm << BITRES) >> 4
+                || (band_bits > ((depth_threshold * bw) << lm << BITRES) >> 4
                     && j as i32 <= signal_bandwidth);
 
             ec.enc_bit_logp(keep, 1);
@@ -787,9 +788,9 @@ fn interp_bits2pulses_enc(
             if n == 2 {
                 offset += den << BITRES >> 2;
             }
-            if bits[j] + offset < den * 2 << BITRES {
+            if bits[j] + offset < (den * 2) << BITRES {
                 offset += nc_log_n >> 2;
-            } else if bits[j] + offset < den * 3 << BITRES {
+            } else if bits[j] + offset < (den * 3) << BITRES {
                 offset += nc_log_n >> 3;
             }
 
@@ -803,7 +804,7 @@ fn interp_bits2pulses_enc(
             } else {
                 0
             };
-            bits[j] -= c * ebits[j] << BITRES;
+            bits[j] -= (c * ebits[j]) << BITRES;
         } else {
             let excess = (bit - (c << BITRES)).max(0);
             bits[j] = bit - excess;
@@ -820,7 +821,7 @@ fn interp_bits2pulses_enc(
         if excess > 0 {
             let extra_fine = (excess >> (stereo + BITRES)).min(MAX_FINE_BITS - ebits[j]);
             ebits[j] += extra_fine;
-            let extra_bits = extra_fine * c << BITRES;
+            let extra_bits = (extra_fine * c) << BITRES;
             fine_priority[j] = if extra_bits >= excess - bal { 1 } else { 0 };
             excess -= extra_bits;
         }

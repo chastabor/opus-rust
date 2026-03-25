@@ -29,8 +29,8 @@ pub fn silk_autocorrelation(
 ) {
     // Compute energy (lag 0) first to determine shift
     let mut nrg: i64 = 0;
-    for i in 0..input_len {
-        nrg += (input[i] as i64) * (input[i] as i64);
+    for item in input.iter().take(input_len) {
+        nrg += (*item as i64) * (*item as i64);
     }
 
     // Determine right-shift needed to fit in i32
@@ -78,8 +78,8 @@ pub fn silk_levinson_durbin_constrained(
 ) -> i32 {
     // Early exit if energy is zero
     if corr[0] == 0 {
-        for i in 0..order {
-            a_q16[i] = 0;
+        for item in a_q16.iter_mut().take(order) {
+            *item = 0;
         }
         return 0;
     }
@@ -101,8 +101,8 @@ pub fn silk_levinson_durbin_constrained(
         }
 
         if error_q24 == 0 {
-            for i in 0..order {
-                a_q16[i] = 0;
+            for item in a_q16.iter_mut().take(order) {
+                *item = 0;
             }
             return 0;
         }
@@ -149,8 +149,8 @@ pub fn silk_levinson_durbin_constrained(
         error_q24 = new_error;
 
         if error_q24 <= 0 {
-            for i in 0..order {
-                a_q16[i] = 0;
+            for item in a_q16.iter_mut().take(order) {
+                *item = 0;
             }
             return 0;
         }
@@ -161,8 +161,8 @@ pub fn silk_levinson_durbin_constrained(
         a_q16[i] = (a_old[i] >> 8) as i32;
     }
     // Zero remaining coefficients
-    for i in final_order..order {
-        a_q16[i] = 0;
+    for item in a_q16.iter_mut().take(order).skip(final_order) {
+        *item = 0;
     }
 
     // Compute prediction gain: corr[0] / error (in Q24)
@@ -409,6 +409,7 @@ const FIND_LPC_COND_FAC_Q32: i32 = 42949;
 ///
 /// Computes LPC coefficients and residual energy from input signal,
 /// enforcing a maximum prediction gain via `min_inv_gain_q30`.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_burg_modified(
     res_nrg: &mut i32,     // O: Residual energy
     res_nrg_q: &mut i32,   // O: Residual energy Q value
@@ -428,8 +429,8 @@ pub fn silk_burg_modified(
     // Compute total energy C0
     let mut c0_64: i64 = 0;
     let total_len = subfr_length * nb_subfr;
-    for i in 0..total_len.min(x.len()) {
-        c0_64 += x[i] as i64 * x[i] as i64;
+    for item in x.iter().take(total_len.min(x.len())) {
+        c0_64 += *item as i64 * *item as i64;
     }
 
     let lz = if c0_64 == 0 {
@@ -442,7 +443,7 @@ pub fn silk_burg_modified(
     let c0 = if rshifts > 0 {
         (c0_64 >> rshifts) as i32
     } else {
-        ((c0_64 as i32) << (-rshifts)) as i32
+        (c0_64 as i32) << (-rshifts)
     };
 
     // Initialize CAf[0], CAb[0] with conditioning factor
@@ -464,7 +465,7 @@ pub fn silk_burg_modified(
             if rshifts > 0 {
                 c_first_row[n - 1] += (acc >> rshifts) as i32;
             } else {
-                c_first_row[n - 1] += ((acc as i32) << (-rshifts)) as i32;
+                c_first_row[n - 1] += (acc as i32) << (-rshifts);
             }
         }
     }
@@ -482,21 +483,21 @@ pub fn silk_burg_modified(
         for s in 0..nb_subfr {
             let x_ptr = &x[s * subfr_length..];
             if n < x_ptr.len() && subfr_length > n {
-                let x1 = -(x_ptr[n] as i32) << (16 - rshifts).max(0).min(16);
+                let x1 = -(x_ptr[n] as i32) << (16 - rshifts).clamp(0, 16);
                 let x2 = if subfr_length - n - 1 < x_ptr.len() {
-                    -(x_ptr[subfr_length - n - 1] as i32) << (16 - rshifts).max(0).min(16)
+                    -(x_ptr[subfr_length - n - 1] as i32) << (16 - rshifts).clamp(0, 16)
                 } else {
                     0
                 };
-                let mut tmp1 = (x_ptr[n] as i32) << (QA - 16).max(0).min(16);
+                let mut tmp1 = (x_ptr[n] as i32) << (QA - 16).clamp(0, 16);
                 let mut tmp2 = if subfr_length - n - 1 < x_ptr.len() {
-                    (x_ptr[subfr_length - n - 1] as i32) << (QA - 16).max(0).min(16)
+                    (x_ptr[subfr_length - n - 1] as i32) << (QA - 16).clamp(0, 16)
                 } else {
                     0
                 };
 
                 for k in 0..n {
-                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                    if n > k && n - k - 1 < x_ptr.len() {
                         c_first_row[k] = silk_smlawb(c_first_row[k], x1, x_ptr[n - k - 1] as i32);
                     }
                     if subfr_length > n && subfr_length - n + k < x_ptr.len() {
@@ -504,15 +505,15 @@ pub fn silk_burg_modified(
                             silk_smlawb(c_last_row[k], x2, x_ptr[subfr_length - n + k] as i32);
                     }
                     let atmp_qa = af_qa[k];
-                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                    if n > k && n - k - 1 < x_ptr.len() {
                         tmp1 = silk_smlawb(tmp1, atmp_qa, x_ptr[n - k - 1] as i32);
                     }
                     if subfr_length > n && subfr_length - n + k < x_ptr.len() {
                         tmp2 = silk_smlawb(tmp2, atmp_qa, x_ptr[subfr_length - n + k] as i32);
                     }
                 }
-                tmp1 = (-tmp1) << (32 - QA - rshifts).max(0).min(30);
-                tmp2 = (-tmp2) << (32 - QA - rshifts).max(0).min(30);
+                tmp1 = (-tmp1) << (32 - QA - rshifts).clamp(0, 30);
+                tmp2 = (-tmp2) << (32 - QA - rshifts).clamp(0, 30);
                 for k in 0..=n {
                     if n >= k && n - k < x_ptr.len() {
                         caf[k] = silk_smlawb(caf[k], tmp1, x_ptr[n - k] as i32);
@@ -535,9 +536,9 @@ pub fn silk_burg_modified(
         let mut nrg: i32 = cab[0].wrapping_add(caf[0]);
         for k in 0..n {
             let atmp_qa = af_qa[k];
-            let lz = (silk_clz32(atmp_qa.abs()) - 1).max(0).min(32 - QA);
+            let lz = (silk_clz32(atmp_qa.abs()) - 1).clamp(0, 32 - QA);
             let atmp1 = (atmp_qa as u32).wrapping_shl(lz as u32) as i32;
-            let shift = (32 - QA - lz).max(0).min(31);
+            let shift = (32 - QA - lz).clamp(0, 31);
 
             tmp1 = tmp1.wrapping_add(silk_smmul(c_last_row[n - k - 1], atmp1) << shift);
             tmp2 = tmp2.wrapping_add(silk_smmul(c_first_row[n - k - 1], atmp1) << shift);
@@ -591,8 +592,8 @@ pub fn silk_burg_modified(
         af_qa[n] = rc_q31 >> (31 - QA);
 
         if reached_max_gain {
-            for k in (n + 1)..d {
-                af_qa[k] = 0;
+            for item in af_qa.iter_mut().take(d).skip(n + 1) {
+                *item = 0;
             }
             break;
         }
@@ -616,8 +617,8 @@ pub fn silk_burg_modified(
         for s in 0..nb_subfr {
             let x_ptr = &x[s * subfr_length..];
             let mut e: i64 = 0;
-            for i in 0..d.min(x_ptr.len()) {
-                e += x_ptr[i] as i64 * x_ptr[i] as i64;
+            for item in x_ptr.iter().take(d.min(x_ptr.len())) {
+                e += *item as i64 * *item as i64;
             }
             if rshifts > 0 {
                 c0_adj -= (e >> rshifts) as i32;
@@ -670,8 +671,8 @@ pub fn silk_burg_modified_flp(
     // Compute total energy C0
     let mut c0: f64 = 0.0;
     let total_len = nb_subfr * subfr_length;
-    for i in 0..total_len.min(x.len()) {
-        c0 += (x[i] as f64) * (x[i] as f64);
+    for item in x.iter().take(total_len.min(x.len())) {
+        c0 += (*item as f64) * (*item as f64);
     }
 
     // Compute initial cross-correlations
@@ -709,7 +710,7 @@ pub fn silk_burg_modified_flp(
                 };
 
                 for k in 0..n {
-                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                    if n > k && n - k - 1 < x_ptr.len() {
                         c_first_row[k] -= (x_ptr[n] as f64) * (x_ptr[n - k - 1] as f64);
                     }
                     if subfr_length > n && subfr_length - n + k < x_ptr.len() {
@@ -717,7 +718,7 @@ pub fn silk_burg_modified_flp(
                             * (x_ptr[subfr_length - n + k] as f64);
                     }
                     let atmp = af[k];
-                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                    if n > k && n - k - 1 < x_ptr.len() {
                         tmp1 += (x_ptr[n - k - 1] as f64) * atmp;
                     }
                     if subfr_length > n && subfr_length - n + k < x_ptr.len() {
@@ -781,8 +782,8 @@ pub fn silk_burg_modified_flp(
         af[n] = rc;
 
         if reached_max_gain {
-            for k in (n + 1)..d {
-                af[k] = 0.0;
+            for item in af.iter_mut().take(d).skip(n + 1) {
+                *item = 0.0;
             }
             break;
         }
@@ -805,8 +806,8 @@ pub fn silk_burg_modified_flp(
         for s in 0..nb_subfr {
             let x_ptr = &x[s * subfr_length..];
             let mut e: f64 = 0.0;
-            for i in 0..d.min(x_ptr.len()) {
-                e += (x_ptr[i] as f64) * (x_ptr[i] as f64);
+            for item in x_ptr.iter().take(d.min(x_ptr.len())) {
+                e += (*item as f64) * (*item as f64);
             }
             c0_adj -= e;
         }

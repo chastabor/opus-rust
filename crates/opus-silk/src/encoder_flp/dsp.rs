@@ -119,8 +119,8 @@ pub fn silk_k2a_flp(a: &mut [f32], rc: &[f32], order: usize) {
 /// Bandwidth expansion (chirp) on AR filter coefficients.
 pub fn silk_bwexpander_flp(ar: &mut [f32], d: usize, chirp: f32) {
     let mut cfac = chirp;
-    for i in 0..d.saturating_sub(1) {
-        ar[i] *= cfac;
+    for item in ar.iter_mut().take(d.saturating_sub(1)) {
+        *item *= cfac;
         cfac *= chirp;
     }
     if d > 0 {
@@ -253,8 +253,8 @@ pub fn silk_warped_autocorrelation_flp(
     let mut state = [0.0f64; SILK_MAX_ORDER_LPC + 1];
     let mut c = [0.0f64; SILK_MAX_ORDER_LPC + 1];
 
-    for n in 0..length {
-        let mut tmp1 = input[n] as f64;
+    for item in input.iter().take(length) {
+        let mut tmp1 = *item as f64;
         // Loop over allpass sections (step by 2)
         let mut i = 0;
         while i < order {

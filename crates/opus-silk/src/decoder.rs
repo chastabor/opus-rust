@@ -37,6 +37,12 @@ pub struct SilkDecoder {
     pub prev_decode_only_middle: bool,
 }
 
+impl Default for SilkDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SilkDecoder {
     pub fn new() -> Self {
         Self {
@@ -251,7 +257,11 @@ impl SilkDecoder {
         };
 
         // Decode each channel
-        for n in 0..n_ch_internal as usize {
+        for (n, samples_out1_n) in samples_out1
+            .iter_mut()
+            .enumerate()
+            .take(n_ch_internal as usize)
+        {
             if n == 0 || has_side {
                 let frame_idx = self.channel_state[0].n_frames_decoded - n as i32;
                 let cond_coding = if frame_idx <= 0 {
@@ -271,13 +281,13 @@ impl SilkDecoder {
                 ret += silk_decode_frame(
                     &mut self.channel_state[n],
                     ps_range_dec,
-                    &mut samples_out1[n][2..],
+                    &mut samples_out1_n[2..],
                     &mut n_samples_out_dec,
                     lost_flag,
                     cond_coding,
                 );
             } else {
-                samples_out1[n][2..2 + n_samples_out_dec as usize].fill(0);
+                samples_out1_n[2..2 + n_samples_out_dec as usize].fill(0);
             }
             self.channel_state[n].n_frames_decoded += 1;
         }

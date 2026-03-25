@@ -156,10 +156,10 @@ impl EcCtx {
         let ftb = ec_ilog(ft_minus_1);
         if ftb > EC_UINT_BITS {
             let ftb_shift = ftb - EC_UINT_BITS;
-            let ft_top = (ft_minus_1 >> ftb_shift) as u32 + 1;
+            let ft_top = (ft_minus_1 >> ftb_shift) + 1;
             let s = self.decode(ft_top);
             self.dec_update(s, s + 1, ft_top);
-            let t = ((s as u32) << ftb_shift) | self.dec_bits(ftb_shift);
+            let t = (s << ftb_shift) | self.dec_bits(ftb_shift);
             if t <= ft_minus_1 {
                 t
             } else {

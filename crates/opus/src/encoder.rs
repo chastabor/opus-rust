@@ -28,7 +28,7 @@ fn gen_toc(mode: i32, framerate: i32, bandwidth: i32, channels: i32) -> u8 {
         toc = (bw << 5) | ((period - 2) << 3);
     } else if mode == Mode::CeltOnly as i32 {
         // CELT: bit 7 set, bits 6-5 = max(0, bandwidth - MB), bits 4-3 = period, bit 2 = stereo
-        let tmp = ((bandwidth - Bandwidth::Mediumband as i32) as u8).max(0);
+        let tmp = (bandwidth - Bandwidth::Mediumband as i32) as u8;
         toc = 0x80 | (tmp << 5) | (period << 3);
     } else {
         // Hybrid: bits 7-5 = 011, bit 4 = bandwidth - SWB, bit 3 = period - 2, bit 2 = stereo
@@ -163,8 +163,7 @@ impl OpusEncoder {
         let b_q28 = [r_q28, r_q28.wrapping_neg() << 1, r_q28];
         let r_q22 = r_q28 >> 6;
         // a[0] = -r * (2 - Fc^2): C uses silk_SMULWW
-        let a0_q28 = ((r_q22 as i64
-            * (((fc_q19 as i64 * fc_q19 as i64) >> 16) as i64 - ((2i64) << 22)))
+        let a0_q28 = ((r_q22 as i64 * (((fc_q19 as i64 * fc_q19 as i64) >> 16) - ((2i64) << 22)))
             >> 16) as i32;
         let a1_q28 = ((r_q22 as i64 * r_q22 as i64) >> 16) as i32;
 

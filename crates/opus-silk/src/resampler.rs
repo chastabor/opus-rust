@@ -29,6 +29,12 @@ pub enum ResamplerFunc {
     DownFir,
 }
 
+impl Default for ResamplerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResamplerState {
     pub fn new() -> Self {
         Self {
@@ -124,13 +130,10 @@ pub fn resampler_init(s: &mut ResamplerState, fs_hz_in: i32, fs_hz_out: i32, _fo
         } else if fs_hz_out * 2 == fs_hz_in {
             s.fir_fracs = 1;
             s.fir_order = 24;
-        } else if fs_hz_out * 3 == fs_hz_in {
-            s.fir_fracs = 1;
-            s.fir_order = 36;
-        } else if fs_hz_out * 4 == fs_hz_in {
-            s.fir_fracs = 1;
-            s.fir_order = 36;
-        } else if fs_hz_out * 6 == fs_hz_in {
+        } else if fs_hz_out * 3 == fs_hz_in
+            || fs_hz_out * 4 == fs_hz_in
+            || fs_hz_out * 6 == fs_hz_in
+        {
             s.fir_fracs = 1;
             s.fir_order = 36;
         }
@@ -393,17 +396,17 @@ fn resample_linear(out: &mut [i16], input: &[i16], in_len: usize, _fs_in: usize,
     let ratio = ((in_len as u64) << 16) / out_len.max(1) as u64;
 
     let mut in_pos_q16: u64 = 0;
-    for i in 0..out_len {
+    for item in out.iter_mut().take(out_len) {
         let in_idx = (in_pos_q16 >> 16) as usize;
         let frac = (in_pos_q16 & 0xFFFF) as i32;
 
         if in_idx + 1 < input.len() {
-            out[i] = ((input[in_idx] as i32 * (65536 - frac) + input[in_idx + 1] as i32 * frac)
+            *item = ((input[in_idx] as i32 * (65536 - frac) + input[in_idx + 1] as i32 * frac)
                 >> 16) as i16;
         } else if in_idx < input.len() {
-            out[i] = input[in_idx];
+            *item = input[in_idx];
         } else {
-            out[i] = 0;
+            *item = 0;
         }
 
         in_pos_q16 += ratio;

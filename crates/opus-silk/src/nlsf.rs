@@ -117,8 +117,8 @@ pub fn silk_nlsf_stabilize(nlsf_q15: &mut [i16], n_delta_min_q15: &[i16], l: usi
             nlsf_q15[l - 1] = ((1 << 15) - n_delta_min_q15[l] as i32) as i16;
         } else {
             let mut min_center_q15 = 0i32;
-            for k in 0..min_idx {
-                min_center_q15 += n_delta_min_q15[k] as i32;
+            for item in n_delta_min_q15.iter().take(min_idx) {
+                min_center_q15 += *item as i32;
             }
             min_center_q15 += (n_delta_min_q15[min_idx] as i32) >> 1;
 
@@ -132,7 +132,7 @@ pub fn silk_nlsf_stabilize(nlsf_q15: &mut [i16], n_delta_min_q15: &[i16], l: usi
                 silk_rshift_round(nlsf_q15[min_idx - 1] as i32 + nlsf_q15[min_idx] as i32, 1)
                     .clamp(min_center_q15, max_center_q15) as i16;
 
-            nlsf_q15[min_idx - 1] = center_freq_q15 - ((n_delta_min_q15[min_idx] as i16) >> 1);
+            nlsf_q15[min_idx - 1] = center_freq_q15 - (n_delta_min_q15[min_idx] >> 1);
             nlsf_q15[min_idx] = nlsf_q15[min_idx - 1] + n_delta_min_q15[min_idx];
         }
     }
@@ -230,8 +230,8 @@ fn silk_lpc_fit(a_qout: &mut [i16], a_qin: &mut [i32], qout: i32, qin: i32, d: u
     let mut idx = 0usize;
     for _iter in 0..10 {
         let mut maxabs = 0i32;
-        for k in 0..d {
-            let absval = a_qin[k].abs();
+        for (k, item) in a_qin.iter().enumerate().take(d) {
+            let absval = item.abs();
             if absval > maxabs {
                 maxabs = absval;
                 idx = k;
@@ -345,8 +345,8 @@ pub fn silk_lpc_inverse_pred_gain(a_q12: &[i16], order: usize) -> i32 {
 pub fn silk_bwexpander(ar: &mut [i16], d: usize, chirp_q16: i32) {
     let mut chirp = chirp_q16;
     let chirp_minus_one_q16 = chirp_q16 - 65536;
-    for i in 0..d.saturating_sub(1) {
-        ar[i] = silk_rshift_round(chirp.wrapping_mul(ar[i] as i32), 16) as i16;
+    for item in ar.iter_mut().take(d.saturating_sub(1)) {
+        *item = silk_rshift_round(chirp.wrapping_mul(*item as i32), 16) as i16;
         chirp += silk_rshift_round(chirp.wrapping_mul(chirp_minus_one_q16), 16);
     }
     if d > 0 {
@@ -358,8 +358,8 @@ pub fn silk_bwexpander(ar: &mut [i16], d: usize, chirp_q16: i32) {
 pub fn silk_bwexpander_32(ar: &mut [i32], d: usize, chirp_q16: i32) {
     let mut chirp = chirp_q16;
     let chirp_minus_one_q16 = chirp_q16 - 65536;
-    for i in 0..d.saturating_sub(1) {
-        ar[i] = silk_smulww_correct(chirp, ar[i]);
+    for item in ar.iter_mut().take(d.saturating_sub(1)) {
+        *item = silk_smulww_correct(chirp, *item);
         chirp += silk_rshift_round(chirp.wrapping_mul(chirp_minus_one_q16), 16);
     }
     if d > 0 {

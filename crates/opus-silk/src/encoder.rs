@@ -640,7 +640,7 @@ impl SilkEncoder {
                 &mut cs.indices.ltp_index,
                 &mut cs.indices.per_index,
                 &pitch_lags,
-                &analysis_buf,
+                analysis_buf,
                 &pred_coef_q12[MAX_LPC_ORDER..],
                 cs.subfr_length,
                 cs.nb_subfr,
@@ -754,8 +754,7 @@ impl SilkEncoder {
         let mut lpc_in_pre_f = vec![0.0f32; lpc_pre_len];
         {
             let mut pre_idx = 0usize;
-            for k in 0..nb_subfr {
-                let ig_f = inv_gains_f[k];
+            for (k, &ig_f) in inv_gains_f.iter().enumerate().take(nb_subfr) {
                 let body_start = ltp_mem_length + k * subfr_length;
                 let src_start = body_start - lpc_order;
                 for j in 0..(lpc_order + subfr_length) {
@@ -863,7 +862,7 @@ impl SilkEncoder {
                     for ix in lpc_order..filter_len.min(lpc_in_pre_f.len()) {
                         let mut sum = lpc_in_pre_f[ix];
                         for j in 0..lpc_order {
-                            if ix >= j + 1 {
+                            if ix > j {
                                 sum -= a_tmp_flp2[j] * lpc_in_pre_f[ix - j - 1];
                             }
                         }
@@ -872,12 +871,16 @@ impl SilkEncoder {
 
                     // Measure residual energy of first 2 subframes
                     let mut nrg0: f64 = 0.0;
-                    for i in lpc_order..burg_subfr {
-                        nrg0 += (lpc_res_f[i] as f64) * (lpc_res_f[i] as f64);
+                    for item in lpc_res_f.iter().take(burg_subfr).skip(lpc_order) {
+                        nrg0 += (*item as f64) * (*item as f64);
                     }
                     let mut nrg1: f64 = 0.0;
-                    for i in (lpc_order + burg_subfr)..filter_len.min(lpc_res_f.len()) {
-                        nrg1 += (lpc_res_f[i] as f64) * (lpc_res_f[i] as f64);
+                    for item in lpc_res_f
+                        .iter()
+                        .take(filter_len.min(lpc_res_f.len()))
+                        .skip(lpc_order + burg_subfr)
+                    {
+                        nrg1 += (*item as f64) * (*item as f64);
                     }
                     let res_nrg_interp = (nrg0 + nrg1) as f32;
 
@@ -1177,7 +1180,7 @@ impl SilkEncoder {
 
         let n_states_delayed_decision: i32 = match control.complexity {
             0 | 1 => 1,
-            2 | 3 | 4 | 5 => 2,
+            2..=5 => 2,
             6 | 7 => 3,
             _ => 4,
         };
@@ -1653,7 +1656,7 @@ impl SilkEncoder {
         let actual_vad = self.state.prev_signal_type != TYPE_NO_VOICE_ACTIVITY;
 
         // Patch the initial VAD + LBRR bits (no LBRR for stereo in this simplified version)
-        let flags_byte = (actual_vad as u32) | 0; // no LBRR
+        let flags_byte = actual_vad as u32; // no LBRR
         enc.enc_patch_initial_bits(flags_byte, 2);
 
         0

@@ -34,6 +34,7 @@ pub struct PredCoefsResult {
 /// `x_frame_offset` is where x_frame starts in x_buf.
 /// `la_shape` is the lookback before x_frame for the actual frame data.
 /// The actual frame starts at `x_buf[x_frame_offset + la_shape]`.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_find_pred_coefs_flp(
     x_buf: &[f32],                    // I: full x_buf
     x_frame_offset: usize,            // I: offset of x_frame in x_buf
@@ -135,14 +136,14 @@ pub fn silk_find_pred_coefs_flp(
         // x = x_frame + la_shape (the actual frame)
         let x = &x_buf[frame_start..];
         let mut pre_idx = 0usize;
-        for i in 0..nb_subfr {
+        for (i, &inv_gains_i) in inv_gains.iter().enumerate().take(nb_subfr) {
             let x_start = i * subfr_length;
-            let src_start = if x_start >= d { x_start - d } else { 0 };
+            let src_start = x_start.saturating_sub(d);
             let copy_len = burg_subfr.min(x.len().saturating_sub(src_start));
             silk_scale_copy_vector_flp(
                 &mut lpc_in_pre[pre_idx..pre_idx + copy_len],
                 &x[src_start..src_start + copy_len],
-                inv_gains[i],
+                inv_gains_i,
                 copy_len,
             );
             pre_idx += burg_subfr;

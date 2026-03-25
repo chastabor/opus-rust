@@ -22,6 +22,7 @@ fn loss_distortion(
 }
 
 /// Encode coarse energy (single pass implementation).
+#[allow(clippy::too_many_arguments)]
 fn quant_coarse_energy_impl(
     m: &CeltMode,
     start: usize,
@@ -94,8 +95,8 @@ fn quant_coarse_energy_impl(
                     (prob_model[pi + 1] as i32) << 6,
                 );
             } else if budget - tell >= 2 {
-                qi = qi.max(-1).min(1);
-                let sym = (2 * qi ^ -(if qi < 0 { 1 } else { 0 })) as usize;
+                qi = qi.clamp(-1, 1);
+                let sym = ((2 * qi) ^ -(if qi < 0 { 1 } else { 0 })) as usize;
                 enc.enc_icdf(sym, &SMALL_ENERGY_ICDF, 2);
             } else if budget - tell >= 1 {
                 qi = qi.min(0);
@@ -115,6 +116,7 @@ fn quant_coarse_energy_impl(
 }
 
 /// Encode coarse band energies (two-pass intra/inter).
+#[allow(clippy::too_many_arguments)]
 pub fn quant_coarse_energy(
     m: &CeltMode,
     start: usize,
@@ -230,6 +232,7 @@ pub fn quant_coarse_energy(
 }
 
 /// Encode fine energy bits.
+#[allow(clippy::too_many_arguments)]
 pub fn quant_fine_energy(
     m: &CeltMode,
     start: usize,
@@ -266,6 +269,7 @@ pub fn quant_fine_energy(
 }
 
 /// Encode energy finalise (use remaining bits).
+#[allow(clippy::too_many_arguments)]
 pub fn quant_energy_finalise_enc(
     m: &CeltMode,
     start: usize,
@@ -306,6 +310,7 @@ pub fn quant_energy_finalise_enc(
 }
 
 /// Unquantize coarse energy.
+#[allow(clippy::too_many_arguments)]
 pub fn unquant_coarse_energy(
     m: &CeltMode,
     start: usize,
@@ -386,6 +391,7 @@ pub fn unquant_fine_energy(
 }
 
 /// Unquantize energy finalise (use remaining bits).
+#[allow(clippy::too_many_arguments)]
 pub fn unquant_energy_finalise(
     m: &CeltMode,
     start: usize,

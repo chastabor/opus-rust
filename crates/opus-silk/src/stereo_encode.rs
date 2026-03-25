@@ -162,11 +162,11 @@ pub fn silk_stereo_encode_pred(ps_range_enc: &mut EcCtx, ix: &[[i8; 3]; 2]) {
     ps_range_enc.enc_icdf(n, &SILK_STEREO_PRED_JOINT_ICDF, 8);
 
     // Fine + sub-step per channel
-    for ch in 0..2 {
-        debug_assert!((ix[ch][0] as i32) < 3);
-        debug_assert!((ix[ch][1] as i32) < STEREO_QUANT_SUB_STEPS);
-        ps_range_enc.enc_icdf(ix[ch][0] as usize, &SILK_UNIFORM3_ICDF, 8);
-        ps_range_enc.enc_icdf(ix[ch][1] as usize, &SILK_UNIFORM5_ICDF, 8);
+    for item in &ix[..2] {
+        debug_assert!((item[0] as i32) < 3);
+        debug_assert!((item[1] as i32) < STEREO_QUANT_SUB_STEPS);
+        ps_range_enc.enc_icdf(item[0] as usize, &SILK_UNIFORM3_ICDF, 8);
+        ps_range_enc.enc_icdf(item[1] as usize, &SILK_UNIFORM5_ICDF, 8);
     }
 }
 
@@ -193,8 +193,8 @@ pub fn silk_stereo_encode_mid_only(ps_range_enc: &mut EcCtx, mid_only_flag: i8) 
 /// # Arguments
 /// * `state` - Stereo encoder state
 /// * `x1` - Left input signal (length frame_length + 2, with 2 samples of look-ahead).
-///           Becomes mid signal on output. Indexing starts from offset -2 relative to
-///           the "current" sample, so x1[0..frame_length+2] covers the range [-2, frame_length).
+///   Becomes mid signal on output. Indexing starts from offset -2 relative to
+///   the "current" sample, so x1[0..frame_length+2] covers the range [-2, frame_length).
 /// * `x2` - Right input signal (same layout). Becomes side residual on output.
 /// * `ix` - Output quantization indices [2][3]
 /// * `mid_only_flag` - Output: 1 if only mid channel is coded
@@ -204,6 +204,7 @@ pub fn silk_stereo_encode_mid_only(ps_range_enc: &mut EcCtx, mid_only_flag: i8) 
 /// * `to_mono` - True if this is the last frame before stereo->mono transition
 /// * `fs_khz` - Sample rate in kHz
 /// * `frame_length` - Number of samples per channel
+#[allow(clippy::too_many_arguments)]
 pub fn silk_stereo_lr_to_ms(
     state: &mut StereoEncState,
     x1: &mut [i16], // length = frame_length + 2

@@ -110,8 +110,7 @@ impl MappingMatrix {
             for out_ch in 0..output_channels {
                 let mut sum = 0.0f64;
                 for in_ch in 0..input_channels {
-                    let coeff =
-                        self.data[out_ch as usize + in_ch * output_channels] as f64 * q15_scale;
+                    let coeff = self.data[out_ch + in_ch * output_channels] as f64 * q15_scale;
                     sum += coeff * input[i * input_channels + in_ch] as f64;
                 }
                 output[i * output_channels + out_ch] = (sum * gain_lin) as f32;
@@ -151,6 +150,7 @@ impl OpusProjectionEncoder {
     /// - `coupled_streams`: Number of coupled (stereo) streams
     /// - `mapping`: Channel mapping for the multistream encoder
     /// - `application`: Opus application type
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sample_rate: SampleRate,
         input_channels: usize,

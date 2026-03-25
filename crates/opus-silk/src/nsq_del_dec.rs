@@ -62,6 +62,7 @@ struct SampleState {
 }
 
 /// Scale states for the del-dec NSQ (matching silk_nsq_del_dec_scale_states)
+#[allow(clippy::too_many_arguments)]
 fn silk_nsq_del_dec_scale_states(
     nsq: &mut NsqState,
     del_dec: &mut [DelDecState],
@@ -129,9 +130,7 @@ fn silk_nsq_del_dec_scale_states(
         }
 
         // Scale delayed decision states
-        for k in 0..n_states {
-            let dd = &mut del_dec[k];
-
+        for dd in del_dec.iter_mut().take(n_states) {
             // Scale scalar states
             dd.lf_ar_q14 = silk_smulww_correct(gain_adj_q16, dd.lf_ar_q14);
             dd.diff_q14 = silk_smulww_correct(gain_adj_q16, dd.diff_q14);
@@ -199,17 +198,17 @@ fn silk_noise_shape_quantizer_del_dec(
         nsq.s_ltp_shp_buf_idx as i64 - lag as i64 + (nsq::HARM_SHAPE_FIR_TAPS / 2) as i64;
     let pred_lag_base = nsq.s_ltp_buf_idx as i64 - lag as i64 + (LTP_ORDER / 2) as i64;
 
-    for i in 0..length {
+    for (i, &x_q10_i) in x_q10.iter().enumerate().take(length) {
         // ---- Common calculations (independent of state) ----
 
         // Long-term prediction
         let ltp_pred_q14 = if signal_type == TYPE_VOICED {
             let plp = (pred_lag_base + i as i64) as usize;
             let mut acc: i32 = 2; // rounding bias
-            for k in 0..LTP_ORDER {
+            for (k, &b_q14_k) in b_q14.iter().enumerate().take(LTP_ORDER) {
                 let idx_val = plp.wrapping_sub(k);
                 if idx_val < s_ltp_q15.len() {
-                    acc = silk_smlawb(acc, s_ltp_q15[idx_val], b_q14[k] as i32);
+                    acc = silk_smlawb(acc, s_ltp_q15[idx_val], b_q14_k as i32);
                 }
             }
             acc << 1 // Q13 -> Q14
@@ -262,9 +261,9 @@ fn silk_noise_shape_quantizer_del_dec(
             // out = order/2 (rounding bias)
             // out = silk_SMLAWB(out, buf[0], coef[0]) ...
             let mut lpc_pred_q14: i32 = predict_lpc_order as i32 >> 1;
-            for j in 0..predict_lpc_order {
+            for (j, &a_q12_j) in a_q12.iter().enumerate().take(predict_lpc_order) {
                 lpc_pred_q14 =
-                    silk_smlawb(lpc_pred_q14, dd.s_lpc_q14[ps_lpc_idx - j], a_q12[j] as i32);
+                    silk_smlawb(lpc_pred_q14, dd.s_lpc_q14[ps_lpc_idx - j], a_q12_j as i32);
             }
             lpc_pred_q14 <<= 4; // Q10 -> Q14
 
@@ -343,7 +342,7 @@ fn silk_noise_shape_quantizer_del_dec(
             let combined = combined_pred_q14.saturating_sub(tmp1); // Q14
             let combined_q10 = silk_rshift_round(combined, 4); // Q10
 
-            let r_q10 = x_q10[i].wrapping_sub(combined_q10);
+            let r_q10 = x_q10_i.wrapping_sub(combined_q10);
 
             // Flip sign depending on dither
             let r_q10 = if dd.seed < 0 { -r_q10 } else { r_q10 };
@@ -414,7 +413,7 @@ fn silk_noise_shape_quantizer_del_dec(
             let lpc_exc_q14_0 = exc_q14_0.wrapping_add(ltp_pred_q14);
             let xq_q14_0 = lpc_exc_q14_0.wrapping_add(lpc_pred_q14);
 
-            ss[0].diff_q14 = xq_q14_0.wrapping_sub(x_q10[i] << 4);
+            ss[0].diff_q14 = xq_q14_0.wrapping_sub(x_q10_i << 4);
             let s_lf_ar_shp_q14_0 = ss[0].diff_q14.wrapping_sub(n_ar_q14);
             ss[0].s_ltp_shp_q14 = s_lf_ar_shp_q14_0.saturating_sub(n_lf_q14);
             ss[0].lf_ar_q14 = s_lf_ar_shp_q14_0;
@@ -427,7 +426,7 @@ fn silk_noise_shape_quantizer_del_dec(
             let lpc_exc_q14_1 = exc_q14_1.wrapping_add(ltp_pred_q14);
             let xq_q14_1 = lpc_exc_q14_1.wrapping_add(lpc_pred_q14);
 
-            ss[1].diff_q14 = xq_q14_1.wrapping_sub(x_q10[i] << 4);
+            ss[1].diff_q14 = xq_q14_1.wrapping_sub(x_q10_i << 4);
             let s_lf_ar_shp_q14_1 = ss[1].diff_q14.wrapping_sub(n_ar_q14);
             ss[1].s_ltp_shp_q14 = s_lf_ar_shp_q14_1.saturating_sub(n_lf_q14);
             ss[1].lf_ar_q14 = s_lf_ar_shp_q14_1;
@@ -446,9 +445,9 @@ fn silk_noise_shape_quantizer_del_dec(
         // Find winner (best RD in first set)
         let mut rd_min_q10 = sample_states[0][0].rd_q10;
         let mut winner_ind = 0usize;
-        for k in 1..n_states {
-            if sample_states[k][0].rd_q10 < rd_min_q10 {
-                rd_min_q10 = sample_states[k][0].rd_q10;
+        for (k, ss_k) in sample_states.iter().enumerate().take(n_states).skip(1) {
+            if ss_k[0].rd_q10 < rd_min_q10 {
+                rd_min_q10 = ss_k[0].rd_q10;
                 winner_ind = k;
             }
         }
@@ -467,13 +466,13 @@ fn silk_noise_shape_quantizer_del_dec(
         let mut rd_min2_q10 = sample_states[0][1].rd_q10;
         let mut rd_max_ind = 0usize;
         let mut rd_min_ind = 0usize;
-        for k in 1..n_states {
-            if sample_states[k][0].rd_q10 > rd_max_q10 {
-                rd_max_q10 = sample_states[k][0].rd_q10;
+        for (k, ss_k) in sample_states.iter().enumerate().take(n_states).skip(1) {
+            if ss_k[0].rd_q10 > rd_max_q10 {
+                rd_max_q10 = ss_k[0].rd_q10;
                 rd_max_ind = k;
             }
-            if sample_states[k][1].rd_q10 < rd_min2_q10 {
-                rd_min2_q10 = sample_states[k][1].rd_q10;
+            if ss_k[1].rd_q10 < rd_min2_q10 {
+                rd_min2_q10 = ss_k[1].rd_q10;
                 rd_min_ind = k;
             }
         }
@@ -568,8 +567,7 @@ fn silk_noise_shape_quantizer_del_dec(
     }
 
     // Update LPC states: shift buffer
-    for k in 0..n_states {
-        let dd = &mut del_dec[k];
+    for dd in del_dec.iter_mut().take(n_states) {
         for j in 0..NSQ_LPC_BUF_LENGTH {
             dd.s_lpc_q14[j] = dd.s_lpc_q14[length + j];
         }
@@ -632,8 +630,7 @@ pub fn silk_nsq_del_dec(
         DelDecState::new(),
         DelDecState::new(),
     ];
-    for k in 0..n_states {
-        let dd = &mut del_dec[k];
+    for (k, dd) in del_dec.iter_mut().enumerate().take(n_states) {
         dd.seed = ((k as i32) + indices.seed as i32) & 3;
         dd.seed_init = dd.seed;
         dd.rd_q10 = 0;
@@ -657,8 +654,8 @@ pub fn silk_nsq_del_dec(
 
     // For voiced frames limit the decision delay to lower than the pitch lag
     if signal_type == TYPE_VOICED {
-        for k in 0..nb_subfr as usize {
-            decision_delay = decision_delay.min((pitch_l[k] - LTP_ORDER as i32 / 2 - 1) as usize);
+        for &pitch_l_k in pitch_l.iter().take(nb_subfr as usize) {
+            decision_delay = decision_delay.min((pitch_l_k - LTP_ORDER as i32 / 2 - 1) as usize);
         }
     } else if lag > 0 {
         decision_delay = decision_delay.min((lag - LTP_ORDER as i32 / 2 - 1) as usize);
@@ -713,16 +710,16 @@ pub fn silk_nsq_del_dec(
                     // Find winner
                     let mut rd_min = del_dec[0].rd_q10;
                     let mut winner_ind = 0usize;
-                    for j in 1..n_states {
-                        if del_dec[j].rd_q10 < rd_min {
-                            rd_min = del_dec[j].rd_q10;
+                    for (j, dd_j) in del_dec.iter().enumerate().take(n_states).skip(1) {
+                        if dd_j.rd_q10 < rd_min {
+                            rd_min = dd_j.rd_q10;
                             winner_ind = j;
                         }
                     }
                     // Penalize non-winners
-                    for j in 0..n_states {
+                    for (j, dd_j) in del_dec.iter_mut().enumerate().take(n_states) {
                         if j != winner_ind {
-                            del_dec[j].rd_q10 = del_dec[j].rd_q10.wrapping_add(i32::MAX >> 4);
+                            dd_j.rd_q10 = dd_j.rd_q10.wrapping_add(i32::MAX >> 4);
                         }
                     }
 
@@ -834,9 +831,9 @@ pub fn silk_nsq_del_dec(
     // Find final winner
     let mut rd_min = del_dec[0].rd_q10;
     let mut winner_ind = 0usize;
-    for k in 1..n_states {
-        if del_dec[k].rd_q10 < rd_min {
-            rd_min = del_dec[k].rd_q10;
+    for (k, dd_k) in del_dec.iter().enumerate().take(n_states).skip(1) {
+        if dd_k.rd_q10 < rd_min {
+            rd_min = dd_k.rd_q10;
             winner_ind = k;
         }
     }

@@ -11,6 +11,7 @@ use crate::{MAX_LPC_ORDER, MAX_NB_SUBFR, silk_interpolate_i16};
 /// Port of silk_find_LPC_FLP (find_LPC_FLP.c).
 ///
 /// Sets `nlsf_interp_coef_q2` on the output and fills `nlsf_q15`.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_find_lpc_flp(
     nlsf_q15: &mut [i16],         // O: NLSFs in Q15
     nlsf_interp_coef_q2: &mut i8, // O: interpolation coefficient (0-4)

@@ -202,18 +202,18 @@ impl OpusMSDecoder {
         // Temporary decode buffer (max 2 channels per stream)
         let mut buf = vec![0.0f32; 2 * frame_size as usize];
 
-        let do_plc = data.is_none() || data.map_or(true, |d| d.is_empty());
+        let do_plc = data.is_none() || data.is_none_or(|d| d.is_empty());
 
-        if let Some(d) = data {
-            if !do_plc {
-                if d.len() < 2 * self.layout.nb_streams - 1 {
-                    return Err(OpusError::InvalidPacket);
-                }
-                // Validate all streams have same duration
-                let validated_samples = self.validate_packet(d)?;
-                if validated_samples > frame_size {
-                    return Err(OpusError::BufferTooSmall);
-                }
+        if let Some(d) = data
+            && !do_plc
+        {
+            if d.len() < 2 * self.layout.nb_streams - 1 {
+                return Err(OpusError::InvalidPacket);
+            }
+            // Validate all streams have same duration
+            let validated_samples = self.validate_packet(d)?;
+            if validated_samples > frame_size {
+                return Err(OpusError::BufferTooSmall);
             }
         }
 

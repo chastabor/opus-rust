@@ -202,7 +202,7 @@ impl OpusDecoder {
 
         // Initialize range coder if we have data
         let mut ec = if has_data {
-            data.map(|d| EcCtx::dec_init(d))
+            data.map(EcCtx::dec_init)
         } else {
             None
         };
@@ -231,8 +231,10 @@ impl OpusDecoder {
 
             let lost_flag = if !has_data {
                 1
+            } else if decode_fec {
+                2
             } else {
-                if decode_fec { 2 } else { 0 }
+                0
             };
             let first_frame = true; // simplified
 
@@ -287,30 +289,32 @@ impl OpusDecoder {
             0
         };
 
-        if !decode_fec && mode != Mode::CeltOnly as i32 && has_data {
-            if let Some(ref mut ec) = ec {
-                let bits_left = data_len * 8 - ec.tell();
-                let threshold = 17 + if mode == Mode::Hybrid as i32 { 20 } else { 0 };
-                if bits_left >= threshold {
-                    if mode == Mode::Hybrid as i32 {
-                        redundancy = ec.dec_bit_logp(12);
+        if !decode_fec
+            && mode != Mode::CeltOnly as i32
+            && has_data
+            && let Some(ref mut ec) = ec
+        {
+            let bits_left = data_len * 8 - ec.tell();
+            let threshold = 17 + if mode == Mode::Hybrid as i32 { 20 } else { 0 };
+            if bits_left >= threshold {
+                if mode == Mode::Hybrid as i32 {
+                    redundancy = ec.dec_bit_logp(12);
+                } else {
+                    redundancy = true;
+                }
+                if redundancy {
+                    celt_to_silk = ec.dec_bit_logp(1);
+                    let redundancy_bytes = if mode == Mode::Hybrid as i32 {
+                        ec.dec_uint(256) as i32 + 2
                     } else {
-                        redundancy = true;
-                    }
-                    if redundancy {
-                        celt_to_silk = ec.dec_bit_logp(1);
-                        let redundancy_bytes = if mode == Mode::Hybrid as i32 {
-                            ec.dec_uint(256) as i32 + 2
-                        } else {
-                            data_len - ((ec.tell() + 7) >> 3)
-                        };
-                        data_len -= redundancy_bytes;
-                        if data_len * 8 < ec.tell() {
-                            data_len = 0;
-                            redundancy = false;
-                        } else {
-                            ec.storage -= redundancy_bytes as u32;
-                        }
+                        data_len - ((ec.tell() + 7) >> 3)
+                    };
+                    data_len -= redundancy_bytes;
+                    if data_len * 8 < ec.tell() {
+                        data_len = 0;
+                        redundancy = false;
+                    } else {
+                        ec.storage -= redundancy_bytes as u32;
                     }
                 }
             }

@@ -53,7 +53,7 @@ pub struct CeltDecoder {
 impl CeltDecoder {
     /// Create a new CELT decoder for the given sample rate and channel count.
     pub fn new(sample_rate: i32, channels: usize) -> Result<Self, i32> {
-        if channels < 1 || channels > 2 {
+        if !(1..=2).contains(&channels) {
             return Err(-1);
         }
         let mode = CeltMode::get_mode();
@@ -263,7 +263,7 @@ impl CeltDecoder {
         // Dynamic allocation
         let mut offsets = vec![0i32; nb_ebands];
         let mut dynalloc_logp = 6i32;
-        let mut total_bits_shifted = len as i32 * 8 << BITRES;
+        let mut total_bits_shifted = (len as i32 * 8) << BITRES;
         tell = dec.tell_frac() as i32;
         for i in start..end {
             let width = c as i32 * (mode.ebands[i + 1] - mode.ebands[i]) as i32 * mm as i32;
@@ -549,6 +549,7 @@ impl CeltDecoder {
 
     /// Synthesis: denormalize + IMDCT + overlap-add.
     /// Matches C celt_synthesis() for the normal mono/stereo case.
+    #[allow(clippy::too_many_arguments)]
     fn celt_synthesis(
         &mut self,
         mode: &CeltMode,
@@ -650,11 +651,11 @@ impl CeltDecoder {
 
             if self.downsample > 1 {
                 let mut scratch = vec![0.0f32; n];
-                for j in 0..n {
+                for (j, item) in scratch.iter_mut().enumerate().take(n) {
                     let tmp =
                         (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
                     m = coef0 * tmp;
-                    scratch[j] = sig2res * tmp;
+                    *item = sig2res * tmp;
                 }
                 for j in 0..nd {
                     pcm[j * cc + ch] = scratch[j * self.downsample];
@@ -707,18 +708,18 @@ fn tf_decode(
     let budget = dec.storage as i32 * 8;
     let mut tell = dec.tell();
     let mut logp = if is_transient { 2u32 } else { 4u32 };
-    let tf_select_rsv = lm > 0 && tell + logp as i32 + 1 <= budget;
+    let tf_select_rsv = lm > 0 && tell + (logp as i32) < budget;
     let budget = budget - if tf_select_rsv { 1 } else { 0 };
     let mut tf_changed = false;
     let mut curr = 0i32;
 
-    for i in start..end {
+    for item in tf_res.iter_mut().take(end).skip(start) {
         if tell + logp as i32 <= budget {
             curr ^= if dec.dec_bit_logp(logp) { 1 } else { 0 };
             tell = dec.tell();
             tf_changed = tf_changed || curr != 0;
         }
-        tf_res[i] = curr;
+        *item = curr;
         logp = if is_transient { 4 } else { 5 };
     }
 
@@ -731,9 +732,8 @@ fn tf_decode(
         0
     };
 
-    for i in start..end {
-        tf_res[i] = TF_SELECT_TABLE[lm as usize]
-            [4 * is_transient as usize + 2 * tf_select + tf_res[i] as usize]
-            as i32;
+    for item in tf_res.iter_mut().take(end).skip(start) {
+        *item = TF_SELECT_TABLE[lm as usize]
+            [4 * is_transient as usize + 2 * tf_select + *item as usize] as i32;
     }
 }

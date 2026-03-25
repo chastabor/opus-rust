@@ -212,16 +212,16 @@ impl OpusMSEncoder {
         // Distribute remaining bitrate
         let unit_rate = (total_available * 2) / total_weight as i32;
 
-        for s in 0..nb_streams {
+        for (s, rate) in rates.iter_mut().enumerate().take(nb_streams) {
             if self.lfe_stream >= 0 && s == self.lfe_stream as usize {
                 continue; // Already assigned
             }
             if s < nb_coupled {
                 // Coupled stream gets 1.5 * unit_rate
-                rates[s] = (unit_rate * 3) / 2;
+                *rate = (unit_rate * 3) / 2;
             } else {
                 // Mono stream gets 1.0 * unit_rate
-                rates[s] = unit_rate;
+                *rate = unit_rate;
             }
         }
 
@@ -275,11 +275,11 @@ impl OpusMSEncoder {
         // Temporary buffers for each stream's encoded output
         let mut stream_packets: Vec<Vec<u8>> = Vec::with_capacity(nb_streams);
 
-        for s in 0..nb_streams {
+        for (s, rate) in rates.iter().enumerate().take(nb_streams) {
             let stream_channels = if s < nb_coupled { 2 } else { 1 };
 
             // Set the per-stream bitrate
-            self.encoders[s].set_bitrate(Bitrate::BitsPerSecond(rates[s]));
+            self.encoders[s].set_bitrate(Bitrate::BitsPerSecond(*rate));
 
             // Gather the input channels for this stream from the interleaved PCM
             let mut stream_pcm = vec![0.0f32; frame_size as usize * stream_channels];
@@ -329,8 +329,7 @@ impl OpusMSEncoder {
         let mut offset = 0usize;
         let out_len = data.len().min(max_data_bytes as usize);
 
-        for s in 0..nb_streams {
-            let pkt = &stream_packets[s];
+        for (s, pkt) in stream_packets.iter().enumerate().take(nb_streams) {
             let is_last = s == nb_streams - 1;
 
             if is_last {
@@ -562,8 +561,8 @@ fn make_self_delimited(packet: &[u8]) -> Result<Vec<u8>, OpusError> {
                 }
 
                 // Sizes for frames 0..count-2
-                for i in 0..count.saturating_sub(1) {
-                    encode_size(frame_sizes[i], &mut result);
+                for frame_size in frame_sizes.iter().take(count.saturating_sub(1)) {
+                    encode_size(*frame_size, &mut result);
                 }
                 // Self-delimited: encode last frame size
                 encode_size(last_frame_size, &mut result);
@@ -572,9 +571,7 @@ fn make_self_delimited(packet: &[u8]) -> Result<Vec<u8>, OpusError> {
                 result.extend_from_slice(&packet[data_start..data_start + total_data]);
 
                 // Padding data (zeros)
-                for _ in 0..padding_bytes {
-                    result.push(0);
-                }
+                result.extend(std::iter::repeat_n(0u8, padding_bytes));
             } else {
                 // CBR: all frames have the same size
                 let data_start = pos;
@@ -608,9 +605,7 @@ fn make_self_delimited(packet: &[u8]) -> Result<Vec<u8>, OpusError> {
                 result.extend_from_slice(&packet[data_start..data_start + total_data]);
 
                 // Padding data (zeros)
-                for _ in 0..padding_bytes {
-                    result.push(0);
-                }
+                result.extend(std::iter::repeat_n(0u8, padding_bytes));
             }
         }
         _ => unreachable!(),

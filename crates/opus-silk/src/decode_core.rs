@@ -32,9 +32,9 @@ pub fn silk_decode_core(
 
     // Decode excitation
     let mut rand_seed = ps_dec.indices.seed as i32;
-    for i in 0..frame_length {
+    for (i, &pulse) in pulses.iter().enumerate().take(frame_length) {
         rand_seed = silk_rand(rand_seed);
-        ps_dec.exc_q14[i] = (pulses[i] as i32) << 14;
+        ps_dec.exc_q14[i] = (pulse as i32) << 14;
         if ps_dec.exc_q14[i] > 0 {
             ps_dec.exc_q14[i] -= QUANT_LEVEL_ADJUST_Q10 << 4;
         } else if ps_dec.exc_q14[i] < 0 {
@@ -62,7 +62,11 @@ pub fn silk_decode_core(
 
     // Loop over subframes
     let mut lag = 0i32;
-    for k in 0..ps_dec.nb_subfr as usize {
+    for (k, pitch_l_k) in pitch_l
+        .iter_mut()
+        .enumerate()
+        .take(ps_dec.nb_subfr as usize)
+    {
         let a_q12 = &ps_dec_ctrl.pred_coef_q12[k >> 1];
         let mut a_q12_tmp = [0i16; MAX_LPC_ORDER];
         a_q12_tmp[..lpc_order].copy_from_slice(&a_q12[..lpc_order]);
@@ -76,8 +80,8 @@ pub fn silk_decode_core(
         // Calculate gain adjustment factor
         let gain_adj_q16 = if ps_dec_ctrl.gains_q16[k] != ps_dec.prev_gain_q16 {
             let adj = silk_div32_varq(ps_dec.prev_gain_q16, ps_dec_ctrl.gains_q16[k], 16);
-            for i in 0..MAX_LPC_ORDER {
-                s_lpc_q14[i] = silk_smulww_correct(adj, s_lpc_q14[i]);
+            for item in s_lpc_q14.iter_mut().take(MAX_LPC_ORDER) {
+                *item = silk_smulww_correct(adj, *item);
             }
             adj
         } else {
@@ -97,11 +101,11 @@ pub fn silk_decode_core(
             }
             ltp_coef_q14[b_q14_base + LTP_ORDER / 2] = (0.25f64 * 16384.0) as i16;
             signal_type = TYPE_VOICED;
-            pitch_l[k] = ps_dec.lag_prev;
+            *pitch_l_k = ps_dec.lag_prev;
         }
 
         if signal_type == TYPE_VOICED {
-            lag = pitch_l[k];
+            lag = *pitch_l_k;
 
             // Re-whitening
             if k == 0 || (k == 2 && nlsf_interpolation_flag) {
@@ -114,9 +118,9 @@ pub fn silk_decode_core(
                 if k == 2 {
                     // Copy decoded samples so far into outBuf for rewhitening
                     let dst_start = ltp_mem_length;
-                    for i in 0..2 * subfr_length {
+                    for (i, &xq_val) in xq.iter().enumerate().take(2 * subfr_length) {
                         if dst_start + i < ps_dec.out_buf.len() {
-                            ps_dec.out_buf[dst_start + i] = xq[i];
+                            ps_dec.out_buf[dst_start + i] = xq_val;
                         }
                     }
                 }
@@ -141,7 +145,7 @@ pub fn silk_decode_core(
                 if k == 0 {
                     // Do LTP downscaling to reduce inter-packet dependency
                     inv_gain_for_ltp =
-                        (silk_smulwb(inv_gain_for_ltp, ps_dec_ctrl.ltp_scale_q14 as i32)) << 2;
+                        silk_smulwb(inv_gain_for_ltp, ps_dec_ctrl.ltp_scale_q14) << 2;
                 }
 
                 let lag_plus = lag as usize + LTP_ORDER / 2;
@@ -150,13 +154,11 @@ pub fn silk_decode_core(
                     s_ltp_q15[s_ltp_buf_idx - i - 1] =
                         silk_smulwb(inv_gain_for_ltp, s_ltp[src_idx] as i32);
                 }
-            } else {
-                if gain_adj_q16 != (1 << 16) {
-                    let lag_plus = lag as usize + LTP_ORDER / 2;
-                    for i in 0..lag_plus.min(s_ltp_buf_idx) {
-                        s_ltp_q15[s_ltp_buf_idx - i - 1] =
-                            silk_smulww_correct(gain_adj_q16, s_ltp_q15[s_ltp_buf_idx - i - 1]);
-                    }
+            } else if gain_adj_q16 != (1 << 16) {
+                let lag_plus = lag as usize + LTP_ORDER / 2;
+                for i in 0..lag_plus.min(s_ltp_buf_idx) {
+                    s_ltp_q15[s_ltp_buf_idx - i - 1] =
+                        silk_smulww_correct(gain_adj_q16, s_ltp_q15[s_ltp_buf_idx - i - 1]);
                 }
             }
         }
@@ -164,14 +166,14 @@ pub fn silk_decode_core(
         // Long-term prediction
         if signal_type == TYPE_VOICED {
             let pred_lag_base = s_ltp_buf_idx as i32 - lag + (LTP_ORDER as i32) / 2;
-            for i in 0..subfr_length {
+            for (i, res_q14_i) in res_q14.iter_mut().enumerate().take(subfr_length) {
                 let pred_idx = (pred_lag_base + i as i32) as usize;
 
                 let mut ltp_pred_q13: i32 = 2; // bias
                 ltp_pred_q13 = silk_smlawb(
                     ltp_pred_q13,
                     s_ltp_q15[pred_idx],
-                    ltp_coef_q14[b_q14_base + 0] as i32,
+                    ltp_coef_q14[b_q14_base] as i32,
                 );
                 ltp_pred_q13 = silk_smlawb(
                     ltp_pred_q13,
@@ -194,8 +196,8 @@ pub fn silk_decode_core(
                     ltp_coef_q14[b_q14_base + 4] as i32,
                 );
 
-                res_q14[i] = ps_dec.exc_q14[pexc_offset + i].wrapping_add(ltp_pred_q13 << 1);
-                s_ltp_q15[s_ltp_buf_idx] = res_q14[i] << 1;
+                *res_q14_i = ps_dec.exc_q14[pexc_offset + i].wrapping_add(ltp_pred_q13 << 1);
+                s_ltp_q15[s_ltp_buf_idx] = *res_q14_i << 1;
                 s_ltp_buf_idx += 1;
             }
         }
@@ -268,10 +270,10 @@ fn silk_lpc_analysis_filter_offset(
         } else {
             0
         };
-        for j in 0..d {
+        for (j, &b_q12_j) in b_q12.iter().enumerate().take(d) {
             let in_j = in_offset + ix - j - 1;
             if in_j < input.len() {
-                out32_q12 -= (b_q12[j] as i32) * (input[in_j] as i32);
+                out32_q12 -= (b_q12_j as i32) * (input[in_j] as i32);
             }
         }
         let out_ix = out_offset + ix;

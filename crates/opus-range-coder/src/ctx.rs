@@ -56,6 +56,12 @@ pub struct EcCtx {
     pub error: i32,
 }
 
+impl Default for EcCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EcCtx {
     pub fn new() -> Self {
         EcCtx {

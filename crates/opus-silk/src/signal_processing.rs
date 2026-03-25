@@ -141,8 +141,8 @@ pub fn silk_schur(rc_q15: &mut [i16], c: &[i32], order: usize) -> i32 {
     }
 
     // Zero remaining coefficients
-    for i in k..order {
-        rc_q15[i] = 0;
+    for item in rc_q15.iter_mut().take(order).skip(k) {
+        *item = 0;
     }
 
     // Return residual energy
@@ -165,8 +165,8 @@ pub fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
 
     // Check for invalid input
     if c[0] <= 0 {
-        for i in 0..order {
-            rc_q16[i] = 0;
+        for item in rc_q16.iter_mut().take(order) {
+            *item = 0;
         }
         return 0;
     }
@@ -211,8 +211,8 @@ pub fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
     }
 
     // Zero remaining coefficients
-    for i in k..order {
-        rc_q16[i] = 0;
+    for item in rc_q16.iter_mut().take(order).skip(k) {
+        *item = 0;
     }
 
     big_c[0][1].max(1)
@@ -296,7 +296,7 @@ static FREQ_TABLE_Q16: [i16; 27] = [
 /// - `length`: window length (multiple of 4, in range [16, 120])
 pub fn silk_apply_sine_window(px_win: &mut [i16], px: &[i16], win_type: i32, length: i32) {
     debug_assert!(win_type == 1 || win_type == 2);
-    debug_assert!(length >= 16 && length <= 120);
+    debug_assert!((16..=120).contains(&length));
     debug_assert!((length & 3) == 0);
 
     // Frequency
@@ -479,14 +479,12 @@ pub fn silk_warped_autocorrelation(
     order: usize,
 ) {
     debug_assert!((order & 1) == 0);
-    debug_assert!(2 * QS - QC >= 0);
-
     let mut state_qs = [0i32; MAX_SHAPE_LPC_ORDER + 1];
     let mut corr_qc = [0i64; MAX_SHAPE_LPC_ORDER + 1];
 
     // Loop over samples
-    for n in 0..length {
-        let mut tmp1_qs = (input[n] as i32) << QS;
+    for item in input.iter().take(length) {
+        let mut tmp1_qs = (*item as i32) << QS;
         // Loop over allpass sections
         let mut i = 0;
         while i < order {
@@ -743,8 +741,8 @@ pub fn silk_insertion_sort_decreasing_int16(a: &mut [i16], idx: &mut [i32], len:
     debug_assert!(k > 0 && len > 0 && len >= k);
 
     // Write start indices in index vector
-    for i in 0..k {
-        idx[i] = i as i32;
+    for (i, idx_i) in idx.iter_mut().enumerate().take(k) {
+        *idx_i = i as i32;
     }
 
     // Sort first K vector elements by value, decreasing order

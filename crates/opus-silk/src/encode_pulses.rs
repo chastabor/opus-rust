@@ -133,8 +133,8 @@ fn silk_encode_signs(
     let n_blocks =
         ((length as usize) + SHELL_CODEC_FRAME_LENGTH / 2) >> LOG2_SHELL_CODEC_FRAME_LENGTH;
 
-    for i in 0..n_blocks {
-        let p = sum_pulses[i];
+    for (i, sum_p) in sum_pulses.iter().enumerate().take(n_blocks) {
+        let p = *sum_p;
         if p > 0 {
             icdf[0] = SILK_SIGN_ICDF[icdf_offset + ((p & 0x1F) as usize).min(6)];
             for j in 0..SHELL_CODEC_FRAME_LENGTH {
@@ -215,8 +215,11 @@ pub fn silk_encode_pulses(
     let mut rate_level_index = 0usize;
     let sig_half = (signal_type >> 1) as usize;
 
-    for k in 0..(N_RATE_LEVELS - 1) {
-        let n_bits_ptr = &SILK_PULSES_PER_BLOCK_BITS_Q5[k];
+    for (k, n_bits_ptr) in SILK_PULSES_PER_BLOCK_BITS_Q5
+        .iter()
+        .enumerate()
+        .take(N_RATE_LEVELS - 1)
+    {
         let mut sum_bits_q5 = SILK_RATE_LEVELS_BITS_Q5[sig_half][k];
         for i in 0..iter {
             if n_rshifts[i] > 0 {
@@ -257,18 +260,18 @@ pub fn silk_encode_pulses(
     }
 
     // Shell Encoding
-    for i in 0..iter {
-        if sum_pulses[i] > 0 {
+    for (i, sum_p) in sum_pulses.iter().enumerate().take(iter) {
+        if *sum_p > 0 {
             let base = i * SHELL_CODEC_FRAME_LENGTH;
             silk_shell_encoder(enc, &abs_pulses[base..base + SHELL_CODEC_FRAME_LENGTH]);
         }
     }
 
     // LSB Encoding
-    for i in 0..iter {
-        if n_rshifts[i] > 0 {
+    for (i, n_rs) in n_rshifts.iter().enumerate().take(iter) {
+        if *n_rs > 0 {
             let base = i * SHELL_CODEC_FRAME_LENGTH;
-            let n_ls = n_rshifts[i] - 1;
+            let n_ls = *n_rs - 1;
             for k in 0..SHELL_CODEC_FRAME_LENGTH {
                 let idx = base + k;
                 let abs_q = if idx < pulses.len() {

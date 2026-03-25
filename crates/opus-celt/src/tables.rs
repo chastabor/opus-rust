@@ -1,3 +1,5 @@
+#![allow(clippy::excessive_precision)]
+
 /// Maximum period for pitch analysis.
 pub const MAX_PERIOD: usize = 1024;
 

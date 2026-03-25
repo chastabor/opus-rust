@@ -99,8 +99,8 @@ pub fn silk_gains_dequant(
 /// Compute unique identifier of gain indices vector
 pub fn silk_gains_id(ind: &[i8], nb_subfr: usize) -> i32 {
     let mut gains_id: i32 = 0;
-    for k in 0..nb_subfr {
-        gains_id = silk_add_lshift32(ind[k] as i32, gains_id, 8);
+    for item in ind.iter().take(nb_subfr) {
+        gains_id = silk_add_lshift32(*item as i32, gains_id, 8);
     }
     gains_id
 }

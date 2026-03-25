@@ -229,9 +229,7 @@ pub fn silk_rshift_round(a: i32, shift: i32) -> i32 {
 /// Right shift with rounding for 64-bit
 #[inline(always)]
 pub fn silk_rshift_round64(a: i64, shift: i32) -> i64 {
-    if shift == 0 {
-        a
-    } else if shift <= 0 {
+    if shift <= 0 {
         a
     } else {
         (a.wrapping_add(1i64 << (shift - 1))) >> shift
@@ -349,7 +347,7 @@ fn silk_clz_frac(input: i32) -> (i32, i32) {
     let lzeros = silk_clz32(input);
     // silk_ROR32(in, 24 - lzeros) & 0x7f
     let shift = 24 - lzeros;
-    let rotated = if shift >= 0 && shift < 32 {
+    let rotated = if (0..32).contains(&shift) {
         ((input as u32).wrapping_shr(shift as u32)
             | (input as u32).wrapping_shl((32 - shift) as u32)) as i32
     } else if shift < 0 {
@@ -435,9 +433,9 @@ pub fn silk_sum_sqr_shift(energy: &mut i32, shift: &mut i32, data: &[i16], len: 
     let mut nrg = 0i32;
     let mut shft = 0i32;
 
-    for i in 0..len {
-        let val = data[i] as i32;
-        nrg = nrg.wrapping_add(((val * val) >> shft) as i32);
+    for item in data.iter().take(len) {
+        let val = *item as i32;
+        nrg = nrg.wrapping_add((val * val) >> shft);
         if nrg < 0 {
             // overflow, increase shift
             nrg = ((nrg as u32) >> 2) as i32;
@@ -611,44 +609,35 @@ pub struct ChannelState {
 }
 
 /// Enum for selecting the NLSF codebook (NB/MB vs WB)
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum NlsfCbSel {
+    #[default]
     NbMb,
     Wb,
 }
 
-impl Default for NlsfCbSel {
-    fn default() -> Self {
-        NlsfCbSel::NbMb
-    }
-}
-
 /// Enum for selecting pitch contour iCDF table
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum PitchContourSel {
-    Nb,     // silk_pitch_contour_NB_iCDF
+    #[default]
+    Nb, // silk_pitch_contour_NB_iCDF
     Wb,     // silk_pitch_contour_iCDF
     Nb10ms, // silk_pitch_contour_10_ms_NB_iCDF
     Wb10ms, // silk_pitch_contour_10_ms_iCDF
 }
 
-impl Default for PitchContourSel {
-    fn default() -> Self {
-        PitchContourSel::Nb
-    }
-}
-
 /// Enum for selecting pitch lag low bits iCDF table
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum PitchLagLowBitsSel {
+    #[default]
     Uniform4,
     Uniform6,
     Uniform8,
 }
 
-impl Default for PitchLagLowBitsSel {
+impl Default for ChannelState {
     fn default() -> Self {
-        PitchLagLowBitsSel::Uniform4
+        Self::new()
     }
 }
 

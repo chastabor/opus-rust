@@ -51,6 +51,7 @@ pub fn silk_nlsf2a_flp(a: &mut [f32], nlsf_q15: &[i16], order: usize) {
 /// pred_coef: output [2][MAX_LPC_ORDER] — [0]=first half, [1]=second half
 /// nlsf_q15: I/O — quantized NLSFs
 /// prev_nlsf_q15: previous frame's quantized NLSFs
+#[allow(clippy::too_many_arguments)]
 pub fn silk_process_nlsfs_flp(
     pred_coef: &mut [[f32; MAX_LPC_ORDER]; 2],
     nlsf_q15: &mut [i16],
@@ -121,8 +122,8 @@ pub fn silk_process_nlsfs_flp(
     // Convert quantized NLSFs to LPC Q12 for second half, then to float
     let mut pred_coef_q12 = [0i16; MAX_LPC_ORDER];
     silk_nlsf2a(&mut pred_coef_q12, nlsf_q15, lpc_order);
-    for i in 0..lpc_order {
-        pred_coef[1][i] = pred_coef_q12[i] as f32 * (1.0 / 4096.0);
+    for (i, &coef) in pred_coef_q12.iter().enumerate().take(lpc_order) {
+        pred_coef[1][i] = coef as f32 * (1.0 / 4096.0);
     }
 
     // First half: interpolate or copy
@@ -136,8 +137,8 @@ pub fn silk_process_nlsfs_flp(
         }
         let mut pred_coef0_q12 = [0i16; MAX_LPC_ORDER];
         silk_nlsf2a(&mut pred_coef0_q12, &nlsf0_q15, lpc_order);
-        for i in 0..lpc_order {
-            pred_coef[0][i] = pred_coef0_q12[i] as f32 * (1.0 / 4096.0);
+        for (i, &coef) in pred_coef0_q12.iter().enumerate().take(lpc_order) {
+            pred_coef[0][i] = coef as f32 * (1.0 / 4096.0);
         }
     } else {
         pred_coef[0] = pred_coef[1];
@@ -150,6 +151,7 @@ pub fn silk_process_nlsfs_flp(
 /// then dispatch to either silk_NSQ or silk_NSQ_del_dec.
 ///
 /// This is the bridge between the float analysis pipeline and the fixed-point NSQ.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_nsq_wrapper_flp(
     nsq_state: &mut nsq::NsqState,
     indices: &mut SideInfoIndices,
@@ -316,6 +318,7 @@ pub fn silk_nsq_wrapper_flp(
 // ---- silk_quant_LTP_gains_FLP (wrappers_FLP.c:175-209) ----
 
 /// Quantize LTP gains in float → Q14/Q17 → fixed-point quant → Q14 → float.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_quant_ltp_gains_flp(
     b: &mut [f32],              // O: quantized LTP gains [nb_subfr * LTP_ORDER]
     _ltp_index: &mut [i8],      // O: LTP codebook indices [nb_subfr]

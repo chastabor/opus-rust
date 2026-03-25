@@ -135,8 +135,8 @@ fn silk_lpc_fit(a_q13_out: &mut [i16], a_q24_in: &mut [i32], d: usize) {
     for _iter in 0..10 {
         let mut maxabs = 0i32;
         let mut idx = 0usize;
-        for k in 0..d {
-            let absval = (a_q24_in[k].unsigned_abs().min(i32::MAX as u32)) as i32;
+        for (k, item) in a_q24_in.iter().enumerate().take(d) {
+            let absval = (item.unsigned_abs().min(i32::MAX as u32)) as i32;
             if absval > maxabs {
                 maxabs = absval;
                 idx = k;
@@ -180,8 +180,8 @@ fn autocorrelation_with_scale(
 ) -> i32 {
     // Compute energy (lag 0) to determine shift
     let mut nrg: i64 = 0;
-    for i in 0..input_len {
-        nrg += (input[i] as i64) * (input[i] as i64);
+    for item in input.iter().take(input_len) {
+        nrg += (*item as i64) * (*item as i64);
     }
 
     let shift = if nrg > i32::MAX as i64 {
@@ -214,6 +214,7 @@ fn autocorrelation_with_scale(
 /// This is a faithful port of silk_noise_shape_analysis_FIX, simplified to
 /// use standard (non-warped) autocorrelation. The output parameters feed
 /// directly into silk_nsq.
+#[allow(clippy::too_many_arguments)]
 pub fn silk_noise_shape_analysis(
     input: &[i16],
     pitch_lags: &[i32],
@@ -375,7 +376,7 @@ pub fn silk_noise_shape_analysis(
         let slope_part = ((shape_win_length as usize) - flat_part) / 2;
         // Round slope_part down to multiple of 4 for sine window
         let slope_part = (slope_part / 4) * 4;
-        let slope_part = slope_part.max(16).min(120);
+        let slope_part = slope_part.clamp(16, 120);
 
         let win_len = 2 * slope_part + flat_part;
         let actual_win_len = win_len.min(x_windowed.len());
@@ -404,9 +405,7 @@ pub fn silk_noise_shape_analysis(
         // Flat part (copy)
         let flat_start = rising_len;
         let flat_end = (flat_start + flat_part).min(actual_win_len);
-        for i in flat_start..flat_end {
-            x_windowed[i] = src[i];
-        }
+        x_windowed[flat_start..flat_end].copy_from_slice(&src[flat_start..flat_end]);
 
         // Falling cosine slope
         let falling_start = flat_end;
@@ -447,8 +446,8 @@ pub fn silk_noise_shape_analysis(
         let nrg = silk_schur64(&mut refl_coef_q16, &auto_corr, shaping_order);
 
         // Convert reflection coefficients to prediction coefficients
-        for i in 0..shaping_order {
-            ar_q24[i] = 0;
+        for item in ar_q24.iter_mut().take(shaping_order) {
+            *item = 0;
         }
         silk_k2a_q16(&mut ar_q24, &refl_coef_q16, shaping_order);
 
@@ -465,8 +464,6 @@ pub fn silk_noise_shape_analysis(
         q_nrg >>= 1;
 
         gains_q16[k] = silk_lshift_sat32(tmp32, 16 - q_nrg);
-        if k == 0 {}
-
         // Bandwidth expansion
         bwexpander_32(&mut ar_q24, shaping_order, bw_exp_q16);
 
@@ -496,12 +493,12 @@ pub fn silk_noise_shape_analysis(
 
     // Apply gain_mult (SNR-based reduction) and gain_add (minimum floor).
     // The encoder's process_gains stage will floor these using residual energy.
-    for k in 0..nb_subfr_usize {
-        gains_q16[k] = silk_smulww_correct(gains_q16[k], gain_mult_q16);
-        if gains_q16[k] < 0 {
-            gains_q16[k] = i32::MAX;
+    for item in gains_q16.iter_mut().take(nb_subfr_usize) {
+        *item = silk_smulww_correct(*item, gain_mult_q16);
+        if *item < 0 {
+            *item = i32::MAX;
         }
-        gains_q16[k] = gains_q16[k].saturating_add(gain_add_q16);
+        *item = item.saturating_add(gain_add_q16);
     }
 
     // ========================================================================
@@ -519,7 +516,7 @@ pub fn silk_noise_shape_analysis(
             LOW_QUALITY_LOW_FREQ_SHAPING_DECR_Q13,
             input_quality_band0_q15 - (1i32 << 15),
         ); // Q(4+12) = Q16
-    let lf_strength_q16 = (lf_strength_q16 as i64 * speech_activity_q8 as i64 >> 8) as i32;
+    let lf_strength_q16 = ((lf_strength_q16 as i64 * speech_activity_q8 as i64) >> 8) as i32;
 
     if is_voiced {
         // For voiced: LF shaping depends on pitch lag per subframe
@@ -553,8 +550,8 @@ pub fn silk_noise_shape_analysis(
             & 0xFFFF;
         let lf_ar = (b_q14 - (1i32 << 14)) as u16;
         let packed = (lf_ma << 16) | (lf_ar as i32);
-        for k in 0..nb_subfr_usize {
-            lf_shp_q14[k] = packed;
+        for item in lf_shp_q14.iter_mut().take(nb_subfr_usize) {
+            *item = packed;
         }
 
         // Tilt for unvoiced: just HP noise coefficient

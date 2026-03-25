@@ -221,37 +221,35 @@ pub fn silk_plc_glue_frames(ps_dec: &mut ChannelState, frame: &mut [i16], length
         ps_dec.s_plc.conc_energy = energy;
         ps_dec.s_plc.conc_energy_shift = shift;
         ps_dec.s_plc.last_frame_lost = true;
-    } else {
-        if ps_dec.s_plc.last_frame_lost {
-            let mut energy = 0i32;
-            let mut energy_shift = 0i32;
-            silk_sum_sqr_shift(&mut energy, &mut energy_shift, &frame[..length], length);
+    } else if ps_dec.s_plc.last_frame_lost {
+        let mut energy = 0i32;
+        let mut energy_shift = 0i32;
+        silk_sum_sqr_shift(&mut energy, &mut energy_shift, &frame[..length], length);
 
-            let mut conc_energy = ps_dec.s_plc.conc_energy;
-            let conc_shift = ps_dec.s_plc.conc_energy_shift;
+        let mut conc_energy = ps_dec.s_plc.conc_energy;
+        let conc_shift = ps_dec.s_plc.conc_energy_shift;
 
-            if energy_shift > conc_shift {
-                conc_energy >>= energy_shift - conc_shift;
-            } else if energy_shift < conc_shift {
-                energy >>= conc_shift - energy_shift;
-            }
+        if energy_shift > conc_shift {
+            conc_energy >>= energy_shift - conc_shift;
+        } else if energy_shift < conc_shift {
+            energy >>= conc_shift - energy_shift;
+        }
 
-            if energy > conc_energy {
-                let lz = silk_clz32(conc_energy) - 1;
-                let lz = lz.max(0);
-                conc_energy <<= lz;
-                energy >>= (24 - lz).max(0);
+        if energy > conc_energy {
+            let lz = silk_clz32(conc_energy) - 1;
+            let lz = lz.max(0);
+            conc_energy <<= lz;
+            energy >>= (24 - lz).max(0);
 
-                let frac_q24 = silk_div32(conc_energy, energy.max(1));
-                let mut gain_q16 = silk_sqrt_approx(frac_q24) << 4;
-                let slope_q16 = silk_div32((1 << 16) - gain_q16, length as i32).max(0) << 2;
+            let frac_q24 = silk_div32(conc_energy, energy.max(1));
+            let mut gain_q16 = silk_sqrt_approx(frac_q24) << 4;
+            let slope_q16 = silk_div32((1 << 16) - gain_q16, length as i32).max(0) << 2;
 
-                for i in 0..length {
-                    frame[i] = silk_smulwb(gain_q16, frame[i] as i32) as i16;
-                    gain_q16 += slope_q16;
-                    if gain_q16 > (1 << 16) {
-                        break;
-                    }
+            for item in frame.iter_mut().take(length) {
+                *item = silk_smulwb(gain_q16, *item as i32) as i16;
+                gain_q16 += slope_q16;
+                if gain_q16 > (1 << 16) {
+                    break;
                 }
             }
         }
