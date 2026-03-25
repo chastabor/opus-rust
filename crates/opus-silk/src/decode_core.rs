@@ -10,7 +10,10 @@ pub fn silk_decode_core(
     xq: &mut [i16],
     pulses: &[i16],
 ) {
-    assert!(ps_dec.prev_gain_q16 != 0);
+    // Guard against division by zero from malformed bitstream (C reference uses silk_assert)
+    if ps_dec.prev_gain_q16 == 0 {
+        ps_dec.prev_gain_q16 = 1;
+    }
 
     let frame_length = ps_dec.frame_length as usize;
     let subfr_length = ps_dec.subfr_length as usize;

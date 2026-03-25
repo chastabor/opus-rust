@@ -227,7 +227,8 @@ impl OpusMSDecoder {
                     return Err(OpusError::InternalError);
                 }
                 let is_not_last = s != self.layout.nb_streams - 1;
-                let stream_data = &data.unwrap()[offset..offset + remaining];
+                // Safety: do_plc is false here, meaning data is Some (checked on line 198)
+                let stream_data = &data.expect("data guaranteed Some by do_plc check")[offset..offset + remaining];
 
                 // Parse to get packet_offset
                 let parsed = if is_not_last {

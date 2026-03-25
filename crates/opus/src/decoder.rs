@@ -422,7 +422,8 @@ impl OpusDecoder {
             return Ok(pcm_count);
         }
 
-        let data = data.unwrap();
+        // Safety: is_plc returns early above when data is None
+        let data = data.expect("data guaranteed Some by is_plc check");
 
         let packet_mode = opus_packet_get_mode(data);
         let packet_bandwidth = opus_packet_get_bandwidth(data);
