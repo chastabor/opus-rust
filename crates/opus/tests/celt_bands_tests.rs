@@ -74,3 +74,56 @@ fn normalise_denormalise_roundtrip() {
     c_denormalise_bands(&c_norm, &mut c_freq, &band_log_e, 0, eff_end, mm, 1, false);
     assert_f32_slice_close(&rust_freq, &c_freq, 1e-2, "denormalise_bands");
 }
+
+// ── anti_collapse ──
+
+#[test]
+fn anti_collapse_with_collapsed_bands() {
+    let m = CeltMode::get_mode();
+    let lm = 0i32;
+    let mm = 1usize << lm;
+    let c = 1;
+    let start = 0;
+    let end = m.nb_ebands;
+    let size = mm * m.short_mdct_size;
+
+    // Create spectral coefficients — some bands zeroed to trigger anti-collapse
+    let mut rust_x = gen_noise(size * c, 42);
+    // Zero out bands 5..10 to simulate collapsed bands
+    for i in 5..10 {
+        let band_start = mm * m.ebands[i] as usize;
+        let band_end = mm * m.ebands[i + 1] as usize;
+        for j in band_start..band_end {
+            rust_x[j] = 0.0;
+        }
+    }
+    let mut c_x = rust_x.clone();
+
+    // Collapse masks: 0 = collapsed, 1 = not collapsed
+    let mut rust_masks = vec![1u8; end * c];
+    for i in 5..10 {
+        rust_masks[i] = 0; // these bands collapsed
+    }
+    let mut c_masks = rust_masks.clone();
+
+    // Pulses: 0 for collapsed bands
+    let mut pulses = vec![8i32; end];
+    for i in 5..10 {
+        pulses[i] = 0;
+    }
+
+    // Band energies (current + two previous frames)
+    // Anti-collapse always accesses [nb_ebands + i] even for mono, so allocate for 2 channels
+    let log_e = gen_noise(end * 2, 77);
+    let prev1 = gen_noise(end * 2, 88);
+    let prev2 = gen_noise(end * 2, 99);
+
+    let seed = 12345u32;
+
+    bands::anti_collapse(m, &mut rust_x, &rust_masks, lm, c, size, start, end,
+                         &log_e, &prev1, &prev2, &pulses, seed);
+    c_anti_collapse(&mut c_x, &mut c_masks, lm, c, size, start, end,
+                    &log_e, &prev1, &prev2, &pulses, seed, false);
+
+    assert_f32_slice_close(&rust_x, &c_x, 1e-4, "anti_collapse");
+}

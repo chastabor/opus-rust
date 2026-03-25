@@ -176,3 +176,53 @@ fn fine_energy_c_encode_rust_decode() {
 
     assert_f32_slice_close(&rust_decoded, &c_decoded, 1e-4, "fine_decode(mono)");
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Energy finalise: C-encode → compare C-decode vs Rust-decode
+// ══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn energy_finalise_c_encode_rust_decode() {
+    let m = CeltMode::get_mode();
+    let start = 0;
+    let end = NB_EBANDS;
+    let c = 1;
+
+    // Simulate post-fine-quant state
+    let initial_old = gen_band_energies(42, NB_EBANDS, c);
+    let mut c_old = initial_old.clone();
+    let mut c_error: Vec<f32> = (0..NB_EBANDS * c)
+        .map(|i| ((i as f32 * 0.17).sin()) * 0.2)
+        .collect();
+
+    // fine_quant and fine_priority from a hypothetical bit allocation
+    let fine_quant: Vec<i32> = (0..NB_EBANDS).map(|i| (i % 4 + 1) as i32).collect();
+    let fine_priority: Vec<i32> = (0..NB_EBANDS).map(|i| (i % 2) as i32).collect();
+    let bits_left = 16; // spare bits to distribute
+
+    // C encode energy finalise
+    let mut ec_buf = vec![0u8; 256];
+    let ec_bytes = c_encode_energy_finalise(
+        start, end, &mut c_old, &mut c_error,
+        &fine_quant, &fine_priority, bits_left,
+        &mut ec_buf, c,
+    );
+
+    // C decode
+    let mut c_decoded = initial_old.clone();
+    c_decode_energy_finalise(
+        start, end, &mut c_decoded,
+        &fine_quant, &fine_priority, bits_left,
+        &ec_buf[..ec_bytes], c,
+    );
+
+    // Rust decode from same bytes
+    let mut rust_decoded = initial_old.clone();
+    let mut dec = EcCtx::dec_init(&ec_buf[..ec_bytes]);
+    quant_energy::unquant_energy_finalise(
+        m, start, end, Some(&mut rust_decoded),
+        &fine_quant, &fine_priority, bits_left, &mut dec, c,
+    );
+
+    assert_f32_slice_close(&rust_decoded, &c_decoded, 1e-4, "energy_finalise_decode(mono)");
+}

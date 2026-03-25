@@ -803,6 +803,47 @@ unsafe extern "C" {
         ec_buf: *const u8, ec_bytes: i32,
         c: i32,
     );
+
+    fn wrap_encode_energy_finalise(
+        start: i32, end: i32,
+        old_band_e: *mut f32, error: *mut f32,
+        fine_quant: *const i32, fine_priority: *const i32,
+        bits_left: i32,
+        ec_buf: *mut u8, ec_buf_size: i32,
+        c: i32,
+    ) -> i32;
+
+    fn wrap_decode_energy_finalise(
+        start: i32, end: i32,
+        old_band_e: *mut f32,
+        fine_quant: *const i32, fine_priority: *const i32,
+        bits_left: i32,
+        ec_buf: *const u8, ec_bytes: i32,
+        c: i32,
+    );
+
+    fn wrap_anti_collapse(
+        x: *mut f32, collapse_masks: *mut u8,
+        lm: i32, c: i32, size: i32, start: i32, end: i32,
+        log_e: *const f32, prev1_log_e: *const f32, prev2_log_e: *const f32,
+        pulses: *const i32, seed: u32, encode: i32,
+    );
+
+    // Persistent-state wrappers for fair benchmarking
+    fn wrap_fft_bench_init(nfft: i32);
+    fn wrap_fft_bench_run(
+        fin_r: *const f32, fin_i: *const f32,
+        fout_r: *mut f32, fout_i: *mut f32,
+    );
+    fn wrap_mdct_bench_init(n: i32);
+    fn wrap_mdct_bench_forward(
+        input: *mut f32, output: *mut f32,
+        overlap: i32, shift: i32, stride: i32,
+    );
+    fn wrap_mdct_bench_backward(
+        input: *mut f32, output: *mut f32,
+        overlap: i32, shift: i32, stride: i32,
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1101,5 +1142,97 @@ pub fn c_decode_fine_energy(
             ec_buf.as_ptr(), ec_buf.len() as i32,
             c as i32,
         )
+    }
+}
+
+/// Encode energy finalise with C reference. Returns number of encoded bytes.
+pub fn c_encode_energy_finalise(
+    start: usize, end: usize,
+    old_band_e: &mut [f32], error: &mut [f32],
+    fine_quant: &[i32], fine_priority: &[i32],
+    bits_left: i32,
+    ec_buf: &mut [u8],
+    c: usize,
+) -> usize {
+    unsafe {
+        wrap_encode_energy_finalise(
+            start as i32, end as i32,
+            old_band_e.as_mut_ptr(), error.as_mut_ptr(),
+            fine_quant.as_ptr(), fine_priority.as_ptr(),
+            bits_left,
+            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
+            c as i32,
+        ) as usize
+    }
+}
+
+/// Decode energy finalise with C reference.
+pub fn c_decode_energy_finalise(
+    start: usize, end: usize,
+    old_band_e: &mut [f32],
+    fine_quant: &[i32], fine_priority: &[i32],
+    bits_left: i32,
+    ec_buf: &[u8],
+    c: usize,
+) {
+    unsafe {
+        wrap_decode_energy_finalise(
+            start as i32, end as i32,
+            old_band_e.as_mut_ptr(),
+            fine_quant.as_ptr(), fine_priority.as_ptr(),
+            bits_left,
+            ec_buf.as_ptr(), ec_buf.len() as i32,
+            c as i32,
+        )
+    }
+}
+
+/// Anti-collapse with C reference.
+pub fn c_anti_collapse(
+    x: &mut [f32], collapse_masks: &mut [u8],
+    lm: i32, c: usize, size: usize, start: usize, end: usize,
+    log_e: &[f32], prev1_log_e: &[f32], prev2_log_e: &[f32],
+    pulses: &[i32], seed: u32, encode: bool,
+) {
+    unsafe {
+        wrap_anti_collapse(
+            x.as_mut_ptr(), collapse_masks.as_mut_ptr(),
+            lm, c as i32, size as i32, start as i32, end as i32,
+            log_e.as_ptr(), prev1_log_e.as_ptr(), prev2_log_e.as_ptr(),
+            pulses.as_ptr(), seed, encode as i32,
+        )
+    }
+}
+
+// ── Persistent-state wrappers for fair benchmarking ──
+
+/// Initialize C FFT state for benchmarking (call once before bench loop).
+pub fn c_fft_bench_init(nfft: usize) {
+    unsafe { wrap_fft_bench_init(nfft as i32) }
+}
+
+/// Run C FFT using pre-initialized state (no per-call allocation).
+pub fn c_fft_bench_run(fin_r: &[f32], fin_i: &[f32], fout_r: &mut [f32], fout_i: &mut [f32]) {
+    unsafe {
+        wrap_fft_bench_run(fin_r.as_ptr(), fin_i.as_ptr(), fout_r.as_mut_ptr(), fout_i.as_mut_ptr())
+    }
+}
+
+/// Initialize C MDCT state for benchmarking (call once before bench loop).
+pub fn c_mdct_bench_init(n: usize) {
+    unsafe { wrap_mdct_bench_init(n as i32) }
+}
+
+/// Run C MDCT forward using pre-initialized state.
+pub fn c_mdct_bench_forward(input: &mut [f32], output: &mut [f32], overlap: usize, shift: usize, stride: usize) {
+    unsafe {
+        wrap_mdct_bench_forward(input.as_mut_ptr(), output.as_mut_ptr(), overlap as i32, shift as i32, stride as i32)
+    }
+}
+
+/// Run C MDCT backward using pre-initialized state.
+pub fn c_mdct_bench_backward(input: &mut [f32], output: &mut [f32], overlap: usize, shift: usize, stride: usize) {
+    unsafe {
+        wrap_mdct_bench_backward(input.as_mut_ptr(), output.as_mut_ptr(), overlap as i32, shift as i32, stride as i32)
     }
 }

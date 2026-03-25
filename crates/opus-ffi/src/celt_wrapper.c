@@ -105,8 +105,62 @@ void wrap_opus_fft(int nfft,
     opus_fft_free(st, 0);
 }
 
+/* ── Persistent-state FFT for benchmarking (no per-call alloc) ── */
+
+static kiss_fft_state *bench_fft_st = NULL;
+static int bench_fft_nfft = 0;
+static kiss_fft_cpx *bench_fft_in = NULL;
+static kiss_fft_cpx *bench_fft_out = NULL;
+
+void wrap_fft_bench_init(int nfft) {
+    if (bench_fft_st) { opus_fft_free(bench_fft_st, 0); free(bench_fft_in); free(bench_fft_out); }
+    bench_fft_st = opus_fft_alloc(nfft, NULL, NULL, 0);
+    bench_fft_in = (kiss_fft_cpx*)malloc((size_t)nfft * sizeof(kiss_fft_cpx));
+    bench_fft_out = (kiss_fft_cpx*)malloc((size_t)nfft * sizeof(kiss_fft_cpx));
+    bench_fft_nfft = nfft;
+}
+
+void wrap_fft_bench_run(const float *fin_r, const float *fin_i,
+                        float *fout_r, float *fout_i) {
+    int i;
+    for (i = 0; i < bench_fft_nfft; i++) {
+        bench_fft_in[i].r = fin_r[i];
+        bench_fft_in[i].i = fin_i[i];
+    }
+    opus_fft_c(bench_fft_st, bench_fft_in, bench_fft_out);
+    for (i = 0; i < bench_fft_nfft; i++) {
+        fout_r[i] = bench_fft_out[i].r;
+        fout_i[i] = bench_fft_out[i].i;
+    }
+}
+
+/* ── Persistent-state MDCT for benchmarking ── */
+
+static mdct_lookup bench_mdct_l;
+static int bench_mdct_inited = 0;
+
+void wrap_mdct_bench_init(int N) {
+    if (bench_mdct_inited) clt_mdct_clear(&bench_mdct_l, 0);
+    clt_mdct_init(&bench_mdct_l, N, 3, 0);
+    bench_mdct_inited = 1;
+}
+
+void wrap_mdct_bench_forward(float *input, float *output,
+                             int overlap, int shift, int stride) {
+    CELTMode *mode = get_celt_mode_48000();
+    clt_mdct_forward_c(&bench_mdct_l, input, output,
+                       mode->window, overlap, shift, stride, 0);
+}
+
+void wrap_mdct_bench_backward(float *input, float *output,
+                              int overlap, int shift, int stride) {
+    CELTMode *mode = get_celt_mode_48000();
+    clt_mdct_backward_c(&bench_mdct_l, input, output,
+                        mode->window, overlap, shift, stride, 0);
+}
+
 /* ══════════════════════════════════════════════════════════════════════
- * MDCT wrappers
+ * MDCT wrappers (per-call, for tests)
  * ══════════════════════════════════════════════════════════════════════ */
 
 void wrap_clt_mdct_forward(float *input, float *output,
@@ -260,4 +314,54 @@ void wrap_decode_fine_energy(
     int extra_quant[25] = {0};
     unquant_fine_energy(mode, start, end, oldEBands,
                         (int *)fine_quant, extra_quant, &dec, C);
+}
+
+int wrap_encode_energy_finalise(
+    int start, int end,
+    float *oldEBands, float *error,
+    const int *fine_quant, const int *fine_priority,
+    int bits_left,
+    unsigned char *ec_buf, int ec_buf_size,
+    int C)
+{
+    ec_enc enc;
+    ec_enc_init(&enc, ec_buf, (opus_uint32)ec_buf_size);
+    CELTMode *mode = get_celt_mode_48000();
+    quant_energy_finalise(mode, start, end, oldEBands, error,
+                          (int *)fine_quant, (int *)fine_priority,
+                          bits_left, &enc, C);
+    ec_enc_done(&enc);
+    return ec_range_bytes(&enc);
+}
+
+void wrap_decode_energy_finalise(
+    int start, int end,
+    float *oldEBands,
+    const int *fine_quant, const int *fine_priority,
+    int bits_left,
+    const unsigned char *ec_buf, int ec_bytes,
+    int C)
+{
+    ec_dec dec;
+    ec_dec_init(&dec, (unsigned char *)ec_buf, (opus_uint32)ec_bytes);
+    CELTMode *mode = get_celt_mode_48000();
+    unquant_energy_finalise(mode, start, end, oldEBands,
+                            (int *)fine_quant, (int *)fine_priority,
+                            bits_left, &dec, C);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Anti-collapse wrapper (CELTMode-dependent)
+ * ══════════════════════════════════════════════════════════════════════ */
+
+void wrap_anti_collapse(
+    float *X, unsigned char *collapse_masks,
+    int LM, int C, int size, int start, int end,
+    const float *logE, const float *prev1logE, const float *prev2logE,
+    const int *pulses, unsigned int seed, int encode)
+{
+    anti_collapse(get_celt_mode_48000(), X, collapse_masks,
+                  LM, C, size, start, end,
+                  logE, prev1logE, prev2logE,
+                  pulses, seed, encode, 0);
 }

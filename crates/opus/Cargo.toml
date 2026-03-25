@@ -20,3 +20,7 @@ harness = false
 [[bench]]
 name = "c_reference"
 harness = false
+
+[[bench]]
+name = "celt_internal"
+harness = false
