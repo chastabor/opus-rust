@@ -673,3 +673,323 @@ pub fn c_silk_residual_energy_flp(
         );
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// CELT low-level FFI declarations
+// ══════════════════════════════════════════════════════════════════════
+
+unsafe extern "C" {
+    // ── Group A: Direct extern (symbols in libopus.a) ──
+
+    fn isqrt32(val: u32) -> u32;
+    fn bitexact_cos(x: i16) -> i16;
+    fn bitexact_log2tan(isin: i32, icos: i32) -> i32;
+    fn celt_lcg_rand(seed: u32) -> u32;
+
+    #[link_name = "_celt_lpc"]
+    fn c_celt_lpc_raw(lpc: *mut f32, ac: *const f32, p: i32);
+
+    fn celt_fir_c(
+        x: *const f32, num: *const f32, y: *mut f32,
+        n: i32, ord: i32, arch: i32,
+    );
+
+    fn celt_iir(
+        x: *const f32, den: *const f32, y: *mut f32,
+        n: i32, ord: i32, mem: *mut f32, arch: i32,
+    );
+
+    #[link_name = "_celt_autocorr"]
+    fn c_celt_autocorr_raw(
+        x: *const f32, ac: *mut f32, window: *const f32,
+        overlap: i32, lag: i32, n: i32, arch: i32,
+    ) -> i32;
+
+    fn celt_pitch_xcorr_c(
+        x: *const f32, y: *const f32, xcorr: *mut f32,
+        len: i32, max_pitch: i32, arch: i32,
+    );
+
+    fn renormalise_vector(x: *mut f32, n: i32, gain: f32, arch: i32);
+
+    // ── Group B: Via celt_wrapper.c shims ──
+
+    // Math (static inline in C headers)
+    fn wrap_celt_exp2(x: f32) -> f32;
+    fn wrap_celt_log2(x: f32) -> f32;
+    fn wrap_celt_inner_prod(x: *const f32, y: *const f32, n: i32) -> f32;
+    fn wrap_celt_maxabs16(x: *const f32, len: i32) -> f32;
+    fn wrap_celt_rcp(x: f32) -> f32;
+    fn wrap_frac_mul16(a: i32, b: i32) -> i32;
+
+    // FFT (requires kiss_fft_state*)
+    fn wrap_opus_fft(
+        nfft: i32,
+        fin_r: *const f32, fin_i: *const f32,
+        fout_r: *mut f32, fout_i: *mut f32,
+    );
+
+    // MDCT (requires mdct_lookup*)
+    fn wrap_clt_mdct_forward(
+        input: *mut f32, output: *mut f32,
+        n: i32, overlap: i32, shift: i32, stride: i32,
+    );
+    fn wrap_clt_mdct_backward(
+        input: *mut f32, output: *mut f32,
+        n: i32, overlap: i32, shift: i32, stride: i32,
+    );
+
+    // Pitch (array-of-pointers or arch param)
+    fn wrap_pitch_downsample_mono(x: *mut f32, x_lp: *mut f32, len: i32);
+    fn wrap_pitch_search(
+        x_lp: *const f32, y: *mut f32,
+        len: i32, max_pitch: i32, pitch: *mut i32,
+    );
+    fn wrap_remove_doubling(
+        x: *mut f32, maxperiod: i32, minperiod: i32,
+        n: i32, t0: *mut i32, prev_period: i32, prev_gain: f32,
+    ) -> f32;
+    fn wrap_comb_filter(
+        y: *mut f32, x: *mut f32, t0: i32, t1: i32, n: i32,
+        g0: f32, g1: f32, tapset0: i32, tapset1: i32, overlap: i32,
+    );
+
+    // Band processing (CELTMode-dependent)
+    fn wrap_compute_band_energies(
+        x: *const f32, band_e: *mut f32, end: i32, c: i32, lm: i32,
+    );
+    fn wrap_normalise_bands(
+        freq: *const f32, x: *mut f32, band_e: *const f32,
+        end: i32, c: i32, m: i32,
+    );
+    fn wrap_denormalise_bands(
+        x: *const f32, freq: *mut f32, band_log_e: *const f32,
+        start: i32, end: i32, m: i32, downsample: i32, silence: i32,
+    );
+
+    // Rate allocation (CELTMode-dependent)
+    fn wrap_bits2pulses(band: i32, lm: i32, bits: i32) -> i32;
+    fn wrap_pulses2bits(band: i32, lm: i32, pulses: i32) -> i32;
+    fn wrap_init_caps(cap: *mut i32, lm: i32, c: i32);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// CELT safe wrappers
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Integer math (exact match expected) ──
+
+pub fn c_isqrt32(val: u32) -> u32 {
+    unsafe { isqrt32(val) }
+}
+
+pub fn c_bitexact_cos(x: i16) -> i16 {
+    unsafe { bitexact_cos(x) }
+}
+
+pub fn c_bitexact_log2tan(isin: i32, icos: i32) -> i32 {
+    unsafe { bitexact_log2tan(isin, icos) }
+}
+
+pub fn c_celt_lcg_rand(seed: u32) -> u32 {
+    unsafe { celt_lcg_rand(seed) }
+}
+
+pub fn c_frac_mul16(a: i32, b: i32) -> i32 {
+    unsafe { wrap_frac_mul16(a, b) }
+}
+
+// ── Float math ──
+
+pub fn c_celt_exp2(x: f32) -> f32 {
+    unsafe { wrap_celt_exp2(x) }
+}
+
+pub fn c_celt_log2(x: f32) -> f32 {
+    unsafe { wrap_celt_log2(x) }
+}
+
+pub fn c_celt_inner_prod(x: &[f32], y: &[f32]) -> f32 {
+    let n = x.len().min(y.len());
+    unsafe { wrap_celt_inner_prod(x.as_ptr(), y.as_ptr(), n as i32) }
+}
+
+pub fn c_celt_maxabs16(x: &[f32]) -> f32 {
+    unsafe { wrap_celt_maxabs16(x.as_ptr(), x.len() as i32) }
+}
+
+pub fn c_celt_rcp(x: f32) -> f32 {
+    unsafe { wrap_celt_rcp(x) }
+}
+
+pub fn c_renormalise_vector(x: &mut [f32], gain: f32) {
+    unsafe { renormalise_vector(x.as_mut_ptr(), x.len() as i32, gain, 0) }
+}
+
+// ── LPC ──
+
+pub fn c_celt_lpc(lpc: &mut [f32], ac: &[f32], p: usize) {
+    assert!(lpc.len() >= p && ac.len() >= p + 1);
+    unsafe { c_celt_lpc_raw(lpc.as_mut_ptr(), ac.as_ptr(), p as i32) }
+}
+
+pub fn c_celt_fir(x: &[f32], num: &[f32], y: &mut [f32], n: usize, ord: usize) {
+    assert!(x.len() >= n && num.len() >= ord && y.len() >= n);
+    unsafe { celt_fir_c(x.as_ptr(), num.as_ptr(), y.as_mut_ptr(), n as i32, ord as i32, 0) }
+}
+
+pub fn c_celt_iir(x: &[f32], den: &[f32], y: &mut [f32], n: usize, ord: usize, mem: &mut [f32]) {
+    assert!(x.len() >= n && den.len() >= ord && y.len() >= n && mem.len() >= ord);
+    unsafe {
+        celt_iir(
+            x.as_ptr(), den.as_ptr(), y.as_mut_ptr(),
+            n as i32, ord as i32, mem.as_mut_ptr(), 0,
+        )
+    }
+}
+
+pub fn c_celt_autocorr(
+    x: &[f32], ac: &mut [f32], window: Option<&[f32]>,
+    overlap: usize, lag: usize, n: usize,
+) -> i32 {
+    let win_ptr = match window {
+        Some(w) => w.as_ptr(),
+        None => ptr::null(),
+    };
+    unsafe {
+        c_celt_autocorr_raw(
+            x.as_ptr(), ac.as_mut_ptr(), win_ptr,
+            overlap as i32, lag as i32, n as i32, 0,
+        )
+    }
+}
+
+// ── Pitch ──
+
+pub fn c_celt_pitch_xcorr(x: &[f32], y: &[f32], xcorr: &mut [f32], len: usize, max_pitch: usize) {
+    unsafe {
+        celt_pitch_xcorr_c(
+            x.as_ptr(), y.as_ptr(), xcorr.as_mut_ptr(),
+            len as i32, max_pitch as i32, 0,
+        )
+    }
+}
+
+pub fn c_pitch_downsample_mono(x: &mut [f32], x_lp: &mut [f32], len: usize) {
+    unsafe { wrap_pitch_downsample_mono(x.as_mut_ptr(), x_lp.as_mut_ptr(), len as i32) }
+}
+
+pub fn c_pitch_search(x_lp: &[f32], y: &mut [f32], len: usize, max_pitch: usize) -> i32 {
+    let mut pitch = 0i32;
+    unsafe {
+        wrap_pitch_search(
+            x_lp.as_ptr(), y.as_mut_ptr(),
+            len as i32, max_pitch as i32, &mut pitch,
+        );
+    }
+    pitch
+}
+
+pub fn c_remove_doubling(
+    x: &mut [f32], maxperiod: usize, minperiod: usize,
+    n: usize, t0: &mut i32, prev_period: i32, prev_gain: f32,
+) -> f32 {
+    unsafe {
+        wrap_remove_doubling(
+            x.as_mut_ptr(), maxperiod as i32, minperiod as i32,
+            n as i32, t0, prev_period, prev_gain,
+        )
+    }
+}
+
+pub fn c_comb_filter(
+    y: &mut [f32], x: &mut [f32], t0: i32, t1: i32, n: usize,
+    g0: f32, g1: f32, tapset0: i32, tapset1: i32, overlap: usize,
+) {
+    unsafe {
+        wrap_comb_filter(
+            y.as_mut_ptr(), x.as_mut_ptr(), t0, t1, n as i32,
+            g0, g1, tapset0, tapset1, overlap as i32,
+        )
+    }
+}
+
+// ── FFT ──
+
+pub fn c_opus_fft(nfft: usize, fin_r: &[f32], fin_i: &[f32], fout_r: &mut [f32], fout_i: &mut [f32]) {
+    assert!(fin_r.len() >= nfft && fin_i.len() >= nfft);
+    assert!(fout_r.len() >= nfft && fout_i.len() >= nfft);
+    unsafe {
+        wrap_opus_fft(
+            nfft as i32,
+            fin_r.as_ptr(), fin_i.as_ptr(),
+            fout_r.as_mut_ptr(), fout_i.as_mut_ptr(),
+        )
+    }
+}
+
+// ── MDCT ──
+
+pub fn c_clt_mdct_forward(
+    input: &mut [f32], output: &mut [f32],
+    n: usize, overlap: usize, shift: usize, stride: usize,
+) {
+    unsafe {
+        wrap_clt_mdct_forward(
+            input.as_mut_ptr(), output.as_mut_ptr(),
+            n as i32, overlap as i32, shift as i32, stride as i32,
+        )
+    }
+}
+
+pub fn c_clt_mdct_backward(
+    input: &mut [f32], output: &mut [f32],
+    n: usize, overlap: usize, shift: usize, stride: usize,
+) {
+    unsafe {
+        wrap_clt_mdct_backward(
+            input.as_mut_ptr(), output.as_mut_ptr(),
+            n as i32, overlap as i32, shift as i32, stride as i32,
+        )
+    }
+}
+
+// ── Band processing ──
+
+pub fn c_compute_band_energies(x: &[f32], band_e: &mut [f32], end: usize, c: usize, lm: usize) {
+    unsafe {
+        wrap_compute_band_energies(x.as_ptr(), band_e.as_mut_ptr(), end as i32, c as i32, lm as i32)
+    }
+}
+
+pub fn c_normalise_bands(freq: &[f32], x: &mut [f32], band_e: &[f32], end: usize, c: usize, m: usize) {
+    unsafe {
+        wrap_normalise_bands(freq.as_ptr(), x.as_mut_ptr(), band_e.as_ptr(), end as i32, c as i32, m as i32)
+    }
+}
+
+pub fn c_denormalise_bands(
+    x: &[f32], freq: &mut [f32], band_log_e: &[f32],
+    start: usize, end: usize, m: usize, downsample: usize, silence: bool,
+) {
+    unsafe {
+        wrap_denormalise_bands(
+            x.as_ptr(), freq.as_mut_ptr(), band_log_e.as_ptr(),
+            start as i32, end as i32, m as i32, downsample as i32, silence as i32,
+        )
+    }
+}
+
+// ── Rate allocation ──
+
+pub fn c_bits2pulses(band: usize, lm: usize, bits: i32) -> i32 {
+    unsafe { wrap_bits2pulses(band as i32, lm as i32, bits) }
+}
+
+pub fn c_pulses2bits(band: usize, lm: usize, pulses: i32) -> i32 {
+    unsafe { wrap_pulses2bits(band as i32, lm as i32, pulses) }
+}
+
+pub fn c_init_caps(cap: &mut [i32], lm: usize, c: usize) {
+    unsafe { wrap_init_caps(cap.as_mut_ptr(), lm as i32, c as i32) }
+}

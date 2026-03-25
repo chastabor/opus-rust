@@ -1,4 +1,5 @@
 /// Compute LPC coefficients from autocorrelation using Levinson-Durbin.
+/// Float path: SHR32/SHL32/MULT32_32_Q31/frac_div32 are all identity in float mode.
 pub fn celt_lpc(lpc: &mut [f32], ac: &[f32], p: usize) {
     for i in 0..p {
         lpc[i] = 0.0;
@@ -12,17 +13,17 @@ pub fn celt_lpc(lpc: &mut [f32], ac: &[f32], p: usize) {
         for j in 0..i {
             rr += lpc[j] * ac[i - j];
         }
-        rr += ac[i + 1] / 64.0;
-        let r = -rr * 64.0 / error;
-        lpc[i] = r / 64.0;
+        rr += ac[i + 1];
+        let r = -(rr / error);
+        lpc[i] = r;
         let half = (i + 1) >> 1;
         for j in 0..half {
             let tmp1 = lpc[j];
             let tmp2 = lpc[i - 1 - j];
-            lpc[j] = tmp1 + r * tmp2 / (64.0 * 64.0);
-            lpc[i - 1 - j] = tmp2 + r * tmp1 / (64.0 * 64.0);
+            lpc[j] = tmp1 + r * tmp2;
+            lpc[i - 1 - j] = tmp2 + r * tmp1;
         }
-        error = error - r * r * error / (64.0 * 64.0);
+        error -= r * r * error;
         if error <= 0.001 * ac[0] {
             break;
         }

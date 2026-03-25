@@ -61,9 +61,10 @@ pub fn bitexact_log2tan(isin: i32, icos: i32) -> i32 {
 }
 
 /// FRAC_MUL16: (a * b) >> 15 with rounding.
+/// Matches C: ((16384 + (opus_int32)(opus_int16)(a) * (opus_int16)(b)) >> 15)
 #[inline]
 pub fn frac_mul16(a: i32, b: i32) -> i32 {
-    ((a as i64 * b as i64) >> 15) as i32
+    (16384 + (a as i16 as i32) * (b as i16 as i32)) >> 15
 }
 
 /// Integer log2 (number of bits needed to represent val).
