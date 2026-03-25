@@ -28,6 +28,9 @@ pub mod signal_processing;
 pub mod stereo_encode;
 pub mod vad;
 
+// New float encoder components (C float path port)
+pub mod encoder_flp;
+
 // Re-export the main decoder
 pub use decoder::{SilkDecoder, SilkDecControl};
 

@@ -90,8 +90,17 @@ pub struct OpusEncoder {
     packet_loss_perc: i32,
     /// Final range coder state for testing/verification.
     pub range_final: u32,
-    /// Whether SILK prefill has been done (warms up NSQ state before first real frame).
-    silk_prefilled: bool,
+    /// HP filter biquad state (C: hp_mem[4], 2 per channel).
+    hp_mem: [i32; 4],
+    /// Variable HP cutoff smoothing state (C: variable_HP_smth2_Q15).
+    variable_hp_smth2_q15: i32,
+    /// Delay buffer for look-ahead (C: st->delay_buffer, size encoder_buffer*channels).
+    /// Stores the last encoder_buffer samples for providing delay_compensation look-ahead.
+    delay_buffer: Vec<i16>,
+    /// Size of delay buffer in samples per channel (C: st->encoder_buffer = Fs/100 = 10ms).
+    encoder_buffer: usize,
+    /// Delay compensation in samples (C: st->delay_compensation = Fs/250 = 4ms).
+    delay_compensation: usize,
 }
 
 impl OpusEncoder {
@@ -147,11 +156,67 @@ impl OpusEncoder {
             use_inband_fec: false,
             packet_loss_perc: 0,
             range_final: 0,
-            silk_prefilled: false,
+            hp_mem: [0; 4],
+            // C: silk_LSHIFT(silk_lin2log(VARIABLE_HP_MIN_CUTOFF_HZ), 8)
+            // silk_lin2log(60) ≈ 756, << 8 = 193536
+            variable_hp_smth2_q15: 755 << 8, // silk_lin2log(60) << 8
+            // C: encoder_buffer = Fs/100 (10ms), delay_compensation = Fs/250 (4ms)
+            delay_buffer: vec![0i16; (fs / 100) as usize * channels as usize],
+            encoder_buffer: (fs / 100) as usize,
+            delay_compensation: (fs / 250) as usize,
         })
     }
 
     /// Set the target bitrate in bits per second.
+    /// Apply HP biquad filter matching C reference hp_cutoff + silk_biquad_alt_stride1.
+    /// Uses Direct Form II Transposed with split A coefficients for precision.
+    /// State S[0], S[1] are in Q12.
+    fn hp_filter_i16(&mut self, samples: &mut [i16], cutoff_hz: i32) {
+        use opus_silk::{silk_smlawb, silk_smulwb, silk_rshift_round};
+
+        // Design HP biquad: b = r*[1, -2, 1], a = [1, -2r(1-0.5*Fc^2), r^2]
+        // C: Fc_Q19 = silk_DIV32_16(silk_SMULBB(SILK_FIX_CONST(1.5*pi/1000, 19), cutoff_Hz), Fs/1000)
+        let fc_q19 = (2474i32 * cutoff_hz) / (self.fs / 1000); // 2474 = 1.5*pi/1000 in Q19
+        let r_q28 = (1i32 << 28) - 471i32 * fc_q19; // 471 = 0.92 in Q9
+
+        let b_q28 = [r_q28, r_q28.wrapping_neg() << 1, r_q28];
+        let r_q22 = r_q28 >> 6;
+        // a[0] = -r * (2 - Fc^2): C uses silk_SMULWW
+        let a0_q28 = ((r_q22 as i64 * (((fc_q19 as i64 * fc_q19 as i64) >> 16) as i64
+            - ((2i64) << 22))) >> 16) as i32;
+        let a1_q28 = ((r_q22 as i64 * r_q22 as i64) >> 16) as i32;
+
+        // Split negated A coefficients (C: biquad_alt.c lines 56-59)
+        let a0_neg = -a0_q28;
+        let a0_l = a0_neg & 0x00003FFF;
+        let a0_u = a0_neg >> 14;
+        let a1_neg = -a1_q28;
+        let a1_l = a1_neg & 0x00003FFF;
+        let a1_u = a1_neg >> 14;
+
+        // Apply biquad (C: silk_biquad_alt_stride1, biquad_alt.c lines 61-76)
+        let s = &mut self.hp_mem;
+        for sample in samples.iter_mut() {
+            let inval = *sample as i32;
+            // out32_Q14 = (S[0] + B[0]*inval >> 16) << 2
+            let out32_q14 = silk_smlawb(s[0], b_q28[0], inval) << 2;
+
+            // S[0] = S[1] + round(out*A0_L >> 14) + out*A0_U>>16 + B[1]*inval>>16
+            s[0] = s[1] + silk_rshift_round(silk_smulwb(out32_q14, a0_l), 14);
+            s[0] = silk_smlawb(s[0], out32_q14, a0_u);
+            s[0] = silk_smlawb(s[0], b_q28[1], inval);
+
+            // S[1] = round(out*A1_L >> 14) + out*A1_U>>16 + B[2]*inval>>16
+            s[1] = silk_rshift_round(silk_smulwb(out32_q14, a1_l), 14);
+            s[1] = silk_smlawb(s[1], out32_q14, a1_u);
+            s[1] = silk_smlawb(s[1], b_q28[2], inval);
+
+            // Scale back to Q0 and saturate
+            let out_val = (out32_q14 + (1 << 14) - 1) >> 14;
+            *sample = out_val.clamp(-32768, 32767) as i16;
+        }
+    }
+
     pub fn set_bitrate(&mut self, bitrate: i32) {
         self.user_bitrate_bps = bitrate;
         if bitrate == OPUS_BITRATE_MAX || bitrate == OPUS_AUTO {
@@ -373,40 +438,77 @@ impl OpusEncoder {
             let frame_duration_ms = frame_size * 1000 / self.fs;
 
             // Convert f32 PCM to i16 at the SILK internal rate
-            // First convert to i16 at input sample rate, then SILK resamples internally
             let silk_samples = (silk_internal_rate * frame_duration_ms / 1000) as usize;
-            let mut pcm_i16 = vec![0i16; silk_samples * stream_channels as usize];
-
-            // If input rate differs from SILK internal rate, do simple downsampling
             let input_samples = frame_size as usize;
-            if self.fs == silk_internal_rate {
-                // Direct conversion
-                let n = silk_samples.min(input_samples);
-                for ch in 0..stream_channels as usize {
-                    for i in 0..n {
-                        let s = (pcm[i * self.channels as usize + ch] * 32768.0).round() as i32;
-                        pcm_i16[i * stream_channels as usize + ch] =
-                            s.clamp(-32768, 32767) as i16;
+
+            // C reference: allocate pcm_buf with delay_compensation prefix + frame
+            // pcm_buf[0..total_buffer] = last total_buffer samples from delay_buffer
+            // pcm_buf[total_buffer..] = HP-filtered current frame
+            let total_buffer = self.delay_compensation;
+            let nch = stream_channels as usize;
+            let mut pcm_buf = vec![0i16; (total_buffer + silk_samples) * nch];
+
+            // Copy look-ahead from delay_buffer (C: opus_encoder.c:1966-1967)
+            let db_offset = self.encoder_buffer.saturating_sub(total_buffer);
+            let copy_len = total_buffer * nch;
+            if copy_len > 0 && db_offset * nch + copy_len <= self.delay_buffer.len() {
+                pcm_buf[..copy_len].copy_from_slice(
+                    &self.delay_buffer[db_offset * nch..db_offset * nch + copy_len]);
+            }
+
+            // Convert and place current frame at pcm_buf[total_buffer..]
+            {
+                let dst = &mut pcm_buf[total_buffer * nch..];
+                if self.fs == silk_internal_rate {
+                    let n = silk_samples.min(input_samples);
+                    for ch in 0..nch {
+                        for i in 0..n {
+                            let s = (pcm[i * self.channels as usize + ch] * 32768.0).round() as i32;
+                            dst[i * nch + ch] = s.clamp(-32768, 32767) as i16;
+                        }
                     }
-                }
-            } else {
-                // Resample from input rate to SILK internal rate
-                let ratio = silk_internal_rate as f64 / self.fs as f64;
-                for ch in 0..stream_channels as usize {
-                    for i in 0..silk_samples {
-                        let src_pos = i as f64 / ratio;
-                        let src_idx = src_pos as usize;
-                        let frac = src_pos - src_idx as f64;
-                        let idx0 = src_idx.min(input_samples - 1);
-                        let idx1 = (src_idx + 1).min(input_samples - 1);
-                        let s0 = pcm[idx0 * self.channels as usize + ch] as f64;
-                        let s1 = pcm[idx1 * self.channels as usize + ch] as f64;
-                        let val = ((s0 * (1.0 - frac) + s1 * frac) * 32768.0).round() as i32;
-                        pcm_i16[i * stream_channels as usize + ch] =
-                            val.clamp(-32768, 32767) as i16;
+                } else {
+                    let ratio = silk_internal_rate as f64 / self.fs as f64;
+                    for ch in 0..nch {
+                        for i in 0..silk_samples {
+                            let src_pos = i as f64 / ratio;
+                            let src_idx = src_pos as usize;
+                            let frac = src_pos - src_idx as f64;
+                            let idx0 = src_idx.min(input_samples - 1);
+                            let idx1 = (src_idx + 1).min(input_samples - 1);
+                            let s0 = pcm[idx0 * self.channels as usize + ch] as f64;
+                            let s1 = pcm[idx1 * self.channels as usize + ch] as f64;
+                            let val = ((s0 * (1.0 - frac) + s1 * frac) * 32768.0).round() as i32;
+                            dst[i * nch + ch] = val.clamp(-32768, 32767) as i16;
+                        }
                     }
                 }
             }
+
+            // Update delay_buffer (C: opus_encoder.c:2304-2312)
+            // Store the most recent encoder_buffer samples for next frame's look-ahead.
+            {
+                let db_samples = self.encoder_buffer;
+                let pcm_buf_samples = total_buffer + silk_samples;
+                let db_len = db_samples * nch;
+                let buf_len = pcm_buf_samples * nch;
+
+                if db_samples > pcm_buf_samples {
+                    // Shift old data left, append pcm_buf
+                    let keep = (db_samples - pcm_buf_samples) * nch;
+                    self.delay_buffer.copy_within(buf_len..buf_len + keep, 0);
+                    self.delay_buffer[keep..keep + buf_len]
+                        .copy_from_slice(&pcm_buf[..buf_len]);
+                } else {
+                    // pcm_buf has enough — take last db_samples
+                    let offset = buf_len - db_len;
+                    self.delay_buffer[..db_len]
+                        .copy_from_slice(&pcm_buf[offset..offset + db_len]);
+                }
+            }
+
+            // pcm_i16 is the HP-filtered frame (at the total_buffer offset)
+            let mut pcm_i16 = pcm_buf[total_buffer * nch..(total_buffer + silk_samples) * nch].to_vec();
 
             let silk_bitrate = if mode == MODE_HYBRID {
                 self.bitrate_bps / 2
@@ -466,43 +568,14 @@ impl OpusEncoder {
                 ret
             } else {
                 // Mono SILK
-                // Prefill: C reference (opus_encoder.c:2191-2208) runs a full SILK
-                // encode on the input with suppressed output before the first real
-                // frame. This warms up NSQ state, gains, NLSFs, and input history.
-                // After prefill, n_frames_encoded is reset to 0 so the real encode
-                // uses CODE_INDEPENDENTLY.
-                if !self.silk_prefilled {
-                    // C reference prefill (opus_encoder.c:2191-2206, enc_API.c:237-244):
-                    // Uses a ramped signal with payloadSize_ms=10, complexity=0.
-                    // The ramp covers Fs/400 samples (2.5ms); everything before is zero.
-                    let prefill_rate = silk_internal_rate;
-                    let prefill_samples = (prefill_rate * 10 / 1000) as usize; // 10ms
-                    let ramp_len = (prefill_rate / 400) as usize; // 2.5ms
-                    let mut prefill_pcm = vec![0i16; prefill_samples * stream_channels as usize];
-                    // Copy end of input and apply ramp
-                    let ramp_start = prefill_samples.saturating_sub(ramp_len);
-                    for i in ramp_start..prefill_samples {
-                        let fade = ((i - ramp_start) as i32 * 32767 / ramp_len.max(1) as i32) as i16;
-                        for ch in 0..stream_channels as usize {
-                            let src_i = i.min(silk_samples.saturating_sub(1));
-                            let src = pcm_i16[src_i * stream_channels as usize + ch];
-                            prefill_pcm[i * stream_channels as usize + ch] =
-                                ((src as i32 * fade as i32) >> 15) as i16;
-                        }
-                    }
-
-                    // Use complexity=0 and payloadSize_ms=10 for prefill (matching C)
-                    let prefill_control = SilkEncControl {
-                        payload_size_ms: 10,
-                        complexity: 0,
-                        ..control.clone()
-                    };
-                    let mut prefill_enc = EcCtx::enc_init(1275);
-                    prefill_enc.enc_bit_logp(true, 1);
-                    prefill_enc.enc_bit_logp(false, 1);
-                    self.silk_enc.encode(&prefill_control, &mut prefill_enc, &prefill_pcm);
-                    self.silk_enc.reset_frame_counter();
-                    self.silk_prefilled = true;
+                // Apply HP filter matching C reference (opus_encoder.c:1978-1982).
+                // For VOIP, a variable-cutoff biquad HP filter removes DC/LF.
+                // The cutoff starts at ~60Hz and adapts based on SILK VAD.
+                if self.application == OPUS_APPLICATION_VOIP {
+                    // Compute cutoff from smoothed state (C: silk_log2lin(smth2>>8))
+                    let cutoff_hz = opus_silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
+                    self.hp_filter_i16(&mut pcm_i16, cutoff_hz);
+                    // TODO: update variable_hp_smth2_q15 from SILK's variable_HP_smth1_Q15
                 }
 
                 // Write VAD flag and LBRR flag

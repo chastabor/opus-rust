@@ -45,7 +45,7 @@ impl NsqState {
             s_ltp_buf_idx: 0,
             s_ltp_shp_buf_idx: 0,
             rand_seed: 0,
-            prev_gain_q16: 65536,
+            prev_gain_q16: 0, // C reference: zeroed by silk_memset in init_encoder
             rewhite_flag: 0,
         }
     }
@@ -128,6 +128,7 @@ fn silk_nsq_scale_states(
 
         nsq.prev_gain_q16 = gains_q16[subfr];
     }
+
 }
 
 /// Per-sample noise shape quantizer (matching silk_noise_shape_quantizer)

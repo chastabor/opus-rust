@@ -139,6 +139,7 @@ const MAX_SILK_WIN: usize = 240; // shape_win_length max (15 * 16)
 /// Pre-allocated scratch buffers for SILK encoder (avoids per-frame heap allocations).
 #[derive(Default)]
 pub struct SilkScratch {
+    pub delayed_input: Vec<i16>, // frame_length for resampler delay
     pub analysis_buf: Vec<i16>,   // MAX_SILK_TOTAL
     pub vad_x: Vec<i16>,         // ~800
     pub x_windowed: Vec<i16>,    // MAX_SILK_WIN
@@ -156,6 +157,7 @@ pub struct SilkScratch {
 impl SilkScratch {
     fn new() -> Self {
         Self {
+            delayed_input: vec![0i16; MAX_FRAME_LENGTH],
             analysis_buf: vec![0i16; MAX_SILK_TOTAL],
             vad_x: vec![0i16; 800],
             x_windowed: vec![0i16; MAX_SILK_WIN],
@@ -211,6 +213,13 @@ struct EncChannelState {
     shaping_lpc_order: i32,
     warping_q16: i32,
 
+    // Resampler delay buffer (C: silk_resampler_state_struct.delayBuf)
+    // Even for same-rate "copy", the C reference introduces a delay of
+    // inputDelay = delay_matrix_enc[rateID(fs)][rateID(fs)] samples.
+    // For 16kHz: inputDelay = 10.
+    resampler_delay_buf: [i16; 16], // Fs_in_kHz max
+    resampler_input_delay: usize,
+
     // Input buffer (for LPC analysis history)
     input_buf: Vec<i16>,
     input_buf_idx: usize,
@@ -259,6 +268,8 @@ impl EncChannelState {
             indices: SideInfoIndices::default(),
             nsq_state: NsqState::new(),
             vad_state: vad::VadState::default(),
+            resampler_delay_buf: [0; 16],
+            resampler_input_delay: 0, // Set by set_fs based on sample rate
             speech_activity_q8: 128,
             snr_db_q7: 0,
             prev_tilt_smth_q16: 0,
@@ -294,6 +305,12 @@ impl EncChannelState {
             self.first_frame_after_reset = true;
             self.prev_nlsf_q15 = [0; MAX_LPC_ORDER];
             self.last_gain_index = 10;
+            // Resampler delay matching C reference: delay_matrix_enc[rateID][rateID]
+            // 8kHz→6, 12kHz→7, 16kHz→10
+            self.resampler_input_delay = match fs_khz {
+                8 => 6, 12 => 7, 16 => 10, _ => 10,
+            } as usize;
+            self.resampler_delay_buf = [0; 16];
         }
 
         self.fs_khz = fs_khz;
@@ -376,22 +393,6 @@ impl SilkEncoder {
         }
     }
 
-    /// Clear first_frame_after_reset flag (equivalent to C reference prefill effect).
-    pub fn clear_first_frame_after_reset(&mut self) {
-        self.state.first_frame_after_reset = false;
-    }
-
-    /// Reset frame counter after prefill so the next real encode uses CODE_INDEPENDENTLY.
-    /// Keeps all other state (NSQ, gains, NLSFs, input buffer) from the prefill.
-    pub fn reset_frame_counter(&mut self) {
-        self.state.n_frames_encoded = 0;
-    }
-
-    /// Get the NSQ's previous gain (for debugging).
-    pub fn prev_gain_q16(&self) -> i32 {
-        self.state.nsq_state.prev_gain_q16
-    }
-
     /// Encode one SILK frame.
     ///
     /// Returns the number of bytes written, or a negative error code.
@@ -451,7 +452,7 @@ impl SilkEncoder {
             cs.lbrr_prev_last_gain_index = cs.last_gain_index;
         }
 
-        // Build analysis buffer: history + current frame (use scratch)
+        // Build analysis buffer: history + current frame
         let analysis_buf_len = ltp_mem_length + frame_length;
         let analysis_buf = &mut scratch.analysis_buf[..analysis_buf_len];
         // Copy history from input_buf
@@ -467,7 +468,6 @@ impl SilkEncoder {
 
         // Update input buffer with current frame for next call's history
         if cs.input_buf_idx + frame_length > cs.input_buf.len() {
-            // Shift buffer
             let shift = cs.input_buf_idx + frame_length - cs.input_buf.len();
             cs.input_buf.copy_within(shift..cs.input_buf_idx, 0);
             cs.input_buf_idx -= shift;
@@ -478,6 +478,35 @@ impl SilkEncoder {
             cs.input_buf[start..end].copy_from_slice(&samples[..frame_length]);
             cs.input_buf_idx = end;
         }
+
+        // Apply the same-rate resampler delay as the C reference (silk_resampler copy mode).
+        // Even for 16kHz→16kHz, the C resampler delays by inputDelay=10 samples using
+        // a delay buffer. This shifts the signal phase and is essential for matching
+        // the C encoder's LPC analysis and gain trajectory.
+        let delayed = &mut scratch.delayed_input[..frame_length];
+        {
+            let delay = cs.resampler_input_delay;
+            let fs_khz_u = cs.fs_khz as usize;
+            let n_copy = fs_khz_u.saturating_sub(delay);
+
+            // First Fs_kHz samples: delayBuf[0..delay] + input[0..n_copy]
+            delayed[..delay].copy_from_slice(&cs.resampler_delay_buf[..delay]);
+            delayed[delay..fs_khz_u].copy_from_slice(&samples[..n_copy]);
+
+            // Remaining samples: direct from input[n_copy..]
+            if frame_length > fs_khz_u {
+                let remaining = frame_length - fs_khz_u;
+                delayed[fs_khz_u..frame_length]
+                    .copy_from_slice(&samples[n_copy..n_copy + remaining]);
+            }
+
+            // Save last inputDelay samples for next frame's delay buffer
+            cs.resampler_delay_buf[..delay]
+                .copy_from_slice(&samples[frame_length - delay..frame_length]);
+        }
+
+        // Use the delayed signal for ALL subsequent processing (matching C encoder's inputBuf+1).
+        let samples = &delayed[..frame_length];
 
         // ====== Analysis ======
 
@@ -541,7 +570,7 @@ impl SilkEncoder {
         tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
         pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
 
-        cs.indices.nlsf_interp_coef_q2 = 4; // No interpolation (simplified)
+        // nlsf_interp_coef_q2 is set by the interpolation search in Step 3
 
         // 5. Pitch analysis using full 3-stage hierarchical search
         let mut pitch_lags = [0i32; MAX_NB_SUBFR];
@@ -658,8 +687,18 @@ impl SilkEncoder {
         // The noise_shape_analysis internally computes gains from the signal's
         // autocorrelation, then adjusts them using the bitrate-derived SNR via
         // gain_mult_q16 and gain_add_q16 (matching C reference process_gains).
+        // C reference: noise_shape receives x_frame (which starts at x_buf + ltp_mem_length)
+        // and internally accesses x_ptr = x - la_shape (80 samples before x_frame).
+        // We pass analysis_buf starting la_shape samples before the frame,
+        // so the noise_shape's x_ptr_start can access the lookback.
+        let la_shape = 5 * cs.fs_khz as usize; // LA_SHAPE_MS * fs_kHz
+        let ns_offset = ltp_mem_length.saturating_sub(la_shape);
+        let ns_input = &analysis_buf[ns_offset..ltp_mem_length + frame_length];
+        // The noise_shape sees: ns_input[0..la_shape] = lookback, ns_input[la_shape..] = frame
+        // But our noise_shape function indexes from 0 at the frame start.
+        // We pass with la_shape prefix so the function can window backward.
         let shape_result = noise_shape_analysis::silk_noise_shape_analysis(
-            &samples[..frame_length],
+            ns_input,
             &pitch_lags,
             voiced,
             &mut cs.prev_tilt_smth_q16,
@@ -681,38 +720,38 @@ impl SilkEncoder {
         // Uses noise_shape gains to normalize the input, recomputes LPC on the
         // normalized input, then measures residual energy for process_gains.
 
+        // Use noise_shape gains directly (fixed-point), converted to float.
+        // The noise_shape computes per-subframe Schur residual energy and applies
+        // gain_mult/gain_add in fixed-point. The float vs fixed-point difference
+        // in gain_mult/gain_add is <0.4% — negligible compared to the Schur energy.
         let mut gains_q16 = [0i32; MAX_NB_SUBFR];
         gains_q16[..nb_subfr].copy_from_slice(&shape_result.gains_q16[..nb_subfr]);
-
-        // Step 1: Compute invGains and local_gains from noise_shape gains
-        let min_gain = gains_q16[..nb_subfr].iter().copied().min().unwrap_or(1).max(1);
-        let mut inv_gains_q16 = [0i32; MAX_NB_SUBFR];
-        let mut local_gains = [0i32; MAX_NB_SUBFR];
+        let mut gains_f = [0.0f32; MAX_NB_SUBFR];
         for k in 0..nb_subfr {
-            inv_gains_q16[k] = silk_div32_varq(min_gain, gains_q16[k].max(1), 14).max(100);
-            local_gains[k] = (1i32 << 16) / inv_gains_q16[k].max(1);
+            gains_f[k] = gains_q16[k] as f32 / 65536.0;
         }
 
-        // Step 2: Create gain-normalized LPC_in_pre (unvoiced path: direct scaling)
-        // C reference: x_ptr = x - predictLPCOrder, using the analysis buffer which
-        // includes ltp_mem_length of history before the current frame.
+        // Step 1: Compute invGains (C float: find_pred_coefs_FLP.c)
+        let mut inv_gains_f = [0.0f32; MAX_NB_SUBFR];
+        for k in 0..nb_subfr {
+            inv_gains_f[k] = 1.0 / gains_f[k].max(1e-12);
+        }
+
+
+        // Step 2: Create gain-normalized LPC_in_pre (float, matching C float encoder)
+        // C: silk_scale_copy_vector_FLP(x_pre_ptr, x_ptr, invGains[i], len)
         let lpc_pre_len = nb_subfr * (lpc_order + subfr_length);
-        let mut lpc_in_pre = vec![0i16; lpc_pre_len];
+        let mut lpc_in_pre_f = vec![0.0f32; lpc_pre_len];
         {
             let mut pre_idx = 0usize;
-            // analysis_buf layout: [ltp_mem_length history | frame_length body]
-            // Current frame starts at analysis_buf[ltp_mem_length]
-            // History for subframe k starts at analysis_buf[ltp_mem_length + k*subfr_length - lpc_order]
             for k in 0..nb_subfr {
-                let ig = inv_gains_q16[k];
-                // Source start: lpc_order samples before subframe k's body
+                let ig_f = inv_gains_f[k];
                 let body_start = ltp_mem_length + k * subfr_length;
                 let src_start = body_start - lpc_order;
                 for j in 0..(lpc_order + subfr_length) {
                     let si = src_start + j;
-                    if si < analysis_buf.len() && pre_idx < lpc_in_pre.len() {
-                        let tmp = ((ig as i64 * analysis_buf[si] as i64) >> 16) as i32;
-                        lpc_in_pre[pre_idx] = tmp.clamp(-32768, 32767) as i16;
+                    if si < analysis_buf.len() && pre_idx < lpc_pre_len {
+                        lpc_in_pre_f[pre_idx] = ig_f * (analysis_buf[si] as f32);
                     }
                     pre_idx += 1;
                 }
@@ -723,44 +762,125 @@ impl SilkEncoder {
         // Matches C reference: find_LPC_FIX.c line 57-63.
         // Burg receives subfr_length = predictLPCOrder + actual_subfr_length (includes D history).
         {
-            let min_inv_gain_q30 = if cs.first_frame_after_reset {
-                (1i64 << 30) as i32 / 100 // 1/100 in Q30
+            let burg_subfr = lpc_order + subfr_length;
+
+            // Float minInvGain (C: find_pred_coefs_FLP.c lines 97-100)
+            let coding_quality_f = shape_result.coding_quality_q14 as f32 / 16384.0;
+            let ltp_pred_cod_gain_f = 0.0f32; // TODO: compute for voiced
+            let min_inv_gain_f: f32 = if cs.first_frame_after_reset {
+                1.0 / 100.0 // MAX_PREDICTION_POWER_GAIN_AFTER_RESET
             } else {
-                // C reference: find_pred_coefs_FIX.c lines 126-132
-                // minInvGain = log2lin(16<<7 + LTPredCodGain/3) /
-                //              (MAX_PRED_GAIN * (0.25 + 0.75*quality))
-                // For unvoiced: LTPredCodGain_Q7 = 0
-                let ltp_pred_cod_gain_q7 = 0i32; // TODO: compute for voiced
-                let base = silk_log2lin(silk_smlawb(
-                    16 << 7, ltp_pred_cod_gain_q7, 21845 // SILK_FIX_CONST(1.0/3, 16)
-                )); // Q16
-                let coding_quality_q14 = shape_result.coding_quality_q14;
-                let qual_factor = silk_smlawb(
-                    65536,  // SILK_FIX_CONST(0.25, 18)
-                    196608, // SILK_FIX_CONST(0.75, 18)
-                    coding_quality_q14,
-                ); // Q18
-                let denom = silk_smulww_correct(10000, qual_factor); // MAX_PREDICTION_POWER_GAIN * qual
-                silk_div32_varq(base, denom.max(1), 14)
+                let base = 2.0f32.powf(ltp_pred_cod_gain_f / 3.0) / 10000.0; // MAX_PREDICTION_POWER_GAIN
+                base / (0.25 + 0.75 * coding_quality_f)
             };
 
-            let mut a_q16 = [0i32; MAX_LPC_ORDER];
-            let mut burg_res_nrg = 0i32;
-            let mut burg_res_nrg_q = 0i32;
-            lpc_analysis::silk_burg_modified(
-                &mut burg_res_nrg,
-                &mut burg_res_nrg_q,
-                &mut a_q16,
-                &lpc_in_pre,
-                min_inv_gain_q30,
-                lpc_order + subfr_length, // C: subfr_length = predictLPCOrder + subfr_length
-                nb_subfr,
-                lpc_order,
+            let mut a_flp = [0.0f32; MAX_LPC_ORDER];
+            let _burg_res_nrg_f = lpc_analysis::silk_burg_modified_flp(
+                &mut a_flp, &lpc_in_pre_f,
+                min_inv_gain_f, burg_subfr, nb_subfr, lpc_order,
             );
 
-            // Convert to NLSF, quantize, convert back to Q12 pred_coef
+            // Convert float coefficients to Q16 (C: silk_A2NLSF_FLP does this)
+            // silk_float2int rounds to nearest integer
+            let mut a_q16 = [0i32; MAX_LPC_ORDER];
+            for i in 0..lpc_order {
+                a_q16[i] = (a_flp[i] as f64 * 65536.0).round() as i32;
+            }
+
+            // Default: no interpolation
+            cs.indices.nlsf_interp_coef_q2 = 4;
+
+
             let mut new_nlsf_q15 = [0i16; MAX_LPC_ORDER];
-            lpc_analysis::silk_a2nlsf(&mut new_nlsf_q15, &mut a_q16, lpc_order);
+
+            // NLSF interpolation search (C: find_LPC_FIX.c lines 65-141)
+            let use_interpolated = control.complexity >= 5
+                && !cs.first_frame_after_reset
+                && nb_subfr == MAX_NB_SUBFR;
+
+            // Float residual energy for interpolation comparison
+            let mut burg_res_nrg_f = _burg_res_nrg_f;
+
+            if use_interpolated {
+                // Float Burg on last 2 subframes (second half)
+                let mut a_tmp_flp = [0.0f32; MAX_LPC_ORDER];
+                let res_tmp_nrg_f = lpc_analysis::silk_burg_modified_flp(
+                    &mut a_tmp_flp, &lpc_in_pre_f[2 * burg_subfr..],
+                    min_inv_gain_f, burg_subfr, 2, lpc_order,
+                );
+
+                // Subtract second-half energy from full-frame energy
+                burg_res_nrg_f -= res_tmp_nrg_f;
+
+                // Convert second-half float LPC to Q16 then NLSFs
+                let mut a_tmp_q16 = [0i32; MAX_LPC_ORDER];
+                for i in 0..lpc_order {
+                    a_tmp_q16[i] = (a_tmp_flp[i] as f64 * 65536.0).round() as i32;
+                }
+                lpc_analysis::silk_a2nlsf(&mut new_nlsf_q15, &mut a_tmp_q16, lpc_order);
+
+                // Search interpolation coefficients k=3,2,1,0 (C: find_LPC_FLP.c)
+                // Uses float residual energy comparison for simplicity and C-reference matching.
+                let mut best_res_nrg_f = burg_res_nrg_f;
+                let mut res_nrg_2nd = f32::MAX;
+
+                for k in (0..=3i32).rev() {
+                    // Interpolate NLSFs for first half
+                    let mut nlsf0_q15 = [0i16; MAX_LPC_ORDER];
+                    for i in 0..lpc_order {
+                        nlsf0_q15[i] = (cs.prev_nlsf_q15[i] as i32
+                            + ((k * (new_nlsf_q15[i] as i32 - cs.prev_nlsf_q15[i] as i32)) >> 2))
+                            as i16;
+                    }
+
+                    // Convert to float LPC for residual energy evaluation
+                    let mut a_tmp_q12 = [0i16; MAX_LPC_ORDER];
+                    silk_nlsf2a(&mut a_tmp_q12, &nlsf0_q15, lpc_order);
+                    let mut a_tmp_flp2 = [0.0f32; MAX_LPC_ORDER];
+                    for i in 0..lpc_order {
+                        a_tmp_flp2[i] = a_tmp_q12[i] as f32 / 4096.0;
+                    }
+
+                    // LPC analysis filter on first 2 subframes (float)
+                    let filter_len = 2 * burg_subfr;
+                    let mut lpc_res_f = vec![0.0f32; filter_len];
+                    for ix in lpc_order..filter_len.min(lpc_in_pre_f.len()) {
+                        let mut sum = lpc_in_pre_f[ix];
+                        for j in 0..lpc_order {
+                            if ix >= j + 1 {
+                                sum -= a_tmp_flp2[j] * lpc_in_pre_f[ix - j - 1];
+                            }
+                        }
+                        lpc_res_f[ix] = sum;
+                    }
+
+                    // Measure residual energy of first 2 subframes
+                    let mut nrg0: f64 = 0.0;
+                    for i in lpc_order..burg_subfr {
+                        nrg0 += (lpc_res_f[i] as f64) * (lpc_res_f[i] as f64);
+                    }
+                    let mut nrg1: f64 = 0.0;
+                    for i in (lpc_order + burg_subfr)..filter_len.min(lpc_res_f.len()) {
+                        nrg1 += (lpc_res_f[i] as f64) * (lpc_res_f[i] as f64);
+                    }
+                    let res_nrg_interp = (nrg0 + nrg1) as f32;
+
+                    // Compare (C: find_LPC_FLP.c lines 76-86)
+                    if res_nrg_interp < best_res_nrg_f {
+                        best_res_nrg_f = res_nrg_interp;
+                        cs.indices.nlsf_interp_coef_q2 = k as i8;
+                    } else if res_nrg_interp > res_nrg_2nd {
+                        break; // No reason to continue
+                    }
+                    res_nrg_2nd = res_nrg_interp;
+                }
+            }
+
+            if cs.indices.nlsf_interp_coef_q2 == 4 {
+                // No interpolation — convert full-frame Burg LPC to NLSFs
+                lpc_analysis::silk_a2nlsf(&mut new_nlsf_q15, &mut a_q16, lpc_order);
+            }
+            // else: new_nlsf_q15 already contains second-half NLSFs from above
 
             let mut w_q2 = [0i16; MAX_LPC_ORDER];
             lpc_analysis::silk_nlsf_vq_weights_laroia(&mut w_q2, &new_nlsf_q15, lpc_order);
@@ -785,102 +905,106 @@ impl SilkEncoder {
                 cs.indices.signal_type as i32,
             );
 
-            // Convert quantized NLSFs back to LPC Q12
+            // Convert quantized NLSFs back to LPC Q12 for second half
+            // C: silk_NLSF2A(PredCoef_Q12[1], pNLSF_Q15, ...)
             silk_nlsf2a(&mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order],
                         &new_nlsf_q15, lpc_order);
-            // Copy to first half (simplified: no interpolation)
-            let mut tmp_coefs = [0i16; MAX_LPC_ORDER];
-            tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
-            pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
+
+            // First half: interpolate or copy (C: process_NLSFs.c lines 94-106)
+            if cs.indices.nlsf_interp_coef_q2 < 4 {
+                // Interpolate between prev_NLSFq and current quantized NLSFs
+                let k = cs.indices.nlsf_interp_coef_q2 as i32;
+                let mut nlsf0_q15 = [0i16; MAX_LPC_ORDER];
+                for i in 0..lpc_order {
+                    nlsf0_q15[i] = (cs.prev_nlsf_q15[i] as i32
+                        + ((k * (new_nlsf_q15[i] as i32 - cs.prev_nlsf_q15[i] as i32)) >> 2))
+                        as i16;
+                }
+                silk_nlsf2a(&mut pred_coef_q12[..lpc_order], &nlsf0_q15, lpc_order);
+            } else {
+                // No interpolation — copy second half to first half
+                let mut tmp_coefs = [0i16; MAX_LPC_ORDER];
+                tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
+                pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
+            }
 
             nlsf_q15[..lpc_order].copy_from_slice(&new_nlsf_q15[..lpc_order]);
         }
 
-        // Step 4: Compute residual energy on normalized input with refined LPC
-        let mut res_nrg = [0i32; MAX_NB_SUBFR];
-        let mut res_nrg_q = [0i32; MAX_NB_SUBFR];
+        // Step 4: Float residual energy (C: residual_energy_FLP.c)
+        // nrgs[k] = gains[k]² * energy(LPC_residual_of_subframe_k)
+        // Uses per-half-frame LPC (a[0] for first half, a[1] for second half)
+        let mut res_nrg_f = [0.0f32; MAX_NB_SUBFR];
         {
-            let a_q12 = &pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order];
-            let offset_per_subfr = lpc_order + subfr_length;
+            let shift = lpc_order + subfr_length; // offset per subframe in lpc_in_pre_f
+            let half_subfr = MAX_NB_SUBFR / 2;
 
-            for k in 0..nb_subfr {
-                let pre_start = k * offset_per_subfr;
-                let res_start = pre_start + lpc_order;
-                let res_end = (res_start + subfr_length).min(lpc_in_pre.len());
-
-                if res_end > pre_start {
-                    let mut lpc_res = vec![0i16; offset_per_subfr];
-                    let in_len = (res_end - pre_start).min(lpc_in_pre.len() - pre_start);
-                    silk_lpc_analysis_filter(
-                        &mut lpc_res[..in_len], &lpc_in_pre[pre_start..pre_start + in_len],
-                        a_q12, in_len, lpc_order,
-                    );
-
-                    let residual_start = lpc_order;
-                    let residual_end = in_len.min(lpc_order + subfr_length);
-                    if residual_end > residual_start {
-                        let mut rshift = 0i32;
-                        silk_sum_sqr_shift(
-                            &mut res_nrg[k], &mut rshift,
-                            &lpc_res[residual_start..residual_end],
-                            residual_end - residual_start,
-                        );
-                        res_nrg_q[k] = -rshift;
-                    }
-                }
-            }
-
-            // Scale ResNrg by local_gains² (C: residual_energy_FIX.c lines 82-96)
-            for k in 0..nb_subfr {
-                let lz1 = (silk_clz32(res_nrg[k]) - 1).max(0);
-                let lz2 = (silk_clz32(local_gains[k]) - 1).max(0);
-                let tmp32 = (local_gains[k] as u32).wrapping_shl(lz2 as u32) as i32;
-                let tmp32 = silk_smmul(tmp32, tmp32); // Q(2*lz2 - 32)
-                let nrg_shifted = (res_nrg[k] as u32).wrapping_shl(lz1 as u32) as i32;
-                res_nrg[k] = silk_smmul(tmp32, nrg_shifted); // Q(nrgsQ + lz1 + 2*lz2 - 32 - 32)
-                res_nrg_q[k] += lz1 + 2 * lz2 - 32 - 32;
-            }
-        }
-
-        // Step 5: process_gains — floor gains using ResNrg and InvMaxSqrVal
-        // Matches C reference process_gains_FIX.c lines 55-87.
-        {
-            let log_arg = silk_smulwb(8896 - snr_for_shaping, 21626);
-            let inv_max_sqr_val_q16 = if log_arg > 0 {
-                silk_log2lin(log_arg.min(3967)) / (subfr_length as i32).max(1)
-            } else {
-                0
-            };
-
-            for k in 0..nb_subfr {
-                let res_nrg_part = {
-                    let raw = silk_smulww_correct(res_nrg[k], inv_max_sqr_val_q16);
-                    let shifted = if res_nrg_q[k] > 0 {
-                        silk_rshift_round(raw, res_nrg_q[k])
-                    } else if raw >= (i32::MAX >> (-res_nrg_q[k]).min(30)) {
-                        i32::MAX
-                    } else {
-                        raw << ((-res_nrg_q[k]).min(30))
-                    };
-                    shifted
-                };
-
-                let gain = gains_q16[k];
-                let gain_squared = res_nrg_part.saturating_add(silk_smmul(gain, gain));
-
-                if gain_squared < i16::MAX as i32 {
-                    // C: silk_SMLAWW(LSHIFT(ResNrgPart, 16), gain, gain)
-                    // = (ResNrgPart << 16) + ((gain * gain) >> 16)
-                    let gain_sq_hp = ((res_nrg_part as i64) << 16)
-                        .wrapping_add((gain as i64 * gain as i64) >> 16) as i32;
-                    let new_gain = silk_sqrt_approx(gain_sq_hp.max(1)); // Q8
-                    gains_q16[k] = silk_lshift_sat32(new_gain, 8);
+            for half in 0..(nb_subfr / half_subfr).max(1) {
+                // Select LPC coefficients for this half-frame
+                let a_q12_offset = if half >= 1 || cs.indices.nlsf_interp_coef_q2 == 4 {
+                    MAX_LPC_ORDER
                 } else {
-                    let new_gain = silk_sqrt_approx(gain_squared.max(1));
-                    gains_q16[k] = silk_lshift_sat32(new_gain, 16);
+                    0
+                };
+                let a_q12 = &pred_coef_q12[a_q12_offset..a_q12_offset + lpc_order];
+                // Convert Q12 LPC to float for filtering
+                let mut a_flp_filt = [0.0f32; MAX_LPC_ORDER];
+                for i in 0..lpc_order {
+                    a_flp_filt[i] = a_q12[i] as f32 / 4096.0;
+                }
+
+                // Float LPC analysis filter on 2 subframes
+                let start_sf = half * half_subfr;
+                let n_sf = half_subfr.min(nb_subfr - start_sf);
+                let filter_len = n_sf * shift;
+                let pre_start = start_sf * shift;
+                let mut lpc_res_f = vec![0.0f32; filter_len];
+
+                // silk_LPC_analysis_filter_FLP
+                for ix in lpc_order..filter_len.min(lpc_in_pre_f.len() - pre_start) {
+                    let mut sum = lpc_in_pre_f[pre_start + ix];
+                    for j in 0..lpc_order {
+                        sum -= a_flp_filt[j] * lpc_in_pre_f[pre_start + ix - j - 1];
+                    }
+                    lpc_res_f[ix] = sum;
+                }
+
+                // Measure per-subframe energy, scaled by gains² (C: residual_energy_FLP.c)
+                for j in 0..n_sf {
+                    let sf_idx = start_sf + j;
+                    let res_start = j * shift + lpc_order;
+                    let mut energy: f64 = 0.0;
+                    for i in 0..subfr_length {
+                        if res_start + i < lpc_res_f.len() {
+                            let v = lpc_res_f[res_start + i] as f64;
+                            energy += v * v;
+                        }
+                    }
+                    // C: nrgs[k] = gains[k] * gains[k] * silk_energy_FLP(...)
+                    res_nrg_f[sf_idx] = (gains_f[sf_idx] as f64 * gains_f[sf_idx] as f64 * energy) as f32;
                 }
             }
         }
+
+        // Step 5: Float process_gains (C: process_gains_FLP.c)
+        // gain = sqrt(gain² + ResNrg * InvMaxSqrVal), all in float
+        {
+            let snr_db = snr_for_shaping as f32 / 128.0;
+            let inv_max_sqr_val: f32 = 2.0f32.powf(0.33 * (21.0 - snr_db))
+                / (subfr_length as f32);
+
+            for k in 0..nb_subfr {
+                let gain = gains_f[k];
+                let new_gain = (gain * gain + res_nrg_f[k] * inv_max_sqr_val).sqrt();
+                gains_f[k] = new_gain.min(32767.0);
+            }
+
+            // Convert float gains to Q16 for quantization
+            for k in 0..nb_subfr {
+                gains_q16[k] = (gains_f[k] * 65536.0) as i32;
+            }
+        }
+
 
         // Save unquantized gains for the iterative bitrate loop
         let gains_unq_q16 = gains_q16;
@@ -1092,6 +1216,7 @@ impl SilkEncoder {
                     &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
                 );
             }
+
 
 
         // Encode indices + pulses

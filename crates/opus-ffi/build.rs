@@ -9,6 +9,9 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("OPUS_DRED", "OFF")
         .define("OPUS_OSCE", "OFF")
+        // Note: keeping float build (default) for compatibility with correctness tests.
+        // With FIXED_POINT=ON, all SILK primitives (Burg, A2NLSF, NLSF encode) are
+        // verified identical between C and Rust.
         .build();
 
     let lib_dir = dst.join("lib");

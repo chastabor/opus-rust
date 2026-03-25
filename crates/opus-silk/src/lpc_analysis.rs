@@ -642,3 +642,183 @@ pub fn silk_burg_modified(
         *res_nrg_q = -rshifts;
     }
 }
+
+// ---- Float Burg's Modified Algorithm (port of silk/float/burg_modified_FLP.c) ----
+
+const FIND_LPC_COND_FAC: f64 = 1e-5;
+
+/// Float-point Burg's modified algorithm for LPC analysis.
+/// Port of silk/float/burg_modified_FLP.c — matches the C reference's
+/// default (non-FIXED_POINT) encoder path.
+///
+/// Returns residual energy as f32. Output coefficients `a` are f32.
+/// Internally uses f64 for all accumulation (matching C's `double`).
+pub fn silk_burg_modified_flp(
+    a: &mut [f32],               // O: prediction coefficients [D]
+    x: &[f32],                   // I: input signal [nb_subfr * subfr_length]
+    min_inv_gain: f32,           // I: minimum inverse prediction gain
+    subfr_length: usize,         // I: subframe length (incl. D preceding samples)
+    nb_subfr: usize,             // I: number of subframes
+    d: usize,                    // I: LPC order
+) -> f32 {
+    let mut c_first_row = [0.0f64; SILK_MAX_ORDER_LPC];
+    let mut c_last_row = [0.0f64; SILK_MAX_ORDER_LPC];
+    let mut af = [0.0f64; SILK_MAX_ORDER_LPC];
+    let mut caf = [0.0f64; SILK_MAX_ORDER_LPC + 1];
+    let mut cab = [0.0f64; SILK_MAX_ORDER_LPC + 1];
+
+    // Compute total energy C0
+    let mut c0: f64 = 0.0;
+    let total_len = nb_subfr * subfr_length;
+    for i in 0..total_len.min(x.len()) {
+        c0 += (x[i] as f64) * (x[i] as f64);
+    }
+
+    // Compute initial cross-correlations
+    for s in 0..nb_subfr {
+        let x_ptr = &x[s * subfr_length..];
+        for n in 1..=d {
+            let len = subfr_length.saturating_sub(n);
+            let mut acc: f64 = 0.0;
+            for i in 0..len.min(x_ptr.len().saturating_sub(n)) {
+                acc += (x_ptr[i] as f64) * (x_ptr[i + n] as f64);
+            }
+            c_first_row[n - 1] += acc;
+        }
+    }
+    c_last_row[..d].copy_from_slice(&c_first_row[..d]);
+
+    // Initialize CAf[0], CAb[0] with conditioning factor
+    caf[0] = c0 + FIND_LPC_COND_FAC * c0 + 1e-9;
+    cab[0] = caf[0];
+
+    let mut inv_gain: f64 = 1.0;
+    let min_inv_gain_f64 = min_inv_gain as f64;
+    let mut reached_max_gain = false;
+
+    for n in 0..d {
+        // Update correlation rows and CAf/CAb
+        for s in 0..nb_subfr {
+            let x_ptr = &x[s * subfr_length..];
+            if n < x_ptr.len() && subfr_length > n {
+                let mut tmp1 = x_ptr[n] as f64;
+                let mut tmp2 = if subfr_length - n - 1 < x_ptr.len() {
+                    x_ptr[subfr_length - n - 1] as f64
+                } else { 0.0 };
+
+                for k in 0..n {
+                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                        c_first_row[k] -= (x_ptr[n] as f64) * (x_ptr[n - k - 1] as f64);
+                    }
+                    if subfr_length > n && subfr_length - n + k < x_ptr.len() {
+                        c_last_row[k] -= (x_ptr[subfr_length - n - 1] as f64)
+                            * (x_ptr[subfr_length - n + k] as f64);
+                    }
+                    let atmp = af[k];
+                    if n >= k + 1 && n - k - 1 < x_ptr.len() {
+                        tmp1 += (x_ptr[n - k - 1] as f64) * atmp;
+                    }
+                    if subfr_length > n && subfr_length - n + k < x_ptr.len() {
+                        tmp2 += (x_ptr[subfr_length - n + k] as f64) * atmp;
+                    }
+                }
+                for k in 0..=n {
+                    if n >= k && n - k < x_ptr.len() {
+                        caf[k] -= tmp1 * (x_ptr[n - k] as f64);
+                    }
+                    if subfr_length > n && subfr_length - n + k >= 1
+                        && subfr_length - n + k - 1 < x_ptr.len()
+                    {
+                        cab[k] -= tmp2 * (x_ptr[subfr_length - n + k - 1] as f64);
+                    }
+                }
+            }
+        }
+
+        // Calculate reflection coefficient
+        let mut tmp1 = c_first_row[n];
+        let mut tmp2 = c_last_row[n];
+        let mut num: f64 = 0.0;
+        let mut nrg_b: f64 = cab[0];
+        let mut nrg_f: f64 = caf[0];
+        for k in 0..n {
+            let atmp = af[k];
+            tmp1 += c_last_row[n - k - 1] * atmp;
+            tmp2 += c_first_row[n - k - 1] * atmp;
+            num += cab[n - k] * atmp;
+            nrg_b += cab[k + 1] * atmp;
+            nrg_f += caf[k + 1] * atmp;
+        }
+        caf[n + 1] = tmp1;
+        cab[n + 1] = tmp2;
+
+        let mut rc = -2.0 * (num + cab[n + 1]) / (nrg_f + nrg_b);
+
+        // Update inverse prediction gain
+        let tmp1_gain = inv_gain * (1.0 - rc * rc);
+        if tmp1_gain <= min_inv_gain_f64 {
+            // Max prediction gain exceeded
+            rc = (1.0 - min_inv_gain_f64 / inv_gain).sqrt();
+            if num + cab[n + 1] > 0.0 {
+                rc = -rc;
+            }
+            inv_gain = min_inv_gain_f64;
+            reached_max_gain = true;
+        } else {
+            inv_gain = tmp1_gain;
+        }
+
+        // Update AR coefficients
+        for k in 0..((n + 1) >> 1) {
+            let t1 = af[k];
+            let t2 = af[n - k - 1];
+            af[k] = t1 + rc * t2;
+            af[n - k - 1] = t2 + rc * t1;
+        }
+        af[n] = rc;
+
+        if reached_max_gain {
+            for k in (n + 1)..d {
+                af[k] = 0.0;
+            }
+            break;
+        }
+
+        // Update CAf and CAb
+        for k in 0..=(n + 1) {
+            let t1 = caf[k];
+            caf[k] += rc * cab[n + 1 - k];
+            cab[n + 1 - k] += rc * t1;
+        }
+    }
+
+    // Output coefficients and residual energy
+    let nrg_f;
+    if reached_max_gain {
+        for k in 0..d {
+            a[k] = -af[k] as f32;
+        }
+        let mut c0_adj = c0;
+        for s in 0..nb_subfr {
+            let x_ptr = &x[s * subfr_length..];
+            let mut e: f64 = 0.0;
+            for i in 0..d.min(x_ptr.len()) {
+                e += (x_ptr[i] as f64) * (x_ptr[i] as f64);
+            }
+            c0_adj -= e;
+        }
+        nrg_f = c0_adj * inv_gain;
+    } else {
+        let mut nrg = caf[0];
+        let mut tmp1_sum = 1.0f64;
+        for k in 0..d {
+            let atmp = af[k];
+            nrg += caf[k + 1] * atmp;
+            tmp1_sum += atmp * atmp;
+            a[k] = -atmp as f32;
+        }
+        nrg_f = nrg - FIND_LPC_COND_FAC * c0 * tmp1_sum;
+    }
+
+    nrg_f as f32
+}

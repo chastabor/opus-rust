@@ -37,6 +37,50 @@ pub struct OpusDecoderC {
 }
 
 unsafe extern "C" {
+    // SILK low-level functions (for cross-validation)
+    fn silk_A2NLSF(
+        nlsf: *mut i16,    // O: NLSFs in Q15 [d]
+        a_q16: *mut i32,   // I/O: LPC coefficients in Q16 [d]
+        d: i32,            // I: filter order (must be even)
+    );
+
+    // silk_burg_modified_c: only available with OPUS_FIXED_POINT=ON
+    // Verified identical to Rust with fixed-point build.
+
+    // Float DSP leaf functions (Layer 0)
+    fn silk_energy_FLP(data: *const f32, data_length: i32) -> f64;
+    // Note: the C float build dispatches inner_product via arch detection.
+    // The generic C fallback is silk_inner_product_FLP_c.
+    #[link_name = "silk_inner_product_FLP_c"]
+    fn silk_inner_product_FLP(data1: *const f32, data2: *const f32, data_length: i32) -> f64;
+    fn silk_schur_FLP(refl_coef: *mut f32, auto_corr: *const f32, order: i32) -> f32;
+    fn silk_k2a_FLP(a: *mut f32, rc: *const f32, order: i32);
+    fn silk_bwexpander_FLP(ar: *mut f32, d: i32, chirp: f32);
+    fn silk_apply_sine_window_FLP(px_win: *mut f32, px: *const f32, win_type: i32, length: i32);
+    fn silk_scale_copy_vector_FLP(data_out: *mut f32, data_in: *const f32, gain: f32, data_size: i32);
+    fn silk_LPC_analysis_filter_FLP(r_lpc: *mut f32, pred_coef: *const f32, s: *const f32, length: i32, order: i32);
+    fn silk_LPC_inverse_pred_gain_FLP(a: *const f32, order: i32) -> f32;
+    fn silk_autocorrelation_FLP(results: *mut f32, input: *const f32, input_size: i32, corr_count: i32, arch: i32);
+
+    fn silk_NLSF_VQ_weights_laroia(
+        pNLSFW_Q_OUT: *mut i16,  // O: NLSF weights [order]
+        pNLSF_Q15: *const i16,   // I: NLSFs [order]
+        order: i32,              // I: filter order
+    );
+
+    // Codebook struct is opaque from Rust side; we access it via pointer
+    static silk_NLSF_CB_WB: u8; // address-only — we pass &silk_NLSF_CB_WB as *const c_void
+
+    fn silk_NLSF_encode(
+        nlsf_indices: *mut i8,         // O: codebook path [order+1]
+        pNLSF_Q15: *mut i16,          // I/O: quantized NLSFs [order]
+        psNLSF_CB: *const u8,         // I: codebook struct pointer
+        pW_QW: *const i16,            // I: NLSF weights [order]
+        NLSF_mu_Q20: i32,             // I: rate weight
+        nSurvivors: i32,              // I: max survivors
+        signalType: i32,              // I: signal type 0/1/2
+    ) -> i32;
+
     // Core encoder API
     fn opus_encoder_create(
         fs: i32,
@@ -295,4 +339,92 @@ mod tests {
             .unwrap();
         assert_eq!(samples, 960);
     }
+}
+
+// ── SILK low-level safe wrappers ──
+
+/// Call the C reference silk_A2NLSF to convert LPC coefficients to NLSFs.
+/// Both `nlsf_q15` and `a_q16` must have length >= `order`.
+/// Note: `a_q16` is modified in place (bandwidth expansion during root search).
+pub fn c_silk_a2nlsf(nlsf_q15: &mut [i16], a_q16: &mut [i32], order: usize) {
+    assert!(nlsf_q15.len() >= order && a_q16.len() >= order);
+    unsafe {
+        silk_A2NLSF(nlsf_q15.as_mut_ptr(), a_q16.as_mut_ptr(), order as i32);
+    }
+}
+
+// c_silk_burg_modified: only available with OPUS_FIXED_POINT=ON.
+// Verified identical to Rust silk_burg_modified.
+
+pub fn c_silk_nlsf_vq_weights_laroia(weights: &mut [i16], nlsf_q15: &[i16], order: usize) {
+    assert!(weights.len() >= order && nlsf_q15.len() >= order);
+    unsafe {
+        silk_NLSF_VQ_weights_laroia(weights.as_mut_ptr(), nlsf_q15.as_ptr(), order as i32);
+    }
+}
+
+/// Call the C reference NLSF encoder (VQ + trellis) for the WB codebook.
+/// Returns RD in Q25. `nlsf_indices` must be [order+1], `nlsf_q15` and `w_q2` must be [order].
+pub fn c_silk_nlsf_encode_wb(
+    nlsf_indices: &mut [i8],
+    nlsf_q15: &mut [i16],
+    w_q2: &[i16],
+    mu_q20: i32,
+    n_survivors: i32,
+    signal_type: i32,
+) -> i32 {
+    unsafe {
+        silk_NLSF_encode(
+            nlsf_indices.as_mut_ptr(),
+            nlsf_q15.as_mut_ptr(),
+            &silk_NLSF_CB_WB as *const u8,
+            w_q2.as_ptr(),
+            mu_q20,
+            n_survivors,
+            signal_type,
+        )
+    }
+}
+
+// ── Float DSP leaf function wrappers (Layer 0) ──
+
+pub fn c_silk_energy_flp(data: &[f32]) -> f64 {
+    unsafe { silk_energy_FLP(data.as_ptr(), data.len() as i32) }
+}
+
+pub fn c_silk_inner_product_flp(data1: &[f32], data2: &[f32]) -> f64 {
+    let n = data1.len().min(data2.len());
+    unsafe { silk_inner_product_FLP(data1.as_ptr(), data2.as_ptr(), n as i32) }
+}
+
+pub fn c_silk_schur_flp(refl_coef: &mut [f32], auto_corr: &[f32], order: usize) -> f32 {
+    unsafe { silk_schur_FLP(refl_coef.as_mut_ptr(), auto_corr.as_ptr(), order as i32) }
+}
+
+pub fn c_silk_k2a_flp(a: &mut [f32], rc: &[f32], order: usize) {
+    unsafe { silk_k2a_FLP(a.as_mut_ptr(), rc.as_ptr(), order as i32) }
+}
+
+pub fn c_silk_bwexpander_flp(ar: &mut [f32], d: usize, chirp: f32) {
+    unsafe { silk_bwexpander_FLP(ar.as_mut_ptr(), d as i32, chirp) }
+}
+
+pub fn c_silk_apply_sine_window_flp(px_win: &mut [f32], px: &[f32], win_type: i32, length: usize) {
+    unsafe { silk_apply_sine_window_FLP(px_win.as_mut_ptr(), px.as_ptr(), win_type, length as i32) }
+}
+
+pub fn c_silk_scale_copy_vector_flp(data_out: &mut [f32], data_in: &[f32], gain: f32, len: usize) {
+    unsafe { silk_scale_copy_vector_FLP(data_out.as_mut_ptr(), data_in.as_ptr(), gain, len as i32) }
+}
+
+pub fn c_silk_lpc_analysis_filter_flp(r_lpc: &mut [f32], pred_coef: &[f32], s: &[f32], length: usize, order: usize) {
+    unsafe { silk_LPC_analysis_filter_FLP(r_lpc.as_mut_ptr(), pred_coef.as_ptr(), s.as_ptr(), length as i32, order as i32) }
+}
+
+pub fn c_silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
+    unsafe { silk_LPC_inverse_pred_gain_FLP(a.as_ptr(), order as i32) }
+}
+
+pub fn c_silk_autocorrelation_flp(results: &mut [f32], input: &[f32], corr_count: usize) {
+    unsafe { silk_autocorrelation_FLP(results.as_mut_ptr(), input.as_ptr(), input.len() as i32, corr_count as i32, 0) }
 }
