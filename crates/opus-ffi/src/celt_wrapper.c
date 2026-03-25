@@ -27,6 +27,7 @@
 #include "vq.h"
 #include "rate.h"
 #include "kiss_fft.h"
+#include "quant_bands.h"
 #include "opus_custom.h"
 
 /* ── CELTMode singleton for 48 kHz / 960 ── */
@@ -191,4 +192,72 @@ int wrap_pulses2bits(int band, int LM, int pulses) {
 
 void wrap_init_caps(int *cap, int LM, int C) {
     init_caps(get_celt_mode_48000(), cap, LM, C);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Energy quantization wrappers (CELTMode + ec_enc/ec_dec)
+ * ══════════════════════════════════════════════════════════════════════ */
+
+int wrap_encode_coarse_energy(
+    int start, int end,
+    const float *eBands, float *oldEBands, float *error,
+    unsigned char *ec_buf, int ec_buf_size,
+    int C, int LM, int nbAvailableBytes,
+    int force_intra, int loss_rate, int lfe)
+{
+    ec_enc enc;
+    ec_enc_init(&enc, ec_buf, (opus_uint32)ec_buf_size);
+    CELTMode *mode = get_celt_mode_48000();
+    float delayedIntra = 0;
+    quant_coarse_energy(mode, start, end, end, eBands, oldEBands,
+                        (opus_uint32)(ec_buf_size * 8), error, &enc, C, LM,
+                        nbAvailableBytes, force_intra, &delayedIntra,
+                        1 /* two_pass */, loss_rate, lfe);
+    ec_enc_done(&enc);
+    return ec_range_bytes(&enc);
+}
+
+void wrap_decode_coarse_energy(
+    int start, int end,
+    float *oldEBands,
+    const unsigned char *ec_buf, int ec_bytes,
+    int C, int LM)
+{
+    ec_dec dec;
+    ec_dec_init(&dec, (unsigned char *)ec_buf, (opus_uint32)ec_bytes);
+    CELTMode *mode = get_celt_mode_48000();
+    int intra = ec_dec_bit_logp(&dec, 3);
+    unquant_coarse_energy(mode, start, end, oldEBands, intra, &dec, C, LM);
+}
+
+int wrap_encode_fine_energy(
+    int start, int end,
+    float *oldEBands, float *error,
+    const int *fine_quant,
+    unsigned char *ec_buf, int ec_buf_size,
+    int C)
+{
+    ec_enc enc;
+    ec_enc_init(&enc, ec_buf, (opus_uint32)ec_buf_size);
+    CELTMode *mode = get_celt_mode_48000();
+    int extra_quant[25] = {0};
+    quant_fine_energy(mode, start, end, oldEBands, error,
+                      (int *)fine_quant, extra_quant, &enc, C);
+    ec_enc_done(&enc);
+    return ec_range_bytes(&enc);
+}
+
+void wrap_decode_fine_energy(
+    int start, int end,
+    float *oldEBands,
+    const int *fine_quant,
+    const unsigned char *ec_buf, int ec_bytes,
+    int C)
+{
+    ec_dec dec;
+    ec_dec_init(&dec, (unsigned char *)ec_buf, (opus_uint32)ec_bytes);
+    CELTMode *mode = get_celt_mode_48000();
+    int extra_quant[25] = {0};
+    unquant_fine_energy(mode, start, end, oldEBands,
+                        (int *)fine_quant, extra_quant, &dec, C);
 }

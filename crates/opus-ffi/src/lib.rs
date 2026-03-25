@@ -771,6 +771,38 @@ unsafe extern "C" {
     fn wrap_bits2pulses(band: i32, lm: i32, bits: i32) -> i32;
     fn wrap_pulses2bits(band: i32, lm: i32, pulses: i32) -> i32;
     fn wrap_init_caps(cap: *mut i32, lm: i32, c: i32);
+
+    // Energy quantization (CELTMode + ec_enc/ec_dec)
+    fn wrap_encode_coarse_energy(
+        start: i32, end: i32,
+        e_bands: *const f32, old_band_e: *mut f32, error: *mut f32,
+        ec_buf: *mut u8, ec_buf_size: i32,
+        c: i32, lm: i32, nb_available_bytes: i32,
+        force_intra: i32, loss_rate: i32, lfe: i32,
+    ) -> i32;
+
+    fn wrap_decode_coarse_energy(
+        start: i32, end: i32,
+        old_band_e: *mut f32,
+        ec_buf: *const u8, ec_bytes: i32,
+        c: i32, lm: i32,
+    );
+
+    fn wrap_encode_fine_energy(
+        start: i32, end: i32,
+        old_band_e: *mut f32, error: *mut f32,
+        fine_quant: *const i32,
+        ec_buf: *mut u8, ec_buf_size: i32,
+        c: i32,
+    ) -> i32;
+
+    fn wrap_decode_fine_energy(
+        start: i32, end: i32,
+        old_band_e: *mut f32,
+        fine_quant: *const i32,
+        ec_buf: *const u8, ec_bytes: i32,
+        c: i32,
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -992,4 +1024,82 @@ pub fn c_pulses2bits(band: usize, lm: usize, pulses: i32) -> i32 {
 
 pub fn c_init_caps(cap: &mut [i32], lm: usize, c: usize) {
     unsafe { wrap_init_caps(cap.as_mut_ptr(), lm as i32, c as i32) }
+}
+
+// ── Energy quantization ──
+
+/// Encode coarse energy with C reference. Returns number of encoded bytes.
+pub fn c_encode_coarse_energy(
+    start: usize, end: usize,
+    e_bands: &[f32], old_band_e: &mut [f32], error: &mut [f32],
+    ec_buf: &mut [u8],
+    c: usize, lm: usize, nb_available_bytes: usize,
+    force_intra: bool, loss_rate: i32, lfe: bool,
+) -> usize {
+    let ret = unsafe {
+        wrap_encode_coarse_energy(
+            start as i32, end as i32,
+            e_bands.as_ptr(), old_band_e.as_mut_ptr(), error.as_mut_ptr(),
+            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
+            c as i32, lm as i32, nb_available_bytes as i32,
+            force_intra as i32, loss_rate, lfe as i32,
+        )
+    };
+    ret as usize
+}
+
+/// Decode coarse energy with C reference (reads intra flag from bitstream).
+pub fn c_decode_coarse_energy(
+    start: usize, end: usize,
+    old_band_e: &mut [f32],
+    ec_buf: &[u8],
+    c: usize, lm: usize,
+) {
+    unsafe {
+        wrap_decode_coarse_energy(
+            start as i32, end as i32,
+            old_band_e.as_mut_ptr(),
+            ec_buf.as_ptr(), ec_buf.len() as i32,
+            c as i32, lm as i32,
+        )
+    }
+}
+
+/// Encode fine energy with C reference. Returns number of encoded bytes.
+pub fn c_encode_fine_energy(
+    start: usize, end: usize,
+    old_band_e: &mut [f32], error: &mut [f32],
+    fine_quant: &[i32],
+    ec_buf: &mut [u8],
+    c: usize,
+) -> usize {
+    let ret = unsafe {
+        wrap_encode_fine_energy(
+            start as i32, end as i32,
+            old_band_e.as_mut_ptr(), error.as_mut_ptr(),
+            fine_quant.as_ptr(),
+            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
+            c as i32,
+        )
+    };
+    ret as usize
+}
+
+/// Decode fine energy with C reference.
+pub fn c_decode_fine_energy(
+    start: usize, end: usize,
+    old_band_e: &mut [f32],
+    fine_quant: &[i32],
+    ec_buf: &[u8],
+    c: usize,
+) {
+    unsafe {
+        wrap_decode_fine_energy(
+            start as i32, end as i32,
+            old_band_e.as_mut_ptr(),
+            fine_quant.as_ptr(),
+            ec_buf.as_ptr(), ec_buf.len() as i32,
+            c as i32,
+        )
+    }
 }
