@@ -47,8 +47,9 @@ pub fn silk_find_lpc_flp(
 
         // Search over interpolation indices
         let mut res_nrg_2nd = f32::MAX;
+        const MAX_FILTER_LEN: usize = 2 * (MAX_LPC_ORDER + crate::MAX_SUB_FRAME_LENGTH);
         let filter_len = 2 * subfr_length_with_d;
-        let mut lpc_res = vec![0.0f32; filter_len];
+        let mut lpc_res = [0.0f32; MAX_FILTER_LEN];
 
         for k in (0..=3i32).rev() {
             // Interpolate NLSFs for first half
@@ -94,5 +95,3 @@ pub fn silk_find_lpc_flp(
     }
 }
 
-// Helper: silk_interpolate matching C silk_interpolate for i16 arrays
-// (Already exists in crate as a general utility but let's make sure it's available)

@@ -228,7 +228,7 @@ pub fn silk_nsq_wrapper_flp(
 
     // Convert input signal: float → i16
     let frame_len = frame_length as usize;
-    let mut x16 = vec![0i16; frame_len];
+    let mut x16 = [0i16; MAX_FRAME_LENGTH];
     for i in 0..frame_len {
         x16[i] = float2int(x[i]).clamp(-32768, 32767) as i16;
     }

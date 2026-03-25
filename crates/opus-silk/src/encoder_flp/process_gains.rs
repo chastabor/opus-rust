@@ -48,7 +48,7 @@ pub fn silk_process_gains_flp(
     // Limit the quantized signal
     // InvMaxSqrVal = pow(2, 0.33 * (21 - SNR_dB)) / subfr_length
     let snr_db = snr_db_q7 as f32 / 128.0;
-    let inv_max_sqr_val = 2.0f32.powf(0.33 * (21.0 - snr_db)) / subfr_length as f32;
+    let inv_max_sqr_val = (0.33f32 * (21.0 - snr_db)).exp2() / subfr_length as f32;
 
     for k in 0..nb_subfr {
         let gain = gains[k];

@@ -5,7 +5,7 @@ use crate::*;
 use crate::nsq::NsqState;
 use crate::vad;
 
-const LA_SHAPE_MS: usize = 5;
+use crate::LA_SHAPE_MS;
 const MAX_SILK_X_BUF: usize = 2 * MAX_FRAME_LENGTH + LA_SHAPE_MS * MAX_FS_KHZ;
 
 /// Persistent state for the float SILK encoder (one per channel).
@@ -16,9 +16,9 @@ pub struct SilkEncoderStateFlp {
     pub frame_length: i32,
     pub subfr_length: i32,
     pub ltp_mem_length: i32,
-    pub la_shape: i32,
     pub predict_lpc_order: i32,
     pub shaping_lpc_order: i32,
+    pub shape_win_length: i32,
     pub warping_q16: i32,
     pub nlsf_cb_sel: NlsfCbSel,
 
@@ -67,9 +67,9 @@ impl SilkEncoderStateFlp {
             frame_length: 0,
             subfr_length: 0,
             ltp_mem_length: 0,
-            la_shape: 0,
             predict_lpc_order: 0,
             shaping_lpc_order: 0,
+            shape_win_length: 0,
             warping_q16: 0,
             nlsf_cb_sel: NlsfCbSel::NbMb,
             x_buf: vec![0.0; MAX_SILK_X_BUF],
@@ -108,7 +108,9 @@ impl SilkEncoderStateFlp {
         self.subfr_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz;
         self.frame_length = self.nb_subfr * self.subfr_length;
         self.ltp_mem_length = LTP_MEM_LENGTH_MS as i32 * fs_khz;
-        self.la_shape = LA_SHAPE_MS as i32 * fs_khz;
+        // C: shapeWinLength = SUB_FRAME_LENGTH_MS * fs_kHz + 2 * la_shape
+        let la_shape = LA_SHAPE_MS as i32 * fs_khz;
+        self.shape_win_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz + 2 * la_shape;
 
         if fs_khz <= 12 {
             self.predict_lpc_order = MIN_LPC_ORDER as i32;

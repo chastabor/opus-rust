@@ -8,9 +8,8 @@ use super::wrappers::silk_process_nlsfs_flp;
 use super::residual_energy::silk_residual_energy_flp;
 use crate::*;
 
-/// Maximum prediction power gain constants (silk/define.h)
-const MAX_PREDICTION_POWER_GAIN: f32 = 1e4;
-const MAX_PREDICTION_POWER_GAIN_AFTER_RESET: f32 = 1e2;
+use crate::MAX_PREDICTION_POWER_GAIN;
+const MAX_PREDICTION_POWER_GAIN_AFTER_RESET: f32 = 1e2; // silk/define.h
 
 /// Float prediction coefficient analysis (unvoiced path only for now).
 ///
@@ -57,8 +56,9 @@ pub fn silk_find_pred_coefs_flp(
     // C: silk_scale_copy_vector_FLP(x_pre_ptr, x_ptr, invGains[i], ...)
     // x points to x_frame which has la_shape lookback before the actual frame.
     // In the C code: x_ptr = x - predictLPCOrder, advancing by subfr_length per subframe.
-    let lpc_pre_len = nb_subfr * burg_subfr;
-    let mut lpc_in_pre = vec![0.0f32; lpc_pre_len];
+    // Stack-allocated: max 4 * (16+80) = 384 floats = 1536 bytes
+    const MAX_LPC_PRE_LEN: usize = MAX_NB_SUBFR * (MAX_LPC_ORDER + crate::MAX_SUB_FRAME_LENGTH);
+    let mut lpc_in_pre = [0.0f32; MAX_LPC_PRE_LEN];
     {
         let mut pre_idx = 0usize;
         // x layout: [... la_shape lookback ... | frame data ...]
@@ -86,7 +86,7 @@ pub fn silk_find_pred_coefs_flp(
     let min_inv_gain = if first_frame_after_reset {
         1.0 / MAX_PREDICTION_POWER_GAIN_AFTER_RESET
     } else {
-        let base = 2.0f32.powf(ltp_pred_cod_gain / 3.0) / MAX_PREDICTION_POWER_GAIN;
+        let base = (ltp_pred_cod_gain / 3.0).exp2() / MAX_PREDICTION_POWER_GAIN;
         base / (0.25 + 0.75 * coding_quality)
     };
 

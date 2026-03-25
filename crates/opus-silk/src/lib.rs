@@ -63,6 +63,9 @@ pub const MAX_FRAMES_PER_PACKET: usize = 3;
 pub const MAX_FS_KHZ: usize = 16;
 pub const MAX_API_FS_KHZ: usize = 48;
 
+/// Look-ahead for noise shape analysis (silk/define.h)
+pub const LA_SHAPE_MS: usize = 5;
+
 // Signal types
 pub const TYPE_NO_VOICE_ACTIVITY: i32 = 0;
 pub const TYPE_UNVOICED: i32 = 1;

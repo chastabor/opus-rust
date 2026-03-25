@@ -2,11 +2,9 @@
 // Each function is a faithful port of the corresponding silk/float/*.c file.
 // All functions are stateless and operate on f32 slices.
 
-use crate::MAX_LPC_ORDER;
-
 // The Schur and LPC functions need to handle both predict_lpc_order (<=16)
 // and shaping_lpc_order (<=24). Use 24 as the max.
-const SILK_MAX_ORDER_LPC: usize = 24; // MAX_SHAPE_LPC_ORDER
+const SILK_MAX_ORDER_LPC: usize = crate::nsq::MAX_SHAPE_LPC_ORDER;
 
 // ---- energy_FLP.c ----
 
@@ -229,7 +227,7 @@ pub fn silk_lpc_analysis_filter_flp(
 /// Compute inverse prediction gain from LPC coefficients.
 /// Returns 0.0 if the filter is unstable.
 pub fn silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
-    const MAX_PREDICTION_POWER_GAIN: f64 = 1e4;
+    const MAX_PRED_POWER_GAIN: f64 = crate::MAX_PREDICTION_POWER_GAIN as f64;
 
     let mut atmp = [0.0f32; SILK_MAX_ORDER_LPC];
     atmp[..order].copy_from_slice(&a[..order]);
@@ -239,7 +237,7 @@ pub fn silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
         let rc = -(atmp[k] as f64);
         let rc_mult1 = 1.0 - rc * rc;
         inv_gain *= rc_mult1;
-        if inv_gain * MAX_PREDICTION_POWER_GAIN < 1.0 {
+        if inv_gain * MAX_PRED_POWER_GAIN < 1.0 {
             return 0.0;
         }
         let rc_mult2 = 1.0 / rc_mult1;
@@ -253,7 +251,7 @@ pub fn silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
     let rc = -(atmp[0] as f64);
     let rc_mult1 = 1.0 - rc * rc;
     inv_gain *= rc_mult1;
-    if inv_gain * MAX_PREDICTION_POWER_GAIN < 1.0 {
+    if inv_gain * MAX_PRED_POWER_GAIN < 1.0 {
         return 0.0;
     }
     inv_gain as f32

@@ -15,10 +15,9 @@ use crate::nsq::{self, NsqState, MAX_SHAPE_LPC_ORDER};
 use crate::nsq_del_dec;
 use crate::vad;
 use crate::noise_shape_analysis;
-use crate::signal_processing::silk_sigm_q15;
-use crate::nlsf::silk_lpc_analysis_filter;
 
 /// Fixed-point division with variable Q shift: (a << q_shift) / b
+#[allow(dead_code)]
 fn silk_div32_varq(a: i32, b: i32, q_shift: i32) -> i32 {
     (((a as i64) << q_shift as u32) / b.max(1) as i64) as i32
 }

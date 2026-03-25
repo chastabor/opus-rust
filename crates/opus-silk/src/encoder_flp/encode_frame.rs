@@ -12,7 +12,7 @@ use crate::nsq::NsqState;
 use crate::encode_indices;
 use crate::encode_pulses;
 
-const LA_SHAPE_MS: usize = 5;
+use crate::LA_SHAPE_MS;
 
 /// Encode one SILK frame using the float analysis pipeline.
 ///
@@ -45,6 +45,7 @@ pub fn silk_encode_frame_flp(
     ltp_mem_length: i32,
     predict_lpc_order: i32,
     shaping_lpc_order: i32,
+    shape_win_length: i32,
     warping_q16: i32,
     complexity: i32,
     nlsf_cb: &NlsfCbStruct,
@@ -82,23 +83,36 @@ pub fn silk_encode_frame_flp(
     indices.quant_offset_type = 1; // unvoiced default
 
     // ---- Step 3: Noise shape analysis ----
+    // C: x_frame = x_buf + ltp_mem_length. noise_shape receives x_frame and accesses
+    // x - la_shape internally. We pass x starting at x_frame (= x_buf + ltp_mem).
     let x_frame = &x_buf[x_frame_offset..];
+
+    // For unvoiced, pitch_res = input signal (C uses LPC residual from pitch analysis)
+    // Convert the frame portion to float for the sparseness measure
+    let pitch_res_start = la_shape;
+    let pitch_res_end = (la_shape + frame_len).min(x_frame.len());
+    let pitch_res = &x_frame[pitch_res_start..pitch_res_end];
+
     let ns_result = silk_noise_shape_analysis_flp(
-        x_frame,
-        &pitch_lags,
-        false, // unvoiced
+        x_frame,                       // signal with la_shape lookback
+        pitch_res,                     // pitch residual (= input for unvoiced)
+        &pitch_lags,                   // pitch lags per subframe
+        indices.signal_type as i32,    // signal type
         snr_db_q7,
         speech_activity_q8,
         input_quality_bands_q15,
-        input_tilt_q15,
+        0.0,                           // ltp_corr (0 for unvoiced)
+        0.0,                           // pred_gain (0 before pitch analysis)
+        false,                         // use_cbr
+        la_shape,
         fs_khz,
         nb,
         sfr_len,
-        shaping_order,
+        shape_win_length as usize,     // shapeWinLength
+        shaping_order,                 // shapingLPCOrder
         warping_q16,
         prev_harm_smth,
         prev_tilt_smth,
-        0.0, // ltp_corr (0 for unvoiced)
     );
 
     // ---- Step 4: Find prediction coefficients ----

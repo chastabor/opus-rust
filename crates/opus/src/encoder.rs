@@ -595,11 +595,10 @@ impl OpusEncoder {
                     fs_khz, self.silk_flp.nb_subfr, silk_bitrate,
                 );
 
-                // Apply HP filter (VOIP mode)
-                let mut input_hp = pcm_i16[..silk_samples].to_vec();
+                // Apply HP filter in-place (VOIP mode) — pcm_i16 is already a clone
                 if self.application == OPUS_APPLICATION_VOIP {
                     let cutoff_hz = opus_silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
-                    self.hp_filter_i16(&mut input_hp, cutoff_hz);
+                    self.hp_filter_i16(&mut pcm_i16[..silk_samples], cutoff_hz);
                 }
 
                 // Write VAD flag and LBRR flag
@@ -625,7 +624,7 @@ impl OpusEncoder {
                     &sf.input_quality_bands_q15,
                     sf.input_tilt_q15,
                     snr_db_q7,
-                    &input_hp,
+                    &pcm_i16[..silk_samples],
                     fs_khz,
                     sf.nb_subfr,
                     sf.subfr_length,
@@ -633,6 +632,7 @@ impl OpusEncoder {
                     sf.ltp_mem_length,
                     sf.predict_lpc_order,
                     sf.shaping_lpc_order,
+                    sf.shape_win_length,
                     sf.warping_q16,
                     self.complexity.min(10),
                     nlsf_cb,
