@@ -1,7 +1,7 @@
 //! Cross-validation tests: decode the same packets with both C reference
 //! and our Rust decoder, compare PCM output sample-by-sample.
 
-use opus::{OpusDecoder, OpusMSDecoder};
+use opus::{OpusDecoder, OpusMSDecoder, SampleRate, Channels};
 use std::path::Path;
 
 const VECTORS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors");
@@ -45,7 +45,7 @@ fn read_pcm_f32(path: &Path) -> Vec<f32> {
 
 /// Decode all packets with the Rust decoder, return all decoded PCM frames concatenated.
 fn rust_decode_all(packets: &[Vec<u8>], channels: usize) -> Vec<f32> {
-    let mut dec = OpusDecoder::new(48000, channels as i32).expect("Failed to create decoder");
+    let mut dec = OpusDecoder::new(SampleRate::Hz48000, if channels == 1 { Channels::Mono } else { Channels::Stereo }).expect("Failed to create decoder");
     let mut all_pcm = Vec::new();
     for pkt in packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE * channels];
@@ -289,7 +289,7 @@ fn rust_ms_decode_all(
     coupled_streams: usize,
     mapping: &[u8],
 ) -> Vec<f32> {
-    let mut dec = OpusMSDecoder::new(48000, channels, streams, coupled_streams, mapping)
+    let mut dec = OpusMSDecoder::new(SampleRate::Hz48000, channels, streams, coupled_streams, mapping)
         .expect("Failed to create MS decoder");
     let mut all_pcm = Vec::new();
     for pkt in packets {

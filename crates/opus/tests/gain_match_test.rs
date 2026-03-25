@@ -6,8 +6,7 @@
 mod common;
 
 use common::{gen_sine, rms};
-use opus::decoder::OpusDecoder;
-use opus::encoder::{OpusEncoder, OPUS_APPLICATION_RESTRICTED_LOWDELAY};
+use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const SAMPLE_RATE: i32 = 48000;
@@ -25,14 +24,14 @@ fn gain_match_celt_mode() {
     c_enc.set_bitrate(BITRATE).unwrap();
 
     let mut rust_enc =
-        OpusEncoder::new(SAMPLE_RATE, 1, OPUS_APPLICATION_RESTRICTED_LOWDELAY).unwrap();
-    rust_enc.set_bitrate(BITRATE);
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::RestrictedLowDelay).unwrap();
+    rust_enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
 
     let mut c_dec = COpusDecoder::new(SAMPLE_RATE, 1).unwrap();
-    let mut rust_dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut rust_dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
     // Extra decoders for cross-validation
     let mut c_dec_for_rust = COpusDecoder::new(SAMPLE_RATE, 1).unwrap();
-    let mut rust_dec_for_c = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut rust_dec_for_c = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
     let mut pcm_in = vec![0.0f32; FRAME_SIZE as usize];
     let mut c_pkt = vec![0u8; MAX_PACKET];

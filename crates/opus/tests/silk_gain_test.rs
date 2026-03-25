@@ -4,8 +4,7 @@
 mod common;
 
 use common::rms;
-use opus::decoder::OpusDecoder;
-use opus::encoder::{OpusEncoder, OPUS_APPLICATION_VOIP};
+use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const FRAME_SIZE: i32 = 320; // 20ms at 16kHz
@@ -19,12 +18,12 @@ fn silk_16k_gain_analysis() {
     let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
     c_enc.set_bitrate(bitrate).unwrap();
 
-    let mut rust_enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    rust_enc.set_bitrate(bitrate);
+    let mut rust_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    rust_enc.set_bitrate(Bitrate::BitsPerSecond(bitrate));
 
     let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
-    let mut rust_dec = OpusDecoder::new(fs, 1).unwrap();
-    let mut rust_dec_for_c = OpusDecoder::new(fs, 1).unwrap();
+    let mut rust_dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
+    let mut rust_dec_for_c = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut c_dec_for_rust = COpusDecoder::new(fs, 1).unwrap();
 
     let mut pcm_in = vec![0.0f32; FRAME_SIZE as usize];
@@ -111,9 +110,9 @@ fn silk_16k_gain_analysis() {
 #[test]
 fn test_silk_roundtrip_gain_ratio() {
     let fs = 16000i32;
-    let mut enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(16000);
-    let mut dec = OpusDecoder::new(fs, 1).unwrap();
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(16000));
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
     let mut pkt = vec![0u8; MAX_PACKET];
@@ -145,7 +144,7 @@ fn test_silk_decoder_matches_c_reference() {
     let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
     c_enc.set_bitrate(16000).unwrap();
     let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
-    let mut rust_dec = OpusDecoder::new(fs, 1).unwrap();
+    let mut rust_dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
     let mut pkt = vec![0u8; MAX_PACKET];
@@ -176,8 +175,8 @@ fn test_silk_decoder_matches_c_reference() {
 #[test]
 fn test_silk_packet_size_stability() {
     let fs = 16000i32;
-    let mut enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(16000);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(16000));
 
     let mut pcm = vec![0.0f32; FRAME_SIZE as usize];
     let mut pkt = vec![0u8; MAX_PACKET];

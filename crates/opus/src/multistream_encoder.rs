@@ -2,11 +2,9 @@
 //!
 //! Port of C opus_multistream_encoder.c and related functions.
 
-use crate::encoder::{
-    OpusEncoder, OPUS_APPLICATION_AUDIO, OPUS_APPLICATION_RESTRICTED_LOWDELAY,
-    OPUS_APPLICATION_VOIP,
-};
+use crate::encoder::OpusEncoder;
 use crate::error::OpusError;
+use crate::types::*;
 use crate::multistream::ChannelLayout;
 
 /// Multistream Opus encoder.
@@ -19,7 +17,7 @@ pub struct OpusMSEncoder {
     layout: ChannelLayout,
     encoders: Vec<OpusEncoder>,
     #[allow(dead_code)]
-    application: i32,
+    application: Application,
     fs: i32,
     bitrate_bps: i32,
     /// Index of the LFE stream, or -1 if none.
@@ -39,19 +37,19 @@ impl OpusMSEncoder {
     ///   an input channel to a stream channel index. Indices 0..2*coupled_streams
     ///   map to coupled stream pairs, 2*coupled_streams..2*coupled_streams+(streams-coupled_streams)
     ///   map to mono streams. Index 255 means the channel is muted/ignored.
-    /// - `application`: One of `OPUS_APPLICATION_VOIP`, `OPUS_APPLICATION_AUDIO`,
-    ///   or `OPUS_APPLICATION_RESTRICTED_LOWDELAY`.
+    /// - `application`: The Opus application type.
     ///
     /// The first `coupled_streams` streams encode stereo pairs; the remaining
     /// `streams - coupled_streams` streams encode mono.
     pub fn new(
-        fs: i32,
+        sample_rate: SampleRate,
         channels: usize,
         streams: usize,
         coupled_streams: usize,
         mapping: &[u8],
-        application: i32,
+        application: Application,
     ) -> Result<Self, OpusError> {
+        let fs = i32::from(sample_rate);
         if channels == 0 || channels > 255 {
             return Err(OpusError::BadArg);
         }
@@ -65,15 +63,6 @@ impl OpusMSEncoder {
             return Err(OpusError::BadArg);
         }
         if mapping.len() < channels {
-            return Err(OpusError::BadArg);
-        }
-        if ![
-            OPUS_APPLICATION_VOIP,
-            OPUS_APPLICATION_AUDIO,
-            OPUS_APPLICATION_RESTRICTED_LOWDELAY,
-        ]
-        .contains(&application)
-        {
             return Err(OpusError::BadArg);
         }
 
@@ -92,14 +81,15 @@ impl OpusMSEncoder {
         // Create one encoder per stream
         let mut encoders = Vec::with_capacity(streams);
         for s in 0..streams {
-            let ch = if s < coupled_streams { 2 } else { 1 };
-            let enc = OpusEncoder::new(fs, ch, application)?;
+            let ch = if s < coupled_streams { Channels::Stereo } else { Channels::Mono };
+            let enc = OpusEncoder::new(sample_rate, ch, application)?;
             encoders.push(enc);
         }
 
-        let default_bitrate = match application {
-            OPUS_APPLICATION_VOIP => 20000,
-            _ => 64000,
+        let default_bitrate = if application == Application::Voip {
+            20000
+        } else {
+            64000
         };
         let total_bitrate = default_bitrate * streams as i32;
 
@@ -119,15 +109,15 @@ impl OpusMSEncoder {
     /// Like `new()`, but additionally identifies the LFE stream for special
     /// bitrate treatment.
     pub fn new_surround(
-        fs: i32,
+        sample_rate: SampleRate,
         channels: usize,
         streams: usize,
         coupled_streams: usize,
         mapping: &[u8],
-        application: i32,
+        application: Application,
         lfe_stream: i32,
     ) -> Result<Self, OpusError> {
-        let mut enc = Self::new(fs, channels, streams, coupled_streams, mapping, application)?;
+        let mut enc = Self::new(sample_rate, channels, streams, coupled_streams, mapping, application)?;
         enc.surround = true;
         if lfe_stream >= 0 && (lfe_stream as usize) < streams {
             enc.lfe_stream = lfe_stream;
@@ -280,7 +270,7 @@ impl OpusMSEncoder {
             let stream_channels = if s < nb_coupled { 2 } else { 1 };
 
             // Set the per-stream bitrate
-            self.encoders[s].set_bitrate(rates[s]);
+            self.encoders[s].set_bitrate(Bitrate::BitsPerSecond(rates[s]));
 
             // Gather the input channels for this stream from the interleaved PCM
             let mut stream_pcm = vec![0.0f32; frame_size as usize * stream_channels];
@@ -657,7 +647,7 @@ mod tests {
     #[test]
     fn test_ms_encoder_create_mono() {
         // Mono: 1 channel, 1 stream, 0 coupled
-        let enc = OpusMSEncoder::new(48000, 1, 1, 0, &[0], OPUS_APPLICATION_AUDIO);
+        let enc = OpusMSEncoder::new(SampleRate::Hz48000, 1, 1, 0, &[0], Application::Audio);
         assert!(enc.is_ok(), "Mono encoder creation failed: {:?}", enc.err());
         let enc = enc.unwrap();
         assert_eq!(enc.channels(), 1);
@@ -668,7 +658,7 @@ mod tests {
     #[test]
     fn test_ms_encoder_create_stereo() {
         // Stereo: 2 channels, 1 coupled stream
-        let enc = OpusMSEncoder::new(48000, 2, 1, 1, &[0, 1], OPUS_APPLICATION_AUDIO);
+        let enc = OpusMSEncoder::new(SampleRate::Hz48000, 2, 1, 1, &[0, 1], Application::Audio);
         assert!(enc.is_ok(), "Stereo encoder creation failed: {:?}", enc.err());
         let enc = enc.unwrap();
         assert_eq!(enc.channels(), 2);
@@ -681,7 +671,7 @@ mod tests {
         // 5.1 surround: 6 channels, 4 streams, 2 coupled
         // mapping: FL=0, FR=1, FC=4, RL=2, RR=3, LFE=5
         let mapping = [0, 1, 2, 3, 4, 5];
-        let enc = OpusMSEncoder::new(48000, 6, 4, 2, &mapping, OPUS_APPLICATION_AUDIO);
+        let enc = OpusMSEncoder::new(SampleRate::Hz48000, 6, 4, 2, &mapping, Application::Audio);
         assert!(enc.is_ok(), "5.1 encoder creation failed: {:?}", enc.err());
         let enc = enc.unwrap();
         assert_eq!(enc.channels(), 6);
@@ -692,13 +682,11 @@ mod tests {
     #[test]
     fn test_ms_encoder_invalid_args() {
         // 0 channels
-        assert!(OpusMSEncoder::new(48000, 0, 1, 0, &[], OPUS_APPLICATION_AUDIO).is_err());
+        assert!(OpusMSEncoder::new(SampleRate::Hz48000, 0, 1, 0, &[], Application::Audio).is_err());
         // 0 streams
-        assert!(OpusMSEncoder::new(48000, 1, 0, 0, &[0], OPUS_APPLICATION_AUDIO).is_err());
+        assert!(OpusMSEncoder::new(SampleRate::Hz48000, 1, 0, 0, &[0], Application::Audio).is_err());
         // coupled > streams
-        assert!(OpusMSEncoder::new(48000, 2, 1, 2, &[0, 1], OPUS_APPLICATION_AUDIO).is_err());
-        // Invalid application
-        assert!(OpusMSEncoder::new(48000, 1, 1, 0, &[0], 9999).is_err());
+        assert!(OpusMSEncoder::new(SampleRate::Hz48000, 2, 1, 2, &[0, 1], Application::Audio).is_err());
     }
 
     #[test]
@@ -707,7 +695,7 @@ mod tests {
         let fs = 48000;
         let frame_size = 960; // 20ms
 
-        let mut enc = OpusMSEncoder::new(fs, 2, 1, 1, &[0, 1], OPUS_APPLICATION_AUDIO).unwrap();
+        let mut enc = OpusMSEncoder::new(SampleRate::Hz48000, 2, 1, 1, &[0, 1], Application::Audio).unwrap();
         enc.set_bitrate(64000);
 
         // Generate a stereo sine tone
@@ -725,7 +713,7 @@ mod tests {
         assert!(nbytes >= 2, "Should produce a non-trivial packet, got {} bytes", nbytes);
 
         // Decode with OpusMSDecoder
-        let mut dec = OpusMSDecoder::new(fs, 2, 1, 1, &[0, 1]).unwrap();
+        let mut dec = OpusMSDecoder::new(SampleRate::Hz48000, 2, 1, 1, &[0, 1]).unwrap();
         let mut pcm_out = vec![0.0f32; frame_size * 2];
         let decoded = dec
             .decode_float(Some(&packet[..nbytes as usize]), &mut pcm_out, frame_size as i32)
@@ -742,7 +730,7 @@ mod tests {
         let fs = 48000;
         let frame_size = 960;
 
-        let mut enc = OpusMSEncoder::new(fs, 1, 1, 0, &[0], OPUS_APPLICATION_AUDIO).unwrap();
+        let mut enc = OpusMSEncoder::new(SampleRate::Hz48000, 1, 1, 0, &[0], Application::Audio).unwrap();
         enc.set_bitrate(32000);
 
         let mut pcm_in = vec![0.0f32; frame_size];
@@ -757,7 +745,7 @@ mod tests {
         assert!(nbytes >= 2);
 
         // Decode
-        let mut dec = OpusMSDecoder::new(fs, 1, 1, 0, &[0]).unwrap();
+        let mut dec = OpusMSDecoder::new(SampleRate::Hz48000, 1, 1, 0, &[0]).unwrap();
         let mut pcm_out = vec![0.0f32; frame_size];
         let decoded = dec
             .decode_float(Some(&packet[..nbytes as usize]), &mut pcm_out, frame_size as i32)
@@ -781,7 +769,7 @@ mod tests {
         // ch4 -> stream 2 mono (4), ch5 -> stream 3 mono (5)
         let mapping = [0u8, 1, 2, 3, 4, 5];
 
-        let mut enc = OpusMSEncoder::new(fs, channels, 4, 2, &mapping, OPUS_APPLICATION_AUDIO)
+        let mut enc = OpusMSEncoder::new(SampleRate::Hz48000, channels, 4, 2, &mapping, Application::Audio)
             .unwrap();
         enc.set_bitrate(256000);
 
@@ -803,7 +791,7 @@ mod tests {
         assert!(nbytes >= 4, "Should produce a multi-stream packet, got {} bytes", nbytes);
 
         // Decode with matching decoder
-        let mut dec = OpusMSDecoder::new(fs, channels, 4, 2, &mapping).unwrap();
+        let mut dec = OpusMSDecoder::new(SampleRate::Hz48000, channels, 4, 2, &mapping).unwrap();
         let mut pcm_out = vec![0.0f32; frame_size * channels];
         let decoded = dec
             .decode_float(Some(&packet[..nbytes as usize]), &mut pcm_out, frame_size as i32)
@@ -829,7 +817,7 @@ mod tests {
     #[test]
     fn test_rate_allocation() {
         // Test that rate allocation produces reasonable values
-        let enc = OpusMSEncoder::new(48000, 6, 4, 2, &[0, 1, 2, 3, 4, 5], OPUS_APPLICATION_AUDIO)
+        let enc = OpusMSEncoder::new(SampleRate::Hz48000, 6, 4, 2, &[0, 1, 2, 3, 4, 5], Application::Audio)
             .unwrap();
 
         let rates = enc.rate_allocation();
@@ -852,7 +840,7 @@ mod tests {
     #[test]
     fn test_rate_allocation_with_lfe() {
         let mut enc =
-            OpusMSEncoder::new(48000, 6, 4, 2, &[0, 1, 2, 3, 4, 5], OPUS_APPLICATION_AUDIO)
+            OpusMSEncoder::new(SampleRate::Hz48000, 6, 4, 2, &[0, 1, 2, 3, 4, 5], Application::Audio)
                 .unwrap();
         enc.lfe_stream = 3;
         enc.set_bitrate(256000);
@@ -907,7 +895,7 @@ mod tests {
     fn test_encode_i16_multistream() {
         let fs = 48000;
         let frame_size = 960;
-        let mut enc = OpusMSEncoder::new(fs, 1, 1, 0, &[0], OPUS_APPLICATION_AUDIO).unwrap();
+        let mut enc = OpusMSEncoder::new(SampleRate::Hz48000, 1, 1, 0, &[0], Application::Audio).unwrap();
         enc.set_bitrate(32000);
 
         let pcm = vec![0i16; frame_size];

@@ -21,9 +21,8 @@ mod common;
 
 use opus::{
     OpusDecoder, OpusEncoder,
-    OPUS_APPLICATION_VOIP,
+    Application, Bandwidth, Bitrate, Mode, SampleRate, Channels,
     opus_packet_get_bandwidth, opus_packet_get_mode,
-    MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,
 };
 
 // =========================================================================
@@ -103,11 +102,11 @@ fn total_energy(pcm: &[f32]) -> f64 {
 
 /// Create an encoder configured for SILK pitch testing.
 fn create_silk_encoder() -> OpusEncoder {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(BITRATE);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(COMPLEXITY);
     // Restrict to wideband to force SILK-only mode
-    enc.set_bandwidth(OPUS_BANDWIDTH_WIDEBAND);
+    enc.set_bandwidth(Bandwidth::Wideband);
     enc
 }
 
@@ -138,7 +137,7 @@ fn encode_frames(
 
 #[test]
 fn test_decode_c_ref_silk_200hz_16k() {
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; FRAME_SIZE];
     let result = dec.decode_float(Some(C_SILK_200HZ_16K), &mut pcm, FRAME_SIZE as i32, false);
     assert!(
@@ -152,7 +151,7 @@ fn test_decode_c_ref_silk_200hz_16k() {
 
 #[test]
 fn test_decode_c_ref_silk_200hz_10k() {
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; FRAME_SIZE];
     let result = dec.decode_float(Some(C_SILK_200HZ_10K), &mut pcm, FRAME_SIZE as i32, false);
     assert!(
@@ -178,7 +177,7 @@ fn test_silk_pitch_200hz_roundtrip() {
     }, NUM_WARMUP_FRAMES);
 
     // Decode with a fresh decoder, feeding all packets to build up state
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -202,7 +201,7 @@ fn test_silk_pitch_300hz_roundtrip() {
         generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -226,7 +225,7 @@ fn test_silk_pitch_silence_roundtrip() {
         generate_silence(FRAME_SIZE)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -251,7 +250,7 @@ fn test_silk_pitch_noise_roundtrip() {
         generate_noise(0.3, FRAME_SIZE, 12345 + frame_idx as u32 * 1000)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -410,17 +409,17 @@ fn test_encoder_produces_silk_mode_packets() {
 
         let mode = opus_packet_get_mode(&pkt);
         assert_eq!(
-            mode, MODE_SILK_ONLY,
-            "Frame {i}: expected SILK-only mode ({}), got {}",
-            MODE_SILK_ONLY, mode
+            mode, Mode::SilkOnly,
+            "Frame {i}: expected SILK-only mode ({:?}), got {:?}",
+            Mode::SilkOnly, mode
         );
 
         let bandwidth = opus_packet_get_bandwidth(&pkt);
         // At 16kHz, encoder should use NB or WB SILK
         assert!(
-            bandwidth <= OPUS_BANDWIDTH_WIDEBAND,
-            "Frame {i}: bandwidth {} should be <= wideband ({})",
-            bandwidth, OPUS_BANDWIDTH_WIDEBAND
+            bandwidth <= Bandwidth::Wideband,
+            "Frame {i}: bandwidth {:?} should be <= wideband ({:?})",
+            bandwidth, Bandwidth::Wideband
         );
     }
 }
@@ -442,7 +441,7 @@ fn test_decoded_energy_by_signal_type() {
         let mut enc = create_silk_encoder();
         let packets = encode_frames(&mut enc, generate_frame, NUM_WARMUP_FRAMES);
 
-        let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+        let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
         let mut energies = Vec::new();
         for pkt in &packets {
             let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -513,7 +512,7 @@ fn test_silk_pitch_200hz_stabilizes() {
         generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
     }, total_frames);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut frame_energies = Vec::new();
     for pkt in &packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -585,7 +584,7 @@ fn test_silk_pitch_300hz_packet_sizes_stable() {
 /// a stream) and verify the decoder doesn't accumulate errors.
 #[test]
 fn test_c_ref_silk_multi_decode_stability() {
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // Feed the same packet multiple times (not ideal but tests decoder stability)
     for i in 0..5 {
@@ -623,7 +622,7 @@ fn test_c_ref_silk_multi_decode_stability() {
 #[test]
 fn test_silk_silence_to_tone_transition() {
     let mut enc = create_silk_encoder();
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     let total_frames = 15;
     let transition_frame = 5;
@@ -695,7 +694,7 @@ fn test_silk_silence_to_tone_transition() {
 #[test]
 fn test_silk_tone_to_noise_transition() {
     let mut enc = create_silk_encoder();
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     let total_frames = 15;
     let transition_frame = 7;

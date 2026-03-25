@@ -1,7 +1,7 @@
 // SILK delayed-decision NSQ test vectors and integration tests.
 // Tests different complexity levels which select scalar vs del-dec NSQ.
 
-use opus::{OpusDecoder, OpusEncoder, OPUS_APPLICATION_VOIP};
+use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
 
 // C reference packets at different complexities (16kHz, 16kbps, 200Hz tone)
 const SILK_COMPLEXITY_C0: &[u8] = &[
@@ -19,7 +19,7 @@ const SILK_COMPLEXITY_C8: &[u8] = &[
 /// Decode C reference packets at different complexities.
 #[test]
 fn test_decode_c_ref_complexity_0() {
-    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; 320];
     let result = dec.decode_float(Some(SILK_COMPLEXITY_C0), &mut pcm, 320, false);
     assert!(result.is_ok(), "Should decode complexity-0 packet: {:?}", result);
@@ -27,7 +27,7 @@ fn test_decode_c_ref_complexity_0() {
 
 #[test]
 fn test_decode_c_ref_complexity_8() {
-    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; 320];
     let result = dec.decode_float(Some(SILK_COMPLEXITY_C8), &mut pcm, 320, false);
     assert!(result.is_ok(), "Should decode complexity-8 packet: {:?}", result);
@@ -44,11 +44,11 @@ fn test_c_ref_complexity_differs() {
 #[test]
 fn test_rust_encoder_complexity_levels() {
     for complexity in [0, 2, 5, 8, 10] {
-        let mut enc = OpusEncoder::new(16000, 1, OPUS_APPLICATION_VOIP).unwrap();
-        enc.set_bitrate(16000);
+        let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+        enc.set_bitrate(Bitrate::BitsPerSecond(16000));
         enc.set_complexity(complexity);
 
-        let mut dec = OpusDecoder::new(16000, 1).unwrap();
+        let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
         let n = 320;
 
         for frame in 0..5 {
@@ -84,8 +84,8 @@ fn test_complexity_produces_different_packets() {
 
     let mut packets = Vec::new();
     for complexity in [0, 5, 10] {
-        let mut enc = OpusEncoder::new(16000, 1, OPUS_APPLICATION_VOIP).unwrap();
-        enc.set_bitrate(16000);
+        let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+        enc.set_bitrate(Bitrate::BitsPerSecond(16000));
         enc.set_complexity(complexity);
 
         let mut packet = vec![0u8; 1500];
@@ -113,10 +113,10 @@ fn test_complexity_produces_different_packets() {
 /// Encode-decode roundtrip stability at high complexity.
 #[test]
 fn test_high_complexity_roundtrip_stability() {
-    let mut enc = OpusEncoder::new(16000, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(20000);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(20000));
     enc.set_complexity(10);
-    let mut dec = OpusDecoder::new(16000, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     for frame in 0..20 {
         let n = 320;

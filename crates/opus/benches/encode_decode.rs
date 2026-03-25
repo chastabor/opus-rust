@@ -6,6 +6,7 @@ use common::*;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use opus::decoder::OpusDecoder;
 use opus::encoder::OpusEncoder;
+use opus::Bitrate;
 
 fn bench_rust_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("rust_encode");
@@ -19,7 +20,7 @@ fn bench_rust_encode(c: &mut Criterion) {
                         OpusEncoder::new(SAMPLE_RATE, cfg.channels, cfg.application).unwrap();
                     enc.set_bandwidth(cfg.max_bandwidth);
                     enc.set_complexity(cfg.complexity);
-                    enc.set_bitrate(cfg.bitrate);
+                    enc.set_bitrate(Bitrate::BitsPerSecond(cfg.bitrate));
                     (enc, vec![0u8; MAX_PACKET])
                 },
                 |(mut enc, mut packet)| {
@@ -46,7 +47,7 @@ fn bench_rust_decode(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let dec = OpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
-                    let pcm = vec![0.0f32; FRAME_SIZE as usize * cfg.channels as usize];
+                    let pcm = vec![0.0f32; FRAME_SIZE as usize * i32::from(cfg.channels) as usize];
                     (dec, pcm)
                 },
                 |(mut dec, mut pcm)| {

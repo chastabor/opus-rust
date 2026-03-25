@@ -7,6 +7,7 @@
 
 use crate::error::OpusError;
 use crate::multistream_encoder::OpusMSEncoder;
+use crate::types::*;
 
 /// A mixing/demixing matrix in column-major order.
 ///
@@ -151,14 +152,14 @@ impl OpusProjectionEncoder {
     /// - `mapping`: Channel mapping for the multistream encoder
     /// - `application`: Opus application type
     pub fn new(
-        fs: i32,
+        sample_rate: SampleRate,
         input_channels: usize,
         mixing_matrix: MappingMatrix,
         demixing_matrix: MappingMatrix,
         streams: usize,
         coupled_streams: usize,
         mapping: &[u8],
-        application: i32,
+        application: Application,
     ) -> Result<Self, OpusError> {
         if input_channels == 0 || input_channels > 255 {
             return Err(OpusError::BadArg);
@@ -173,7 +174,7 @@ impl OpusProjectionEncoder {
         }
 
         let ms_encoder = OpusMSEncoder::new(
-            fs,
+            sample_rate,
             encoder_channels,
             streams,
             coupled_streams,
@@ -194,18 +195,18 @@ impl OpusProjectionEncoder {
     /// This is a convenience constructor that creates a projection encoder
     /// that behaves identically to a standard multistream encoder.
     pub fn new_identity(
-        fs: i32,
+        sample_rate: SampleRate,
         channels: usize,
         streams: usize,
         coupled_streams: usize,
         mapping: &[u8],
-        application: i32,
+        application: Application,
     ) -> Result<Self, OpusError> {
         let identity = MappingMatrix::identity(channels as i32);
         let demix_identity = MappingMatrix::identity(channels as i32);
 
         Self::new(
-            fs,
+            sample_rate,
             channels,
             identity,
             demix_identity,
@@ -314,7 +315,7 @@ impl OpusProjectionEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encoder::OPUS_APPLICATION_AUDIO;
+    use crate::types::*;
 
     #[test]
     fn test_mapping_matrix_create() {
@@ -398,12 +399,12 @@ mod tests {
     fn test_projection_create() {
         // Create with identity matrix: 2-channel, 1 coupled stream
         let enc = OpusProjectionEncoder::new_identity(
-            48000,
+            SampleRate::Hz48000,
             2,
             1,
             1,
             &[0, 1],
-            OPUS_APPLICATION_AUDIO,
+            Application::Audio,
         );
         assert!(enc.is_ok(), "Projection encoder creation failed: {:?}", enc.err());
         let enc = enc.unwrap();
@@ -419,14 +420,14 @@ mod tests {
         let demixing = MappingMatrix::new(2, 2, 0, vec![32767, 0, 0, 32767]).unwrap();
 
         let enc = OpusProjectionEncoder::new(
-            48000,
+            SampleRate::Hz48000,
             2,
             mixing,
             demixing,
             1,
             1,
             &[0, 1],
-            OPUS_APPLICATION_AUDIO,
+            Application::Audio,
         );
         assert!(enc.is_ok());
     }
@@ -437,12 +438,12 @@ mod tests {
         let frame_size = 960;
 
         let mut enc = OpusProjectionEncoder::new_identity(
-            fs,
+            SampleRate::Hz48000,
             2,
             1,
             1,
             &[0, 1],
-            OPUS_APPLICATION_AUDIO,
+            Application::Audio,
         )
         .unwrap();
         enc.set_bitrate(64000);
@@ -474,14 +475,14 @@ mod tests {
         let demixing = MappingMatrix::new(2, 1, 0, vec![32767, 32767]).unwrap();
 
         let mut enc = OpusProjectionEncoder::new(
-            fs,
+            SampleRate::Hz48000,
             2,      // input channels
             mixing,
             demixing,
             1,      // streams
             0,      // coupled streams (mono)
             &[0],   // mapping for the 1 encoder channel
-            OPUS_APPLICATION_AUDIO,
+            Application::Audio,
         )
         .unwrap();
         enc.set_bitrate(32000);

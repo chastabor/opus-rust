@@ -3,18 +3,7 @@ use opus_celt::CeltEncoder;
 use opus_silk::{SilkEncoder, encoder::SilkEncControl};
 
 use crate::error::OpusError;
-use crate::packet::*;
-
-// Application constants
-pub const OPUS_APPLICATION_VOIP: i32 = 2048;
-pub const OPUS_APPLICATION_AUDIO: i32 = 2049;
-pub const OPUS_APPLICATION_RESTRICTED_LOWDELAY: i32 = 2051;
-
-// Signal type constants
-pub const OPUS_SIGNAL_VOICE: i32 = 3001;
-pub const OPUS_SIGNAL_MUSIC: i32 = 3002;
-pub const OPUS_AUTO: i32 = -1000;
-pub const OPUS_BITRATE_MAX: i32 = -1;
+use crate::types::*;
 
 /// Generate the TOC (Table of Contents) byte for an Opus packet.
 ///
@@ -33,17 +22,17 @@ fn gen_toc(mode: i32, framerate: i32, bandwidth: i32, channels: i32) -> u8 {
     }
 
     let toc;
-    if mode == MODE_SILK_ONLY {
+    if mode == Mode::SilkOnly as i32 {
         // SILK: bits 7-5 = bandwidth - NB, bits 4-3 = period - 2, bit 2 = stereo
-        let bw = (bandwidth - OPUS_BANDWIDTH_NARROWBAND) as u8;
+        let bw = (bandwidth - Bandwidth::Narrowband as i32) as u8;
         toc = (bw << 5) | ((period - 2) << 3);
-    } else if mode == MODE_CELT_ONLY {
+    } else if mode == Mode::CeltOnly as i32 {
         // CELT: bit 7 set, bits 6-5 = max(0, bandwidth - MB), bits 4-3 = period, bit 2 = stereo
-        let tmp = ((bandwidth - OPUS_BANDWIDTH_MEDIUMBAND) as u8).max(0);
+        let tmp = ((bandwidth - Bandwidth::Mediumband as i32) as u8).max(0);
         toc = 0x80 | (tmp << 5) | (period << 3);
     } else {
         // Hybrid: bits 7-5 = 011, bit 4 = bandwidth - SWB, bit 3 = period - 2, bit 2 = stereo
-        let bw = (bandwidth - OPUS_BANDWIDTH_SUPERWIDEBAND) as u8;
+        let bw = (bandwidth - Bandwidth::Superwideband as i32) as u8;
         toc = 0x60 | (bw << 4) | ((period - 2) << 3);
     }
 
@@ -107,36 +96,20 @@ pub struct OpusEncoder {
 
 impl OpusEncoder {
     /// Create a new Opus encoder.
-    ///
-    /// `fs` must be one of 8000, 12000, 16000, 24000, or 48000.
-    /// `channels` must be 1 or 2.
-    /// `application` must be one of OPUS_APPLICATION_VOIP, OPUS_APPLICATION_AUDIO,
-    /// or OPUS_APPLICATION_RESTRICTED_LOWDELAY.
-    pub fn new(fs: i32, channels: i32, application: i32) -> Result<Self, OpusError> {
-        if !(channels == 1 || channels == 2) {
-            return Err(OpusError::BadArg);
-        }
-        if ![8000, 12000, 16000, 24000, 48000].contains(&fs) {
-            return Err(OpusError::BadArg);
-        }
-        if ![
-            OPUS_APPLICATION_VOIP,
-            OPUS_APPLICATION_AUDIO,
-            OPUS_APPLICATION_RESTRICTED_LOWDELAY,
-        ]
-        .contains(&application)
-        {
-            return Err(OpusError::BadArg);
-        }
+    pub fn new(sample_rate: SampleRate, channels: Channels, application: Application) -> Result<Self, OpusError> {
+        let fs = i32::from(sample_rate);
+        let channels = i32::from(channels);
+        let application = i32::from(application);
 
         let silk_enc = SilkEncoder::new();
         let silk_flp = opus_silk::encoder_flp::state::SilkEncoderStateFlp::new();
         let celt_enc =
             CeltEncoder::new(48000, channels as usize).map_err(|_| OpusError::InternalError)?;
 
-        let default_bitrate = match application {
-            OPUS_APPLICATION_VOIP => 20000,
-            _ => 64000,
+        let default_bitrate = if application == Application::Voip as i32 {
+            20000
+        } else {
+            64000
         };
 
         Ok(OpusEncoder {
@@ -146,16 +119,16 @@ impl OpusEncoder {
             silk_flp,
             silk_enc,
             celt_enc,
-            mode: MODE_CELT_ONLY,
+            mode: Mode::CeltOnly as i32,
             prev_mode: 0,
-            bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            bandwidth: Bandwidth::Fullband as i32,
             stream_channels: channels,
             bitrate_bps: default_bitrate,
             use_vbr: true,
             complexity: 10,
-            signal_type: OPUS_AUTO,
-            force_channels: OPUS_AUTO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            signal_type: i32::from(Signal::Auto),
+            force_channels: i32::from(ForceChannels::Auto),
+            max_bandwidth: Bandwidth::Fullband as i32,
             user_bitrate_bps: default_bitrate,
             use_inband_fec: false,
             packet_loss_perc: 0,
@@ -221,16 +194,20 @@ impl OpusEncoder {
         }
     }
 
-    pub fn set_bitrate(&mut self, bitrate: i32) {
-        self.user_bitrate_bps = bitrate;
-        if bitrate == OPUS_BITRATE_MAX || bitrate == OPUS_AUTO {
-            self.bitrate_bps = if self.application == OPUS_APPLICATION_VOIP {
-                20000
-            } else {
-                64000
-            };
-        } else {
-            self.bitrate_bps = bitrate.clamp(500, 512000);
+    pub fn set_bitrate(&mut self, bitrate: Bitrate) {
+        match bitrate {
+            Bitrate::Auto | Bitrate::Max => {
+                self.user_bitrate_bps = i32::from(bitrate);
+                self.bitrate_bps = if self.application == Application::Voip as i32 {
+                    20000
+                } else {
+                    64000
+                };
+            }
+            Bitrate::BitsPerSecond(bps) => {
+                self.user_bitrate_bps = bps;
+                self.bitrate_bps = bps.clamp(500, 512000);
+            }
         }
     }
 
@@ -240,13 +217,13 @@ impl OpusEncoder {
     }
 
     /// Set the signal type hint.
-    pub fn set_signal(&mut self, signal: i32) {
-        self.signal_type = signal;
+    pub fn set_signal(&mut self, signal: Signal) {
+        self.signal_type = i32::from(signal);
     }
 
     /// Set the maximum bandwidth.
-    pub fn set_bandwidth(&mut self, bandwidth: i32) {
-        self.max_bandwidth = bandwidth;
+    pub fn set_bandwidth(&mut self, bandwidth: Bandwidth) {
+        self.max_bandwidth = i32::from(bandwidth);
     }
 
     /// Enable or disable in-band FEC (LBRR) for SILK frames.
@@ -259,9 +236,9 @@ impl OpusEncoder {
         self.packet_loss_perc = perc.clamp(0, 100);
     }
 
-    /// Force encoding to a specific channel count (-1 = auto, 1 = mono, 2 = stereo).
-    pub fn set_force_channels(&mut self, channels: i32) {
-        self.force_channels = channels;
+    /// Force encoding to a specific channel count.
+    pub fn set_force_channels(&mut self, channels: ForceChannels) {
+        self.force_channels = i32::from(channels);
     }
 
     /// Get the number of channels.
@@ -285,46 +262,46 @@ impl OpusEncoder {
         let mode;
         let bandwidth;
 
-        if self.application == OPUS_APPLICATION_RESTRICTED_LOWDELAY || !silk_ok {
+        if self.application == Application::RestrictedLowDelay as i32 || !silk_ok {
             // Low-delay or sub-10ms frames: CELT only
-            mode = MODE_CELT_ONLY;
+            mode = Mode::CeltOnly as i32;
             bandwidth = self.decide_bandwidth();
-        } else if self.application == OPUS_APPLICATION_VOIP
-            || self.signal_type == OPUS_SIGNAL_VOICE
+        } else if self.application == Application::Voip as i32
+            || self.signal_type == Signal::Voice as i32
         {
             if self.bitrate_bps < 20000 {
-                mode = MODE_SILK_ONLY;
+                mode = Mode::SilkOnly as i32;
                 bandwidth = self.decide_bandwidth();
             } else if self.bitrate_bps < 32000 {
                 // Potential hybrid zone
                 let bw = self.decide_bandwidth();
-                if bw >= OPUS_BANDWIDTH_SUPERWIDEBAND {
-                    mode = MODE_HYBRID;
+                if bw >= Bandwidth::Superwideband as i32 {
+                    mode = Mode::Hybrid as i32;
                     bandwidth = bw;
                 } else {
-                    mode = MODE_SILK_ONLY;
+                    mode = Mode::SilkOnly as i32;
                     bandwidth = bw;
                 }
             } else {
-                mode = MODE_CELT_ONLY;
+                mode = Mode::CeltOnly as i32;
                 bandwidth = self.decide_bandwidth();
             }
         } else {
             // AUDIO application
             if self.bitrate_bps < 12000 {
-                mode = MODE_SILK_ONLY;
+                mode = Mode::SilkOnly as i32;
                 bandwidth = self.decide_bandwidth();
             } else if self.bitrate_bps < 24000 {
                 let bw = self.decide_bandwidth();
-                if bw >= OPUS_BANDWIDTH_SUPERWIDEBAND {
-                    mode = MODE_HYBRID;
+                if bw >= Bandwidth::Superwideband as i32 {
+                    mode = Mode::Hybrid as i32;
                     bandwidth = bw;
                 } else {
-                    mode = MODE_SILK_ONLY;
+                    mode = Mode::SilkOnly as i32;
                     bandwidth = bw;
                 }
             } else {
-                mode = MODE_CELT_ONLY;
+                mode = Mode::CeltOnly as i32;
                 bandwidth = self.decide_bandwidth();
             }
         }
@@ -342,15 +319,15 @@ impl OpusEncoder {
         // encoded with acceptable quality.
         let per_ch = self.bitrate_bps / self.channels.max(1);
         if per_ch < 10000 {
-            OPUS_BANDWIDTH_NARROWBAND
+            Bandwidth::Narrowband as i32
         } else if per_ch < 14000 {
-            OPUS_BANDWIDTH_MEDIUMBAND
+            Bandwidth::Mediumband as i32
         } else if per_ch < 28000 {
-            OPUS_BANDWIDTH_WIDEBAND
+            Bandwidth::Wideband as i32
         } else if per_ch < 40000 {
-            OPUS_BANDWIDTH_SUPERWIDEBAND
+            Bandwidth::Superwideband as i32
         } else {
-            OPUS_BANDWIDTH_FULLBAND
+            Bandwidth::Fullband as i32
         }
     }
 
@@ -426,12 +403,12 @@ impl OpusEncoder {
         let mut silk_bytes_used = 0i32;
 
         // === SILK encoding ===
-        if mode == MODE_SILK_ONLY || mode == MODE_HYBRID {
+        if mode == Mode::SilkOnly as i32 || mode == Mode::Hybrid as i32 {
             // Determine SILK internal rate
-            let silk_internal_rate = if mode == MODE_SILK_ONLY {
+            let silk_internal_rate = if mode == Mode::SilkOnly as i32 {
                 match bandwidth {
-                    OPUS_BANDWIDTH_NARROWBAND => 8000,
-                    OPUS_BANDWIDTH_MEDIUMBAND => 12000,
+                    x if x == Bandwidth::Narrowband as i32 => 8000,
+                    x if x == Bandwidth::Mediumband as i32 => 12000,
                     _ => 16000,
                 }
             } else {
@@ -514,7 +491,7 @@ impl OpusEncoder {
             // pcm_i16 is the HP-filtered frame (at the total_buffer offset)
             let mut pcm_i16 = pcm_buf[total_buffer * nch..(total_buffer + silk_samples) * nch].to_vec();
 
-            let silk_bitrate = if mode == MODE_HYBRID {
+            let silk_bitrate = if mode == Mode::Hybrid as i32 {
                 self.bitrate_bps / 2
             } else {
                 self.bitrate_bps
@@ -596,7 +573,7 @@ impl OpusEncoder {
                 );
 
                 // Apply HP filter in-place (VOIP mode) — pcm_i16 is already a clone
-                if self.application == OPUS_APPLICATION_VOIP {
+                if self.application == Application::Voip as i32 {
                     let cutoff_hz = opus_silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
                     self.hp_filter_i16(&mut pcm_i16[..silk_samples], cutoff_hz);
                 }
@@ -672,25 +649,29 @@ impl OpusEncoder {
         }
 
         // === CELT encoding ===
-        if mode == MODE_CELT_ONLY || mode == MODE_HYBRID {
+        if mode == Mode::CeltOnly as i32 || mode == Mode::Hybrid as i32 {
             let start_band: usize;
             let end_band: usize;
 
-            if mode == MODE_HYBRID {
+            if mode == Mode::Hybrid as i32 {
                 // In hybrid mode, CELT encodes only the high bands
                 start_band = 17;
-                end_band = match bandwidth {
-                    OPUS_BANDWIDTH_SUPERWIDEBAND => 19,
-                    _ => 21, // Fullband
+                end_band = if bandwidth == Bandwidth::Superwideband as i32 {
+                    19
+                } else {
+                    21 // Fullband
                 };
             } else {
                 // CELT-only
                 start_band = 0;
-                end_band = match bandwidth {
-                    OPUS_BANDWIDTH_NARROWBAND => 13,
-                    OPUS_BANDWIDTH_MEDIUMBAND | OPUS_BANDWIDTH_WIDEBAND => 17,
-                    OPUS_BANDWIDTH_SUPERWIDEBAND => 19,
-                    _ => 21,
+                end_band = if bandwidth == Bandwidth::Narrowband as i32 {
+                    13
+                } else if bandwidth <= Bandwidth::Wideband as i32 {
+                    17
+                } else if bandwidth == Bandwidth::Superwideband as i32 {
+                    19
+                } else {
+                    21
                 };
             }
 
@@ -702,7 +683,7 @@ impl OpusEncoder {
             self.celt_enc.vbr = self.use_vbr;
 
             // Compute CELT bitrate: total minus what SILK used
-            let celt_bytes = if mode == MODE_HYBRID {
+            let celt_bytes = if mode == Mode::Hybrid as i32 {
                 ((max_data_bytes - 1) - silk_bytes_used).max(2) as usize
             } else {
                 (max_data_bytes - 1).max(2) as usize
@@ -780,7 +761,7 @@ impl OpusEncoder {
 
         // Strip trailing zeros for SILK-only mode (matching C reference behavior)
         let mut ret = (out_bytes + 1) as i32; // +1 for TOC
-        if mode == MODE_SILK_ONLY {
+        if mode == Mode::SilkOnly as i32 {
             while ret > 2 && data[ret as usize - 1] == 0 {
                 ret -= 1;
             }
@@ -821,38 +802,33 @@ impl OpusEncoder {
 mod tests {
     use super::*;
     use crate::decoder::OpusDecoder;
+    use crate::packet::*;
 
     #[test]
     fn test_encoder_create() {
         // Valid configurations
-        let enc = OpusEncoder::new(48000, 2, OPUS_APPLICATION_AUDIO);
+        let enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Stereo, Application::Audio);
         assert!(enc.is_ok());
         let enc = enc.unwrap();
         assert_eq!(enc.sample_rate(), 48000);
         assert_eq!(enc.channels(), 2);
 
-        let enc = OpusEncoder::new(48000, 1, OPUS_APPLICATION_VOIP);
+        let enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip);
         assert!(enc.is_ok());
         let enc = enc.unwrap();
         assert_eq!(enc.channels(), 1);
 
-        let enc = OpusEncoder::new(16000, 1, OPUS_APPLICATION_RESTRICTED_LOWDELAY);
+        let enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::RestrictedLowDelay);
         assert!(enc.is_ok());
 
-        let enc = OpusEncoder::new(8000, 1, OPUS_APPLICATION_VOIP);
+        let enc = OpusEncoder::new(SampleRate::Hz8000, Channels::Mono, Application::Voip);
         assert!(enc.is_ok());
-
-        // Invalid configurations
-        assert!(OpusEncoder::new(44100, 1, OPUS_APPLICATION_AUDIO).is_err());
-        assert!(OpusEncoder::new(48000, 3, OPUS_APPLICATION_AUDIO).is_err());
-        assert!(OpusEncoder::new(48000, 0, OPUS_APPLICATION_AUDIO).is_err());
-        assert!(OpusEncoder::new(48000, 1, 9999).is_err());
     }
 
     #[test]
     fn test_encode_silence() {
-        let mut enc = OpusEncoder::new(48000, 1, OPUS_APPLICATION_AUDIO).unwrap();
-        enc.set_bitrate(64000);
+        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+        enc.set_bitrate(Bitrate::BitsPerSecond(64000));
 
         let frame_size = 960; // 20ms at 48kHz
         let pcm = vec![0.0f32; frame_size];
@@ -868,14 +844,14 @@ mod tests {
         // Verify the TOC byte is valid by parsing it
         let mode = opus_packet_get_mode(&data);
         assert!(
-            mode == MODE_SILK_ONLY || mode == MODE_HYBRID || mode == MODE_CELT_ONLY,
+            mode == Mode::SilkOnly || mode == Mode::Hybrid || mode == Mode::CeltOnly,
             "TOC should encode a valid mode"
         );
     }
 
     #[test]
     fn test_encode_silence_i16() {
-        let mut enc = OpusEncoder::new(48000, 1, OPUS_APPLICATION_AUDIO).unwrap();
+        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
         let frame_size = 960;
         let pcm = vec![0i16; frame_size];
         let mut data = vec![0u8; 1275];
@@ -890,64 +866,64 @@ mod tests {
         // Test that gen_toc produces bytes that packet.rs can decode correctly.
 
         // CELT 20ms fullband mono
-        let toc = gen_toc(MODE_CELT_ONLY, 50, OPUS_BANDWIDTH_FULLBAND, 1);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_CELT_ONLY);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_FULLBAND);
+        let toc = gen_toc(Mode::CeltOnly as i32, 50, Bandwidth::Fullband as i32, 1);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::CeltOnly);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Fullband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 960);
 
         // CELT 20ms fullband stereo
-        let toc = gen_toc(MODE_CELT_ONLY, 50, OPUS_BANDWIDTH_FULLBAND, 2);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_CELT_ONLY);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_FULLBAND);
+        let toc = gen_toc(Mode::CeltOnly as i32, 50, Bandwidth::Fullband as i32, 2);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::CeltOnly);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Fullband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 2);
 
         // SILK 20ms narrowband mono
-        let toc = gen_toc(MODE_SILK_ONLY, 50, OPUS_BANDWIDTH_NARROWBAND, 1);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_SILK_ONLY);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_NARROWBAND);
+        let toc = gen_toc(Mode::SilkOnly as i32, 50, Bandwidth::Narrowband as i32, 1);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::SilkOnly);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Narrowband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 960);
 
         // SILK 10ms wideband stereo
-        let toc = gen_toc(MODE_SILK_ONLY, 100, OPUS_BANDWIDTH_WIDEBAND, 2);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_SILK_ONLY);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_WIDEBAND);
+        let toc = gen_toc(Mode::SilkOnly as i32, 100, Bandwidth::Wideband as i32, 2);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::SilkOnly);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Wideband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 2);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 480);
 
         // Hybrid 20ms superwideband mono
-        let toc = gen_toc(MODE_HYBRID, 50, OPUS_BANDWIDTH_SUPERWIDEBAND, 1);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_HYBRID);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_SUPERWIDEBAND);
+        let toc = gen_toc(Mode::Hybrid as i32, 50, Bandwidth::Superwideband as i32, 1);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::Hybrid);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Superwideband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 960);
 
         // Hybrid 10ms fullband stereo
-        let toc = gen_toc(MODE_HYBRID, 100, OPUS_BANDWIDTH_FULLBAND, 2);
-        assert_eq!(opus_packet_get_mode(&[toc]), MODE_HYBRID);
-        assert_eq!(opus_packet_get_bandwidth(&[toc]), OPUS_BANDWIDTH_FULLBAND);
+        let toc = gen_toc(Mode::Hybrid as i32, 100, Bandwidth::Fullband as i32, 2);
+        assert_eq!(opus_packet_get_mode(&[toc]), Mode::Hybrid);
+        assert_eq!(opus_packet_get_bandwidth(&[toc]), Bandwidth::Fullband);
         assert_eq!(opus_packet_get_nb_channels(&[toc]), 2);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 480);
 
         // CELT 2.5ms
-        let toc = gen_toc(MODE_CELT_ONLY, 400, OPUS_BANDWIDTH_FULLBAND, 1);
+        let toc = gen_toc(Mode::CeltOnly as i32, 400, Bandwidth::Fullband as i32, 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 120);
 
         // CELT 5ms
-        let toc = gen_toc(MODE_CELT_ONLY, 200, OPUS_BANDWIDTH_FULLBAND, 1);
+        let toc = gen_toc(Mode::CeltOnly as i32, 200, Bandwidth::Fullband as i32, 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 240);
 
         // CELT 10ms
-        let toc = gen_toc(MODE_CELT_ONLY, 100, OPUS_BANDWIDTH_FULLBAND, 1);
+        let toc = gen_toc(Mode::CeltOnly as i32, 100, Bandwidth::Fullband as i32, 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 480);
 
         // SILK 40ms
-        let toc = gen_toc(MODE_SILK_ONLY, 25, OPUS_BANDWIDTH_NARROWBAND, 1);
+        let toc = gen_toc(Mode::SilkOnly as i32, 25, Bandwidth::Narrowband as i32, 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 1920);
 
         // SILK 60ms
-        let toc = gen_toc(MODE_SILK_ONLY, 400 / 24, OPUS_BANDWIDTH_NARROWBAND, 1);
+        let toc = gen_toc(Mode::SilkOnly as i32, 400 / 24, Bandwidth::Narrowband as i32, 1);
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 2880);
     }
 
@@ -959,10 +935,10 @@ mod tests {
         let frame_size = 960; // 20ms
 
         let mut encoder =
-            OpusEncoder::new(fs, channels, OPUS_APPLICATION_AUDIO).unwrap();
-        encoder.set_bitrate(64000);
+            OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+        encoder.set_bitrate(Bitrate::BitsPerSecond(64000));
 
-        let mut decoder = OpusDecoder::new(fs, channels).unwrap();
+        let mut decoder = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
         // Generate a simple 440Hz sine tone
         let mut pcm_in = vec![0.0f32; frame_size];
@@ -1025,10 +1001,10 @@ mod tests {
         let frame_size = 960;
 
         let mut encoder =
-            OpusEncoder::new(fs, channels, OPUS_APPLICATION_AUDIO).unwrap();
-        encoder.set_bitrate(96000);
+            OpusEncoder::new(SampleRate::Hz48000, Channels::Stereo, Application::Audio).unwrap();
+        encoder.set_bitrate(Bitrate::BitsPerSecond(96000));
 
-        let mut decoder = OpusDecoder::new(fs, channels).unwrap();
+        let mut decoder = OpusDecoder::new(SampleRate::Hz48000, Channels::Stereo).unwrap();
 
         // Generate stereo sine
         let mut pcm_in = vec![0.0f32; frame_size * channels as usize];
@@ -1062,12 +1038,12 @@ mod tests {
 
     #[test]
     fn test_encoder_setters() {
-        let mut enc = OpusEncoder::new(48000, 1, OPUS_APPLICATION_AUDIO).unwrap();
+        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
 
-        enc.set_bitrate(32000);
+        enc.set_bitrate(Bitrate::BitsPerSecond(32000));
         assert_eq!(enc.bitrate_bps, 32000);
 
-        enc.set_bitrate(OPUS_BITRATE_MAX);
+        enc.set_bitrate(Bitrate::Max);
         // Should reset to default
         assert!(enc.bitrate_bps > 0);
 
@@ -1080,10 +1056,10 @@ mod tests {
         enc.set_complexity(-5); // Should clamp
         assert_eq!(enc.complexity, 0);
 
-        enc.set_signal(OPUS_SIGNAL_VOICE);
-        assert_eq!(enc.signal_type, OPUS_SIGNAL_VOICE);
+        enc.set_signal(Signal::Voice);
+        assert_eq!(enc.signal_type, i32::from(Signal::Voice));
 
-        enc.set_bandwidth(OPUS_BANDWIDTH_WIDEBAND);
-        assert_eq!(enc.max_bandwidth, OPUS_BANDWIDTH_WIDEBAND);
+        enc.set_bandwidth(Bandwidth::Wideband);
+        assert_eq!(enc.max_bandwidth, Bandwidth::Wideband as i32);
     }
 }

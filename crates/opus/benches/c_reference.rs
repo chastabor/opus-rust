@@ -14,9 +14,13 @@ fn bench_c_encode(c: &mut Criterion) {
         group.bench_function(cfg.name, |b| {
             b.iter_batched(
                 || {
-                    let mut enc =
-                        COpusEncoder::new(SAMPLE_RATE, cfg.channels, cfg.application).unwrap();
-                    enc.set_max_bandwidth(cfg.max_bandwidth).unwrap();
+                    let mut enc = COpusEncoder::new(
+                        i32::from(SAMPLE_RATE),
+                        i32::from(cfg.channels),
+                        i32::from(cfg.application),
+                    )
+                    .unwrap();
+                    enc.set_max_bandwidth(i32::from(cfg.max_bandwidth)).unwrap();
                     enc.set_complexity(cfg.complexity).unwrap();
                     enc.set_bitrate(cfg.bitrate).unwrap();
                     (enc, vec![0u8; MAX_PACKET])
@@ -44,8 +48,12 @@ fn bench_c_decode(c: &mut Criterion) {
         group.bench_function(cfg.name, |b| {
             b.iter_batched(
                 || {
-                    let dec = COpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
-                    let pcm = vec![0.0f32; FRAME_SIZE as usize * cfg.channels as usize];
+                    let dec = COpusDecoder::new(
+                        i32::from(SAMPLE_RATE),
+                        i32::from(cfg.channels),
+                    )
+                    .unwrap();
+                    let pcm = vec![0.0f32; FRAME_SIZE as usize * i32::from(cfg.channels) as usize];
                     (dec, pcm)
                 },
                 |(mut dec, mut pcm)| {

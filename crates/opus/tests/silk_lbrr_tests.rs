@@ -23,9 +23,8 @@
 
 use opus::{
     OpusDecoder, OpusEncoder,
-    OPUS_APPLICATION_VOIP,
+    Application, Bandwidth, Bitrate, Mode, SampleRate, Channels,
     opus_packet_get_bandwidth, opus_packet_get_mode,
-    MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,
 };
 
 // =========================================================================
@@ -55,10 +54,10 @@ fn generate_tone(freq: f32, amplitude: f32, num_samples: usize, sample_offset: u
 
 /// Encode NUM_FRAMES frames of a 200Hz tone, returning all packets.
 fn encode_frames(fec_enabled: bool, loss_perc: i32) -> Vec<Vec<u8>> {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(BITRATE);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(10);
-    enc.set_bandwidth(OPUS_BANDWIDTH_WIDEBAND);
+    enc.set_bandwidth(Bandwidth::Wideband);
     enc.set_inband_fec(fec_enabled);
     enc.set_packet_loss_perc(loss_perc);
 
@@ -88,15 +87,15 @@ fn test_rust_encoder_fec_settings_produce_valid_packets() {
     for (i, pkt) in fec_packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "FEC packet {i} should not be empty");
         let mode = opus_packet_get_mode(pkt);
-        assert_eq!(mode, MODE_SILK_ONLY, "FEC packet {i} should be SILK-only (mode={mode})");
+        assert_eq!(mode, Mode::SilkOnly, "FEC packet {i} should be SILK-only (mode={mode:?})");
         let bw = opus_packet_get_bandwidth(pkt);
-        assert_eq!(bw, OPUS_BANDWIDTH_WIDEBAND, "FEC packet {i} should be wideband (bw={bw})");
+        assert_eq!(bw, Bandwidth::Wideband, "FEC packet {i} should be wideband (bw={bw:?})");
     }
 
     for (i, pkt) in nofec_packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "No-FEC packet {i} should not be empty");
         let mode = opus_packet_get_mode(pkt);
-        assert_eq!(mode, MODE_SILK_ONLY, "No-FEC packet {i} should be SILK-only");
+        assert_eq!(mode, Mode::SilkOnly, "No-FEC packet {i} should be SILK-only");
     }
 }
 
@@ -107,7 +106,7 @@ fn test_rust_encoder_fec_settings_produce_valid_packets() {
 #[test]
 fn test_decode_fec_packets_normally() {
     let packets = encode_frames(true, 10);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     for (i, pkt) in packets.iter().enumerate() {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -130,7 +129,7 @@ fn test_decode_fec_packets_normally() {
 fn test_fec_decode_path_no_crash() {
     // Encode a sequence of frames with FEC enabled
     let packets = encode_frames(true, 10);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // First, decode frame 0 normally to prime the decoder state
     let mut pcm = vec![0.0f32; FRAME_SIZE];
@@ -173,7 +172,7 @@ fn test_fec_decode_path_no_crash() {
 #[test]
 fn test_fec_decode_with_plc_fallback() {
     let packets = encode_frames(true, 10);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // Decode several frames normally to build up decoder state
     for i in 0..5 {
@@ -189,7 +188,7 @@ fn test_fec_decode_with_plc_fallback() {
 
     // Now try FEC recovery of frame 5 using frame 6's data
     // (In practice, this would be done before the PLC call, but we test both paths)
-    let mut dec2 = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec2 = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     for i in 0..5 {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
         dec2.decode_float(Some(&packets[i]), &mut pcm, FRAME_SIZE as i32, false)
@@ -218,10 +217,10 @@ fn test_fec_decode_with_plc_fallback() {
 fn test_fec_decode_celt_mode_falls_back() {
     // When decode_fec is called on a CELT-only packet, the Opus decoder
     // should fall back to PLC since CELT has no LBRR mechanism.
-    let mut enc = OpusEncoder::new(48000, 1, opus::OPUS_APPLICATION_AUDIO).unwrap();
-    enc.set_bitrate(64000);
+    let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(64000));
 
-    let mut dec = OpusDecoder::new(48000, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
     // Encode a few CELT frames to prime decoder
     for f in 0..3 {
@@ -273,7 +272,7 @@ fn generate_tone_48k(freq: f32, amplitude: f32, num_samples: usize, sample_offse
 #[test]
 fn test_multi_frame_loss_simulation() {
     let packets = encode_frames(true, 10);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // Pattern: decode normally, simulate loss, attempt FEC, continue
     let mut all_pcm = Vec::new();
@@ -321,14 +320,14 @@ fn test_multi_frame_loss_simulation() {
 
 #[test]
 fn test_rust_encoder_fec_roundtrip() {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(BITRATE);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(10);
-    enc.set_bandwidth(OPUS_BANDWIDTH_WIDEBAND);
+    enc.set_bandwidth(Bandwidth::Wideband);
     enc.set_inband_fec(true);
     enc.set_packet_loss_perc(10);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     let mut total_energy = 0.0f64;
 
@@ -434,7 +433,7 @@ const C_SILK_200HZ_10K: &[u8] = &[
 #[test]
 fn test_decode_c_ref_silk_with_fec_flag() {
     // First decode the packet normally to prime the decoder
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; FRAME_SIZE];
     dec.decode_float(Some(C_SILK_200HZ_16K), &mut pcm, FRAME_SIZE as i32, false)
         .unwrap();
@@ -452,7 +451,7 @@ fn test_decode_c_ref_silk_with_fec_flag() {
 
 #[test]
 fn test_decode_c_ref_silk_narrowband_with_fec_flag() {
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; FRAME_SIZE];
     // Prime decoder with a normal decode
     dec.decode_float(Some(C_SILK_200HZ_10K), &mut pcm, FRAME_SIZE as i32, false)
@@ -477,7 +476,7 @@ fn test_plc_differs_from_normal_decode() {
     let packets = encode_frames(false, 0);
 
     // Decode frames 0-4 normally with decoder A
-    let mut dec_a = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec_a = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     for i in 0..5 {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
         dec_a
@@ -492,7 +491,7 @@ fn test_plc_differs_from_normal_decode() {
         .unwrap();
 
     // Now do the same but use PLC for frame 5
-    let mut dec_b = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec_b = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     for i in 0..5 {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
         dec_b
@@ -526,7 +525,7 @@ fn test_plc_differs_from_normal_decode() {
 #[test]
 fn test_consecutive_plc_attenuates() {
     let packets = encode_frames(false, 0);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // Decode some frames normally
     for i in 0..5 {
@@ -565,7 +564,7 @@ fn test_consecutive_plc_attenuates() {
 #[test]
 fn test_fec_then_normal_decode_valid_state() {
     let packets = encode_frames(true, 10);
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
 
     // Decode frames 0-3 normally
     for i in 0..4 {
@@ -600,11 +599,11 @@ fn test_fec_decode_respects_silk_mode_requirement() {
     // decode_fec=true, the decoder should not attempt SILK FEC decoding
     // (since there's no previous SILK state to recover).
 
-    let mut dec = OpusDecoder::new(48000, 1).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
     // First prime with a CELT packet (48kHz audio mode)
-    let mut enc_celt = OpusEncoder::new(48000, 1, opus::OPUS_APPLICATION_AUDIO).unwrap();
-    enc_celt.set_bitrate(64000);
+    let mut enc_celt = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    enc_celt.set_bitrate(Bitrate::BitsPerSecond(64000));
     let input = generate_tone_48k(440.0, 0.3, 960, 0);
     let mut celt_pkt = vec![0u8; 1500];
     let nbytes = enc_celt

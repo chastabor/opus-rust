@@ -4,6 +4,7 @@
 
 use crate::decoder::OpusDecoder;
 use crate::error::OpusError;
+use crate::types::*;
 use crate::packet::{opus_packet_get_nb_samples, opus_packet_parse_self_delimited};
 
 /// Channel layout for multistream packets.
@@ -86,12 +87,13 @@ impl OpusMSDecoder {
     /// The first `coupled_streams` streams are decoded as stereo pairs,
     /// the remaining `streams - coupled_streams` as mono.
     pub fn new(
-        fs: i32,
+        sample_rate: SampleRate,
         channels: usize,
         streams: usize,
         coupled_streams: usize,
         mapping: &[u8],
     ) -> Result<Self, OpusError> {
+        let fs = i32::from(sample_rate);
         if channels == 0 || channels > 255 {
             return Err(OpusError::BadArg);
         }
@@ -123,8 +125,8 @@ impl OpusMSDecoder {
         // Create per-stream decoders
         let mut decoders = Vec::with_capacity(streams);
         for s in 0..streams {
-            let ch = if s < coupled_streams { 2 } else { 1 };
-            let dec = OpusDecoder::new(fs, ch)?;
+            let ch = if s < coupled_streams { Channels::Stereo } else { Channels::Mono };
+            let dec = OpusDecoder::new(sample_rate, ch)?;
             decoders.push(dec);
         }
 
@@ -354,7 +356,7 @@ mod tests {
     #[test]
     fn test_ms_decoder_create_stereo() {
         // Simple stereo: 1 coupled stream, mapping [0, 1]
-        let dec = OpusMSDecoder::new(48000, 2, 1, 1, &[0, 1]).unwrap();
+        let dec = OpusMSDecoder::new(SampleRate::Hz48000, 2, 1, 1, &[0, 1]).unwrap();
         assert_eq!(dec.channels(), 2);
         assert_eq!(dec.streams(), 1);
         assert_eq!(dec.coupled_streams(), 1);
@@ -365,7 +367,7 @@ mod tests {
         // 5.1 surround: 6 channels, 4 streams (2 coupled + 2 mono)
         // Vorbis channel order: FL, FC, FR, RL, RR, LFE
         // mapping: [0, 4, 1, 2, 3, 5] (example)
-        let dec = OpusMSDecoder::new(48000, 6, 4, 2, &[0, 4, 1, 2, 3, 5]).unwrap();
+        let dec = OpusMSDecoder::new(SampleRate::Hz48000, 6, 4, 2, &[0, 4, 1, 2, 3, 5]).unwrap();
         assert_eq!(dec.channels(), 6);
         assert_eq!(dec.streams(), 4);
         assert_eq!(dec.coupled_streams(), 2);
@@ -374,11 +376,11 @@ mod tests {
     #[test]
     fn test_ms_decoder_invalid_args() {
         // 0 channels
-        assert!(OpusMSDecoder::new(48000, 0, 1, 0, &[]).is_err());
+        assert!(OpusMSDecoder::new(SampleRate::Hz48000, 0, 1, 0, &[]).is_err());
         // coupled > streams
-        assert!(OpusMSDecoder::new(48000, 2, 1, 2, &[0, 1]).is_err());
+        assert!(OpusMSDecoder::new(SampleRate::Hz48000, 2, 1, 2, &[0, 1]).is_err());
         // 0 streams
-        assert!(OpusMSDecoder::new(48000, 1, 0, 0, &[0]).is_err());
+        assert!(OpusMSDecoder::new(SampleRate::Hz48000, 1, 0, 0, &[0]).is_err());
     }
 
     #[test]

@@ -23,9 +23,8 @@ mod common;
 
 use opus::{
     OpusDecoder, OpusEncoder,
-    OPUS_APPLICATION_VOIP,
+    Application, Bandwidth, Bitrate, Signal, SampleRate, Channels,
     opus_packet_get_bandwidth, opus_packet_get_mode, opus_packet_get_nb_channels,
-    MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND, OPUS_SIGNAL_VOICE,
 };
 
 // =========================================================================
@@ -217,20 +216,20 @@ fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
 
 /// Create a stereo encoder configured for SILK stereo testing.
 fn create_stereo_encoder() -> OpusEncoder {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, 2, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(BITRATE);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Stereo, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(COMPLEXITY);
-    enc.set_signal(OPUS_SIGNAL_VOICE);
+    enc.set_signal(Signal::Voice);
     // Don't set bandwidth explicitly — let the encoder choose SILK/Hybrid based on bitrate
     enc
 }
 
 /// Create a mono encoder with the same settings (for comparison).
 fn create_mono_encoder() -> OpusEncoder {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP).unwrap();
-    enc.set_bitrate(BITRATE);
+    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(COMPLEXITY);
-    enc.set_bandwidth(OPUS_BANDWIDTH_WIDEBAND);
+    enc.set_bandwidth(Bandwidth::Wideband);
     enc
 }
 
@@ -278,7 +277,7 @@ fn encode_mono_frames(
 
 /// Decode all packets with a stereo decoder, returning all decoded PCM concatenated.
 fn decode_all_stereo(packets: &[Vec<u8>]) -> Vec<f32> {
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut all_pcm = Vec::new();
     for pkt in packets {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
@@ -302,7 +301,7 @@ fn test_decode_c_ref_stereo_sine() {
         return;
     }
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_SINE_440L_880R), &mut pcm, FRAME_SIZE as i32, false);
     assert!(
@@ -325,7 +324,7 @@ fn test_decode_c_ref_stereo_mono_collapsed() {
         return;
     }
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_MONO_COLLAPSED), &mut pcm, FRAME_SIZE as i32, false);
     assert!(result.is_ok(), "Should decode C ref mono-collapsed: {:?}", result);
@@ -340,7 +339,7 @@ fn test_decode_c_ref_stereo_silence() {
         return;
     }
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_SILENCE), &mut pcm, FRAME_SIZE as i32, false);
     assert!(result.is_ok(), "Should decode C ref stereo silence: {:?}", result);
@@ -358,7 +357,7 @@ fn test_decode_c_ref_stereo_left_only() {
         return;
     }
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_LEFT_ONLY), &mut pcm, FRAME_SIZE as i32, false);
     assert!(result.is_ok(), "Should decode C ref left-only: {:?}", result);
@@ -373,7 +372,7 @@ fn test_decode_c_ref_stereo_right_only() {
         return;
     }
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_RIGHT_ONLY), &mut pcm, FRAME_SIZE as i32, false);
     assert!(result.is_ok(), "Should decode C ref right-only: {:?}", result);
@@ -446,7 +445,7 @@ fn test_stereo_roundtrip_sine_440l_880r() {
     }, NUM_WARMUP_FRAMES);
 
     // Decode all packets
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut last_pcm = vec![0.0f32; STEREO_FRAME];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
@@ -485,7 +484,7 @@ fn test_stereo_roundtrip_silence() {
         generate_stereo_silence(FRAME_SIZE)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut last_pcm = vec![0.0f32; STEREO_FRAME];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
@@ -510,7 +509,7 @@ fn test_stereo_roundtrip_mono_collapsed() {
         generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut last_pcm = vec![0.0f32; STEREO_FRAME];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
@@ -550,7 +549,7 @@ fn test_stereo_output_is_finite() {
         generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
     }, NUM_WARMUP_FRAMES);
 
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     for (frame_idx, pkt) in packets.iter().enumerate() {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
         dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE as i32, false)
@@ -835,7 +834,7 @@ fn test_stereo_encoder_produces_stereo_toc() {
 #[test]
 fn test_stereo_multiframe_roundtrip() {
     let mut enc = create_stereo_encoder();
-    let mut dec = OpusDecoder::new(SAMPLE_RATE, 2).unwrap();
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
 
     for frame in 0..15 {
         // Vary the signal: different frequencies on each channel across frames

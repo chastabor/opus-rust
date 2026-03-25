@@ -4,6 +4,7 @@ use opus_silk::decoder::{SilkDecoder, SilkDecControl};
 
 use crate::error::OpusError;
 use crate::packet::*;
+use crate::types::*;
 
 /// The main Opus decoder.
 pub struct OpusDecoder {
@@ -43,13 +44,9 @@ pub struct OpusDecoder {
 
 impl OpusDecoder {
     /// Create a new Opus decoder.
-    pub fn new(fs: i32, channels: i32) -> Result<Self, OpusError> {
-        if !(channels == 1 || channels == 2) {
-            return Err(OpusError::BadArg);
-        }
-        if ![8000, 12000, 16000, 24000, 48000].contains(&fs) {
-            return Err(OpusError::BadArg);
-        }
+    pub fn new(sample_rate: SampleRate, channels: Channels) -> Result<Self, OpusError> {
+        let fs = i32::from(sample_rate);
+        let channels = i32::from(channels);
 
         let silk_dec = SilkDecoder::new();
         let silk_control = SilkDecControl {
@@ -147,7 +144,7 @@ impl OpusDecoder {
         let (has_data, audiosize, mode, bandwidth) = if let Some(d) = data {
             if d.len() <= 1 {
                 let mode = if self.prev_redundancy {
-                    MODE_CELT_ONLY
+                    Mode::CeltOnly as i32
                 } else {
                     self.prev_mode
                 };
@@ -157,7 +154,7 @@ impl OpusDecoder {
             }
         } else {
             let mode = if self.prev_redundancy {
-                MODE_CELT_ONLY
+                Mode::CeltOnly as i32
             } else {
                 self.prev_mode
             };
@@ -193,7 +190,7 @@ impl OpusDecoder {
                 a = f20;
             } else if a > f10 {
                 a = f10;
-            } else if mode != MODE_SILK_ONLY && a > f5 && a < f10 {
+            } else if mode != Mode::SilkOnly as i32 && a > f5 && a < f10 {
                 a = f5;
             }
             a
@@ -211,15 +208,15 @@ impl OpusDecoder {
         };
 
         // === SILK processing ===
-        if mode != MODE_CELT_ONLY {
-            if self.prev_mode == MODE_CELT_ONLY {
+        if mode != Mode::CeltOnly as i32 {
+            if self.prev_mode == Mode::CeltOnly as i32 {
                 self.silk_dec.reset();
             }
 
-            let silk_internal_rate = if mode == MODE_SILK_ONLY {
+            let silk_internal_rate = if mode == Mode::SilkOnly as i32 {
                 match bandwidth {
-                    OPUS_BANDWIDTH_NARROWBAND => 8000,
-                    OPUS_BANDWIDTH_MEDIUMBAND => 12000,
+                    x if x == Bandwidth::Narrowband as i32 => 8000,
+                    x if x == Bandwidth::Mediumband as i32 => 12000,
                     _ => 16000,
                 }
             } else {
@@ -286,19 +283,19 @@ impl OpusDecoder {
             0
         };
 
-        if !decode_fec && mode != MODE_CELT_ONLY && has_data {
+        if !decode_fec && mode != Mode::CeltOnly as i32 && has_data {
             if let Some(ref mut ec) = ec {
                 let bits_left = data_len * 8 - ec.tell();
-                let threshold = 17 + if mode == MODE_HYBRID { 20 } else { 0 };
+                let threshold = 17 + if mode == Mode::Hybrid as i32 { 20 } else { 0 };
                 if bits_left >= threshold {
-                    if mode == MODE_HYBRID {
+                    if mode == Mode::Hybrid as i32 {
                         redundancy = ec.dec_bit_logp(12);
                     } else {
                         redundancy = true;
                     }
                     if redundancy {
                         celt_to_silk = ec.dec_bit_logp(1);
-                        let redundancy_bytes = if mode == MODE_HYBRID {
+                        let redundancy_bytes = if mode == Mode::Hybrid as i32 {
                             ec.dec_uint(256) as i32 + 2
                         } else {
                             data_len - ((ec.tell() + 7) >> 3)
@@ -315,15 +312,18 @@ impl OpusDecoder {
             }
         }
 
-        if mode != MODE_CELT_ONLY {
+        if mode != Mode::CeltOnly as i32 {
             start_band = 17;
         }
 
-        let endband = match bandwidth {
-            OPUS_BANDWIDTH_NARROWBAND => 13,
-            OPUS_BANDWIDTH_MEDIUMBAND | OPUS_BANDWIDTH_WIDEBAND => 17,
-            OPUS_BANDWIDTH_SUPERWIDEBAND => 19,
-            _ => 21,
+        let endband = if bandwidth == Bandwidth::Narrowband as i32 {
+            13
+        } else if bandwidth <= Bandwidth::Wideband as i32 {
+            17
+        } else if bandwidth == Bandwidth::Superwideband as i32 {
+            19
+        } else {
+            21
         };
 
         // === CELT decoding ===
@@ -332,7 +332,7 @@ impl OpusDecoder {
         self.celt_dec.stream_channels = self.stream_channels as usize;
         self.celt_dec.signalling = false;
 
-        if mode != MODE_SILK_ONLY {
+        if mode != Mode::SilkOnly as i32 {
             let celt_frame_size = f20.min(frame_size);
             if mode != self.prev_mode && self.prev_mode > 0 && !self.prev_redundancy {
                 // Reset CELT on mode transitions
@@ -361,7 +361,7 @@ impl OpusDecoder {
             self.range_final = self.celt_dec.rng;
         } else {
             // SILK-only: CELT not used for audio, but need fade-out on transitions
-            if mode != MODE_CELT_ONLY {
+            if mode != Mode::CeltOnly as i32 {
                 // pcm already has SILK output
             }
             if let Some(ref ec) = ec {
@@ -425,8 +425,8 @@ impl OpusDecoder {
         // Safety: is_plc returns early above when data is None
         let data = data.expect("data guaranteed Some by is_plc check");
 
-        let packet_mode = opus_packet_get_mode(data);
-        let packet_bandwidth = opus_packet_get_bandwidth(data);
+        let packet_mode = i32::from(opus_packet_get_mode(data));
+        let packet_bandwidth = i32::from(opus_packet_get_bandwidth(data));
         let packet_frame_size = opus_packet_get_samples_per_frame(data, self.fs);
         let packet_stream_channels = opus_packet_get_nb_channels(data);
 
@@ -436,8 +436,8 @@ impl OpusDecoder {
         // FEC
         if decode_fec {
             if frame_size < packet_frame_size
-                || packet_mode == MODE_CELT_ONLY
-                || self.mode == MODE_CELT_ONLY
+                || packet_mode == Mode::CeltOnly as i32
+                || self.mode == Mode::CeltOnly as i32
             {
                 return self.decode_float(None, pcm, frame_size, false);
             }
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_decoder_create() {
-        let dec = OpusDecoder::new(48000, 2);
+        let dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Stereo);
         assert!(dec.is_ok());
         let dec = dec.unwrap();
         assert_eq!(dec.sample_rate(), 48000);
@@ -602,15 +602,8 @@ mod tests {
     }
 
     #[test]
-    fn test_decoder_create_invalid() {
-        assert!(OpusDecoder::new(44100, 2).is_err());
-        assert!(OpusDecoder::new(48000, 3).is_err());
-        assert!(OpusDecoder::new(48000, 0).is_err());
-    }
-
-    #[test]
     fn test_decoder_reset() {
-        let mut dec = OpusDecoder::new(48000, 1).unwrap();
+        let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
         dec.set_gain(100);
         dec.reset().unwrap();
         assert_eq!(dec.get_gain(), 0);
@@ -618,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_plc_outputs_audio() {
-        let mut dec = OpusDecoder::new(48000, 1).unwrap();
+        let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
         let mut pcm = vec![0.0f32; 960];
         let ret = dec.decode_float(None, &mut pcm, 960, false);
         assert!(ret.is_ok());

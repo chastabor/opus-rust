@@ -1,16 +1,5 @@
 use crate::error::OpusError;
-
-/// Opus bandwidth constants
-pub const OPUS_BANDWIDTH_NARROWBAND: i32 = 1101;
-pub const OPUS_BANDWIDTH_MEDIUMBAND: i32 = 1102;
-pub const OPUS_BANDWIDTH_WIDEBAND: i32 = 1103;
-pub const OPUS_BANDWIDTH_SUPERWIDEBAND: i32 = 1104;
-pub const OPUS_BANDWIDTH_FULLBAND: i32 = 1105;
-
-/// Opus mode constants
-pub const MODE_SILK_ONLY: i32 = 1000;
-pub const MODE_HYBRID: i32 = 1001;
-pub const MODE_CELT_ONLY: i32 = 1002;
+use crate::types::{Bandwidth, Mode};
 
 /// Get the number of samples per frame from the TOC byte.
 pub fn opus_packet_get_samples_per_frame(data: &[u8], fs: i32) -> i32 {
@@ -41,34 +30,36 @@ pub fn opus_packet_get_samples_per_frame(data: &[u8], fs: i32) -> i32 {
 }
 
 /// Get the codec mode from a packet.
-pub fn opus_packet_get_mode(data: &[u8]) -> i32 {
+pub fn opus_packet_get_mode(data: &[u8]) -> Mode {
     if data[0] & 0x80 != 0 {
-        MODE_CELT_ONLY
+        Mode::CeltOnly
     } else if (data[0] & 0x60) == 0x60 {
-        MODE_HYBRID
+        Mode::Hybrid
     } else {
-        MODE_SILK_ONLY
+        Mode::SilkOnly
     }
 }
 
 /// Get the bandwidth from a packet.
-pub fn opus_packet_get_bandwidth(data: &[u8]) -> i32 {
-    if data[0] & 0x80 != 0 {
-        let bandwidth = OPUS_BANDWIDTH_MEDIUMBAND + ((data[0] as i32 >> 5) & 0x3);
-        if bandwidth == OPUS_BANDWIDTH_MEDIUMBAND {
-            OPUS_BANDWIDTH_NARROWBAND
+pub fn opus_packet_get_bandwidth(data: &[u8]) -> Bandwidth {
+    let raw = if data[0] & 0x80 != 0 {
+        let bw = Bandwidth::Mediumband as i32 + ((data[0] as i32 >> 5) & 0x3);
+        if bw == Bandwidth::Mediumband as i32 {
+            Bandwidth::Narrowband as i32
         } else {
-            bandwidth
+            bw
         }
     } else if (data[0] & 0x60) == 0x60 {
         if data[0] & 0x10 != 0 {
-            OPUS_BANDWIDTH_FULLBAND
+            Bandwidth::Fullband as i32
         } else {
-            OPUS_BANDWIDTH_SUPERWIDEBAND
+            Bandwidth::Superwideband as i32
         }
     } else {
-        OPUS_BANDWIDTH_NARROWBAND + ((data[0] as i32 >> 5) & 0x3)
-    }
+        Bandwidth::Narrowband as i32 + ((data[0] as i32 >> 5) & 0x3)
+    };
+    // Safety: TOC byte encoding guarantees the result is a valid bandwidth value
+    Bandwidth::try_from(raw).expect("valid bandwidth from TOC byte")
 }
 
 /// Get the number of channels from a packet.
@@ -305,23 +296,23 @@ mod tests {
     #[test]
     fn test_get_bandwidth() {
         // CELT-only, fullband (bits 7,6,5 = 1,1,1)
-        assert_eq!(opus_packet_get_bandwidth(&[0xE0]), OPUS_BANDWIDTH_FULLBAND);
+        assert_eq!(opus_packet_get_bandwidth(&[0xE0]), Bandwidth::Fullband);
         // SILK-only, narrowband (bits 7,6,5 = 0,0,0)
-        assert_eq!(opus_packet_get_bandwidth(&[0x00]), OPUS_BANDWIDTH_NARROWBAND);
+        assert_eq!(opus_packet_get_bandwidth(&[0x00]), Bandwidth::Narrowband);
         // SILK-only, wideband (bits 7,6,5 = 0,1,0)
-        assert_eq!(opus_packet_get_bandwidth(&[0x40]), OPUS_BANDWIDTH_WIDEBAND);
+        assert_eq!(opus_packet_get_bandwidth(&[0x40]), Bandwidth::Wideband);
         // Hybrid, superwideband
-        assert_eq!(opus_packet_get_bandwidth(&[0x60]), OPUS_BANDWIDTH_SUPERWIDEBAND);
+        assert_eq!(opus_packet_get_bandwidth(&[0x60]), Bandwidth::Superwideband);
         // Hybrid, fullband
-        assert_eq!(opus_packet_get_bandwidth(&[0x70]), OPUS_BANDWIDTH_FULLBAND);
+        assert_eq!(opus_packet_get_bandwidth(&[0x70]), Bandwidth::Fullband);
     }
 
     #[test]
     fn test_get_mode() {
-        assert_eq!(opus_packet_get_mode(&[0x80]), MODE_CELT_ONLY);
-        assert_eq!(opus_packet_get_mode(&[0x60]), MODE_HYBRID);
-        assert_eq!(opus_packet_get_mode(&[0x00]), MODE_SILK_ONLY);
-        assert_eq!(opus_packet_get_mode(&[0x40]), MODE_SILK_ONLY);
+        assert_eq!(opus_packet_get_mode(&[0x80]), Mode::CeltOnly);
+        assert_eq!(opus_packet_get_mode(&[0x60]), Mode::Hybrid);
+        assert_eq!(opus_packet_get_mode(&[0x00]), Mode::SilkOnly);
+        assert_eq!(opus_packet_get_mode(&[0x40]), Mode::SilkOnly);
     }
 
     #[test]

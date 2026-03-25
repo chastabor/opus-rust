@@ -7,8 +7,10 @@
 mod common;
 
 use common::{gen_sine, gen_stereo_sine};
-use opus::decoder::OpusDecoder;
-use opus::encoder::{OpusEncoder, OPUS_APPLICATION_AUDIO, OPUS_APPLICATION_VOIP};
+use opus::{
+    OpusDecoder, OpusEncoder,
+    Application, Bandwidth, SampleRate, Channels, Bitrate, ForceChannels,
+};
 use opus::packet::*;
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
@@ -24,14 +26,15 @@ fn gen_silence(buf: &mut [f32]) {
 
 /// Generate N_FRAMES frames of test signal.
 fn generate_frames(cfg: &TestConfig) -> Vec<Vec<f32>> {
-    let samples_per_frame = FRAME_SIZE as usize * cfg.channels as usize;
+    let ch = i32::from(cfg.channels) as usize;
+    let samples_per_frame = FRAME_SIZE as usize * ch;
     (0..N_FRAMES)
         .map(|frame| {
             let mut buf = vec![0.0f32; samples_per_frame];
             let offset = frame * FRAME_SIZE as usize;
             if cfg.freq_l == 0.0 && cfg.freq_r == 0.0 {
                 gen_silence(&mut buf);
-            } else if cfg.channels == 2 {
+            } else if cfg.channels == Channels::Stereo {
                 gen_stereo_sine(
                     &mut buf,
                     FRAME_SIZE as usize,
@@ -52,11 +55,11 @@ fn generate_frames(cfg: &TestConfig) -> Vec<Vec<f32>> {
 
 struct TestConfig {
     name: &'static str,
-    channels: i32,
-    application: i32,
-    max_bandwidth: i32,
+    channels: Channels,
+    application: Application,
+    max_bandwidth: Bandwidth,
     bitrate: i32,
-    force_channels: i32,
+    force_channels: ForceChannels,
     freq_l: f32,
     freq_r: f32,
     amp: f32,
@@ -113,22 +116,22 @@ fn first_divergence(a: &[f32], b: &[f32], threshold: f64, channels: usize) -> St
 // ── Encoder/decoder helpers ──
 
 fn make_c_encoder(cfg: &TestConfig) -> COpusEncoder {
-    let mut enc = COpusEncoder::new(SAMPLE_RATE, cfg.channels, cfg.application).unwrap();
-    enc.set_max_bandwidth(cfg.max_bandwidth).unwrap();
+    let mut enc = COpusEncoder::new(SAMPLE_RATE, i32::from(cfg.channels), i32::from(cfg.application)).unwrap();
+    enc.set_max_bandwidth(i32::from(cfg.max_bandwidth)).unwrap();
     enc.set_complexity(10).unwrap();
     enc.set_bitrate(cfg.bitrate).unwrap();
-    if cfg.force_channels > 0 {
-        enc.set_force_channels(cfg.force_channels).unwrap();
+    if cfg.force_channels != ForceChannels::Auto {
+        enc.set_force_channels(i32::from(cfg.force_channels)).unwrap();
     }
     enc
 }
 
 fn make_rust_encoder(cfg: &TestConfig) -> OpusEncoder {
-    let mut enc = OpusEncoder::new(SAMPLE_RATE, cfg.channels, cfg.application).unwrap();
+    let mut enc = OpusEncoder::new(SampleRate::Hz48000, cfg.channels, cfg.application).unwrap();
     enc.set_bandwidth(cfg.max_bandwidth);
     enc.set_complexity(10);
-    enc.set_bitrate(cfg.bitrate);
-    if cfg.force_channels > 0 {
+    enc.set_bitrate(Bitrate::BitsPerSecond(cfg.bitrate));
+    if cfg.force_channels != ForceChannels::Auto {
         enc.set_force_channels(cfg.force_channels);
     }
     enc
@@ -140,10 +143,10 @@ fn make_rust_encoder(cfg: &TestConfig) -> OpusEncoder {
 fn test_decode_comparison(cfg: &TestConfig) {
     let frames = generate_frames(cfg);
     let mut c_enc = make_c_encoder(cfg);
-    let mut c_dec = COpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
-    let mut rust_dec = OpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
+    let mut c_dec = COpusDecoder::new(SAMPLE_RATE, i32::from(cfg.channels)).unwrap();
+    let mut rust_dec = OpusDecoder::new(SampleRate::Hz48000, cfg.channels).unwrap();
 
-    let ch = cfg.channels as usize;
+    let ch = i32::from(cfg.channels) as usize;
     let mut all_c_pcm = Vec::new();
     let mut all_rust_pcm = Vec::new();
 
@@ -199,10 +202,10 @@ fn test_encode_comparison(cfg: &TestConfig) {
     let mut c_enc = make_c_encoder(cfg);
     let mut rust_enc = make_rust_encoder(cfg);
     // Two separate decoders to maintain consistent state per stream
-    let mut c_dec_for_c = COpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
-    let mut c_dec_for_rust = COpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
+    let mut c_dec_for_c = COpusDecoder::new(SAMPLE_RATE, i32::from(cfg.channels)).unwrap();
+    let mut c_dec_for_rust = COpusDecoder::new(SAMPLE_RATE, i32::from(cfg.channels)).unwrap();
 
-    let ch = cfg.channels as usize;
+    let ch = i32::from(cfg.channels) as usize;
     let mut packets_identical = 0usize;
     let mut packets_total = 0usize;
     let mut rust_invalid = 0usize;
@@ -274,8 +277,8 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
 
     // C pipeline
     let mut c_enc = make_c_encoder(cfg);
-    let mut c_dec = COpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
-    let ch = cfg.channels as usize;
+    let mut c_dec = COpusDecoder::new(SAMPLE_RATE, i32::from(cfg.channels)).unwrap();
+    let ch = i32::from(cfg.channels) as usize;
     let mut c_pcm = Vec::new();
 
     for frame_pcm in &frames {
@@ -288,7 +291,7 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
 
     // Rust pipeline
     let mut rust_enc = make_rust_encoder(cfg);
-    let mut rust_dec = OpusDecoder::new(SAMPLE_RATE, cfg.channels).unwrap();
+    let mut rust_dec = OpusDecoder::new(SampleRate::Hz48000, cfg.channels).unwrap();
     let mut rust_pcm = Vec::new();
     let mut rust_decode_errors = 0usize;
 
@@ -343,11 +346,11 @@ fn configs() -> Vec<TestConfig> {
         // CELT mono
         TestConfig {
             name: "celt_silence",
-            channels: 1,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Mono,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 64000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
@@ -356,11 +359,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_sine440",
-            channels: 1,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Mono,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 64000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 440.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -369,11 +372,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_sine1k_hbr",
-            channels: 1,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Mono,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 128000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 1000.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -382,11 +385,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_lowbr",
-            channels: 1,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Mono,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 16000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 300.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -396,11 +399,11 @@ fn configs() -> Vec<TestConfig> {
         // CELT stereo
         TestConfig {
             name: "celt_stereo_silence",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 64000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
@@ -409,11 +412,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_stereo_sine",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 96000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 440.0,
             freq_r: 880.0,
             amp: 0.5,
@@ -422,11 +425,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_stereo_lowbr",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 32000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 300.0,
             freq_r: 300.0,
             amp: 0.5,
@@ -435,11 +438,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "celt_stereo_hbr",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 128000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 1000.0,
             freq_r: 500.0,
             amp: 0.5,
@@ -449,11 +452,11 @@ fn configs() -> Vec<TestConfig> {
         // SILK mono
         TestConfig {
             name: "silk_nb_silence",
-            channels: 1,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_NARROWBAND,
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
             bitrate: 12000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
@@ -462,11 +465,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "silk_nb_sine200",
-            channels: 1,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_NARROWBAND,
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
             bitrate: 12000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 200.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -475,11 +478,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "silk_mb_sine350",
-            channels: 1,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_MEDIUMBAND,
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Mediumband,
             bitrate: 16000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 350.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -488,11 +491,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "silk_wb_sine500",
-            channels: 1,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_WIDEBAND,
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Wideband,
             bitrate: 20000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 500.0,
             freq_r: 0.0,
             amp: 0.5,
@@ -502,11 +505,11 @@ fn configs() -> Vec<TestConfig> {
         // SILK stereo
         TestConfig {
             name: "silk_stereo_wb",
-            channels: 2,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_WIDEBAND,
+            channels: Channels::Stereo,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Wideband,
             bitrate: 32000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 400.0,
             freq_r: 600.0,
             amp: 0.5,
@@ -515,11 +518,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "silk_stereo_nb",
-            channels: 2,
-            application: OPUS_APPLICATION_VOIP,
-            max_bandwidth: OPUS_BANDWIDTH_NARROWBAND,
+            channels: Channels::Stereo,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
             bitrate: 20000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 200.0,
             freq_r: 300.0,
             amp: 0.5,
@@ -529,11 +532,11 @@ fn configs() -> Vec<TestConfig> {
         // Hybrid stereo
         TestConfig {
             name: "hybrid_stereo",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_SUPERWIDEBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Superwideband,
             bitrate: 32000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 200.0,
             freq_r: 1000.0,
             amp: 0.5,
@@ -542,11 +545,11 @@ fn configs() -> Vec<TestConfig> {
         },
         TestConfig {
             name: "hybrid_stereo_fb",
-            channels: 2,
-            application: OPUS_APPLICATION_AUDIO,
-            max_bandwidth: OPUS_BANDWIDTH_FULLBAND,
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Fullband,
             bitrate: 36000,
-            force_channels: 0,
+            force_channels: ForceChannels::Auto,
             freq_l: 440.0,
             freq_r: 880.0,
             amp: 0.5,

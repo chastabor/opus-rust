@@ -257,11 +257,11 @@ fn make_sine_f32(fs: i32) -> Vec<f32> {
 fn encode_indices_pulses_decodable_by_c() {
     // Rust encoder → C decoder: verifies encode_indices + encode_pulses
     // produce a valid bitstream that the C reference can decode
-    use opus::encoder::{OpusEncoder, OPUS_APPLICATION_VOIP};
+    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    r_enc.set_bitrate(16000);
+    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
     r_enc.set_complexity(10);
 
     let pcm = make_sine_f32(fs);
@@ -285,11 +285,11 @@ fn encode_indices_pulses_decodable_by_c() {
 #[test]
 fn nsq_output_decodable_by_c() {
     // Tests NSQ with low complexity (non-del-dec path, silk_NSQ_c)
-    use opus::encoder::{OpusEncoder, OPUS_APPLICATION_VOIP};
+    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    r_enc.set_bitrate(16000);
+    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
     r_enc.set_complexity(1); // low complexity → n_states_del_dec=1 → plain NSQ
 
     let pcm = make_sine_f32(fs);
@@ -313,10 +313,10 @@ fn nsq_output_decodable_by_c() {
 fn c_encoder_output_decodable_by_rust() {
     // C encoder → Rust decoder: verifies Rust decoder handles C's
     // encode_indices + encode_pulses + NSQ output
-    use opus::decoder::OpusDecoder;
+    use opus::{OpusDecoder, SampleRate, Channels};
 
     let fs = 16000;
-    let mut c_enc = COpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
+    let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
     c_enc.set_bitrate(16000).unwrap();
     c_enc.set_complexity(10).unwrap();
 
@@ -327,7 +327,7 @@ fn c_encoder_output_decodable_by_rust() {
         bytes = c_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt).unwrap();
     }
 
-    let mut r_dec = OpusDecoder::new(fs, 1).unwrap();
+    let mut r_dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut dec_pcm = vec![0.0f32; FRAME_SIZE as usize];
     let samples = r_dec.decode_float(Some(&pkt[..bytes as usize]), &mut dec_pcm, FRAME_SIZE, false).unwrap();
     assert!(samples > 0);
@@ -341,11 +341,11 @@ fn c_encoder_output_decodable_by_rust() {
 fn vad_produces_speech_activity() {
     // Both C and Rust should detect a 440Hz sine as speech (not silence)
     // VAD (1h) is implicitly tested: if VAD fails, encoder produces no output
-    use opus::encoder::{OpusEncoder, OPUS_APPLICATION_VOIP};
+    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(fs, 1, OPUS_APPLICATION_VOIP).unwrap();
-    r_enc.set_bitrate(16000);
+    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
 
     let pcm = make_sine_f32(fs);
     let mut pkt = vec![0u8; MAX_PKT];
