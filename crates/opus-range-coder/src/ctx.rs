@@ -128,11 +128,7 @@ impl EcCtx {
 /// Equivalent to the position of the highest set bit + 1.
 #[inline]
 pub fn ec_ilog(v: u32) -> u32 {
-    if v == 0 {
-        0
-    } else {
-        32 - v.leading_zeros()
-    }
+    if v == 0 { 0 } else { 32 - v.leading_zeros() }
 }
 
 #[cfg(test)]

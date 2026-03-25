@@ -378,18 +378,13 @@ mod tests {
         ];
 
         let mut buf = vec![0u8; 256];
-        let nbytes =
-            opus_packet_extensions_generate(&mut buf, &extensions_in, 4).unwrap();
+        let nbytes = opus_packet_extensions_generate(&mut buf, &extensions_in, 4).unwrap();
         assert!(nbytes > 0, "Should produce extension bytes");
 
         let mut nb_ext = 0i32;
         let mut extensions_out = Vec::new();
-        opus_packet_extensions_parse(
-            &buf[..nbytes as usize],
-            &mut nb_ext,
-            &mut extensions_out,
-        )
-        .unwrap();
+        opus_packet_extensions_parse(&buf[..nbytes as usize], &mut nb_ext, &mut extensions_out)
+            .unwrap();
 
         assert_eq!(nb_ext, 3, "Should parse 3 extensions, got {}", nb_ext);
 
@@ -461,12 +456,8 @@ mod tests {
 
         let mut nb_ext = 0i32;
         let mut extensions_out = Vec::new();
-        opus_packet_extensions_parse(
-            &buf[..nbytes as usize],
-            &mut nb_ext,
-            &mut extensions_out,
-        )
-        .unwrap();
+        opus_packet_extensions_parse(&buf[..nbytes as usize], &mut nb_ext, &mut extensions_out)
+            .unwrap();
 
         assert_eq!(nb_ext, 3);
         assert_eq!(extensions_out[0].frame, 0);
@@ -488,12 +479,8 @@ mod tests {
 
         let mut nb_ext = 0i32;
         let mut extensions_out = Vec::new();
-        opus_packet_extensions_parse(
-            &buf[..nbytes as usize],
-            &mut nb_ext,
-            &mut extensions_out,
-        )
-        .unwrap();
+        opus_packet_extensions_parse(&buf[..nbytes as usize], &mut nb_ext, &mut extensions_out)
+            .unwrap();
 
         assert_eq!(nb_ext, 1);
         assert_eq!(extensions_out[0].id, 5);
@@ -515,12 +502,8 @@ mod tests {
 
         let mut nb_ext = 0i32;
         let mut extensions_out = Vec::new();
-        opus_packet_extensions_parse(
-            &buf[..nbytes as usize],
-            &mut nb_ext,
-            &mut extensions_out,
-        )
-        .unwrap();
+        opus_packet_extensions_parse(&buf[..nbytes as usize], &mut nb_ext, &mut extensions_out)
+            .unwrap();
 
         assert_eq!(nb_ext, 1);
         assert_eq!(extensions_out[0].id, 64);
@@ -565,7 +548,9 @@ mod tests {
     #[test]
     fn test_varint_roundtrip() {
         // Test various varint values
-        for &value in &[0u32, 1, 127, 128, 255, 256, 16383, 16384, 100000, 0x0FFFFFFF] {
+        for &value in &[
+            0u32, 1, 127, 128, 255, 256, 16383, 16384, 100000, 0x0FFFFFFF,
+        ] {
             let mut buf = vec![0u8; 8];
             let written = write_varint(value, &mut buf).unwrap();
             let (parsed, consumed) = read_varint(&buf[..written]).unwrap();
@@ -603,12 +588,8 @@ mod tests {
 
         let mut nb_ext = 0i32;
         let mut extensions_out = Vec::new();
-        opus_packet_extensions_parse(
-            &buf[..nbytes as usize],
-            &mut nb_ext,
-            &mut extensions_out,
-        )
-        .unwrap();
+        opus_packet_extensions_parse(&buf[..nbytes as usize], &mut nb_ext, &mut extensions_out)
+            .unwrap();
 
         assert_eq!(nb_ext, 3);
         assert_eq!(extensions_out[0].id, 3);

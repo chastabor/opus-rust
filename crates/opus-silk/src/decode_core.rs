@@ -1,7 +1,7 @@
 // Port of silk/decode_core.c - Core decoder (inverse NSQ: LTP + LPC)
 
-use crate::*;
 use crate::tables::*;
+use crate::*;
 
 /// Core decoder. Performs inverse NSQ operation LTP + LPC
 pub fn silk_decode_core(
@@ -25,8 +25,7 @@ pub fn silk_decode_core(
     let mut res_q14 = [0i32; MAX_SUB_FRAME_LENGTH];
     let mut s_lpc_q14 = [0i32; MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER];
 
-    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10
-        [(ps_dec.indices.signal_type >> 1) as usize]
+    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10[(ps_dec.indices.signal_type >> 1) as usize]
         [ps_dec.indices.quant_offset_type as usize] as i32;
 
     let nlsf_interpolation_flag = (ps_dec.indices.nlsf_interp_coef_q2 as i32) < 4;
@@ -88,7 +87,8 @@ pub fn silk_decode_core(
         ps_dec.prev_gain_q16 = ps_dec_ctrl.gains_q16[k];
 
         // Avoid abrupt transition from voiced PLC to unvoiced normal decoding
-        if ps_dec.loss_cnt > 0 && ps_dec.prev_signal_type == TYPE_VOICED
+        if ps_dec.loss_cnt > 0
+            && ps_dec.prev_signal_type == TYPE_VOICED
             && ps_dec.indices.signal_type as i32 != TYPE_VOICED
             && k < MAX_NB_SUBFR / 2
         {
@@ -105,7 +105,10 @@ pub fn silk_decode_core(
 
             // Re-whitening
             if k == 0 || (k == 2 && nlsf_interpolation_flag) {
-                let start_idx = (ltp_mem_length as i32 - lag - ps_dec.lpc_order - (LTP_ORDER as i32) / 2)
+                let start_idx = (ltp_mem_length as i32
+                    - lag
+                    - ps_dec.lpc_order
+                    - (LTP_ORDER as i32) / 2)
                     .max(0) as usize;
 
                 if k == 2 {
@@ -137,13 +140,15 @@ pub fn silk_decode_core(
                 let mut inv_gain_for_ltp = inv_gain_q31;
                 if k == 0 {
                     // Do LTP downscaling to reduce inter-packet dependency
-                    inv_gain_for_ltp = (silk_smulwb(inv_gain_for_ltp, ps_dec_ctrl.ltp_scale_q14 as i32)) << 2;
+                    inv_gain_for_ltp =
+                        (silk_smulwb(inv_gain_for_ltp, ps_dec_ctrl.ltp_scale_q14 as i32)) << 2;
                 }
 
                 let lag_plus = lag as usize + LTP_ORDER / 2;
                 for i in 0..lag_plus.min(ltp_mem_length).min(s_ltp_buf_idx) {
                     let src_idx = ltp_mem_length - i - 1;
-                    s_ltp_q15[s_ltp_buf_idx - i - 1] = silk_smulwb(inv_gain_for_ltp, s_ltp[src_idx] as i32);
+                    s_ltp_q15[s_ltp_buf_idx - i - 1] =
+                        silk_smulwb(inv_gain_for_ltp, s_ltp[src_idx] as i32);
                 }
             } else {
                 if gain_adj_q16 != (1 << 16) {
@@ -163,11 +168,31 @@ pub fn silk_decode_core(
                 let pred_idx = (pred_lag_base + i as i32) as usize;
 
                 let mut ltp_pred_q13: i32 = 2; // bias
-                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx], ltp_coef_q14[b_q14_base + 0] as i32);
-                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 1], ltp_coef_q14[b_q14_base + 1] as i32);
-                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 2], ltp_coef_q14[b_q14_base + 2] as i32);
-                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 3], ltp_coef_q14[b_q14_base + 3] as i32);
-                ltp_pred_q13 = silk_smlawb(ltp_pred_q13, s_ltp_q15[pred_idx - 4], ltp_coef_q14[b_q14_base + 4] as i32);
+                ltp_pred_q13 = silk_smlawb(
+                    ltp_pred_q13,
+                    s_ltp_q15[pred_idx],
+                    ltp_coef_q14[b_q14_base + 0] as i32,
+                );
+                ltp_pred_q13 = silk_smlawb(
+                    ltp_pred_q13,
+                    s_ltp_q15[pred_idx - 1],
+                    ltp_coef_q14[b_q14_base + 1] as i32,
+                );
+                ltp_pred_q13 = silk_smlawb(
+                    ltp_pred_q13,
+                    s_ltp_q15[pred_idx - 2],
+                    ltp_coef_q14[b_q14_base + 2] as i32,
+                );
+                ltp_pred_q13 = silk_smlawb(
+                    ltp_pred_q13,
+                    s_ltp_q15[pred_idx - 3],
+                    ltp_coef_q14[b_q14_base + 3] as i32,
+                );
+                ltp_pred_q13 = silk_smlawb(
+                    ltp_pred_q13,
+                    s_ltp_q15[pred_idx - 4],
+                    ltp_coef_q14[b_q14_base + 4] as i32,
+                );
 
                 res_q14[i] = ps_dec.exc_q14[pexc_offset + i].wrapping_add(ltp_pred_q13 << 1);
                 s_ltp_q15[s_ltp_buf_idx] = res_q14[i] << 1;
@@ -198,11 +223,16 @@ pub fn silk_decode_core(
                 }
             }
 
-            let exc = if use_res { res_q14[i] } else { ps_dec.exc_q14[pexc_offset + i] };
+            let exc = if use_res {
+                res_q14[i]
+            } else {
+                ps_dec.exc_q14[pexc_offset + i]
+            };
             s_lpc_q14[MAX_LPC_ORDER + i] = silk_add_sat32(exc, silk_lshift_sat32(lpc_pred_q10, 4));
 
             xq[pxq_offset + i] = silk_sat16(silk_rshift_round(
-                silk_smulww_correct(s_lpc_q14[MAX_LPC_ORDER + i], gain_q10), 8
+                silk_smulww_correct(s_lpc_q14[MAX_LPC_ORDER + i], gain_q10),
+                8,
             ));
         }
 
@@ -213,7 +243,9 @@ pub fn silk_decode_core(
     }
 
     // Save LPC state
-    ps_dec.s_lpc_q14_buf.copy_from_slice(&s_lpc_q14[..MAX_LPC_ORDER]);
+    ps_dec
+        .s_lpc_q14_buf
+        .copy_from_slice(&s_lpc_q14[..MAX_LPC_ORDER]);
 }
 
 /// LPC analysis filter with explicit offsets matching C behavior

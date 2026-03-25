@@ -128,9 +128,12 @@ pub const MAX_PACKET: usize = 4000;
 pub fn pre_encode_with_c(cfg: &BenchConfig) -> Vec<Vec<u8>> {
     use opus_ffi::COpusEncoder;
     let sample_rate = i32::from(SAMPLE_RATE);
-    let mut enc =
-        COpusEncoder::new(sample_rate, i32::from(cfg.channels), i32::from(cfg.application))
-            .unwrap();
+    let mut enc = COpusEncoder::new(
+        sample_rate,
+        i32::from(cfg.channels),
+        i32::from(cfg.application),
+    )
+    .unwrap();
     enc.set_max_bandwidth(i32::from(cfg.max_bandwidth)).unwrap();
     enc.set_complexity(cfg.complexity).unwrap();
     enc.set_bitrate(cfg.bitrate).unwrap();
@@ -159,10 +162,8 @@ pub fn generate_input_frames(cfg: &BenchConfig) -> Vec<Vec<f32>> {
             if channels == 2 {
                 for i in 0..FRAME_SIZE as usize {
                     let t = (i + offset) as f32 / sample_rate as f32;
-                    buf[i * 2] =
-                        cfg.amp * (2.0 * std::f32::consts::PI * cfg.freq_l * t).sin();
-                    buf[i * 2 + 1] =
-                        cfg.amp * (2.0 * std::f32::consts::PI * cfg.freq_r * t).sin();
+                    buf[i * 2] = cfg.amp * (2.0 * std::f32::consts::PI * cfg.freq_l * t).sin();
+                    buf[i * 2 + 1] = cfg.amp * (2.0 * std::f32::consts::PI * cfg.freq_r * t).sin();
                 }
             } else {
                 for i in 0..FRAME_SIZE as usize {

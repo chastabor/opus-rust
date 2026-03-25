@@ -5,10 +5,10 @@
 mod common;
 
 use opus_ffi::*;
-use opus_silk::*;
+use opus_silk::encoder_flp::find_ltp::silk_ltp_analysis_filter_flp;
 use opus_silk::gain_quant;
 use opus_silk::nlsf;
-use opus_silk::encoder_flp::find_ltp::silk_ltp_analysis_filter_flp;
+use opus_silk::*;
 
 fn gen_sine_f32(len: usize, freq: f32, fs: f32, amp: f32) -> Vec<f32> {
     (0..len)
@@ -19,7 +19,11 @@ fn gen_sine_f32(len: usize, freq: f32, fs: f32, amp: f32) -> Vec<f32> {
 fn assert_slice_eq<T: Eq + std::fmt::Display + std::fmt::Debug>(rust: &[T], c: &[T], name: &str) {
     assert_eq!(rust.len(), c.len(), "{}: length mismatch", name);
     for i in 0..rust.len() {
-        assert_eq!(rust[i], c[i], "{} [{}]: Rust={} C={}", name, i, rust[i], c[i]);
+        assert_eq!(
+            rust[i], c[i],
+            "{} [{}]: Rust={} C={}",
+            name, i, rust[i], c[i]
+        );
     }
 }
 
@@ -27,7 +31,15 @@ fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
     assert_eq!(rust.len(), c.len(), "{}: length mismatch", name);
     for i in 0..rust.len() {
         let diff = (rust[i] - c[i]).abs();
-        assert!(diff <= tol, "{} [{}]: Rust={} C={} diff={}", name, i, rust[i], c[i], diff);
+        assert!(
+            diff <= tol,
+            "{} [{}]: Rust={} C={} diff={}",
+            name,
+            i,
+            rust[i],
+            c[i],
+            diff
+        );
     }
 }
 
@@ -38,8 +50,8 @@ fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
 #[test]
 fn nlsf2a_matches_c_uniform() {
     let nlsf_q15: [i16; 16] = [
-        2048, 4096, 6144, 8192, 10240, 12288, 14336, 16384,
-        18432, 20480, 22528, 24576, 26624, 28672, 30720, 32000,
+        2048, 4096, 6144, 8192, 10240, 12288, 14336, 16384, 18432, 20480, 22528, 24576, 26624,
+        28672, 30720, 32000,
     ];
     let mut rust_a = [0i16; 16];
     let mut c_a = [0i16; 16];
@@ -53,8 +65,8 @@ fn nlsf2a_matches_c_uniform() {
 #[test]
 fn nlsf2a_matches_c_speech() {
     let nlsf_q15: [i16; 16] = [
-        1684, 1818, 2281, 4380, 6557, 8743, 10926, 13109,
-        15292, 17479, 19661, 21846, 24030, 26216, 28398, 30586,
+        1684, 1818, 2281, 4380, 6557, 8743, 10926, 13109, 15292, 17479, 19661, 21846, 24030, 26216,
+        28398, 30586,
     ];
     let mut rust_a = [0i16; 16];
     let mut c_a = [0i16; 16];
@@ -97,7 +109,11 @@ fn gains_quant_independent() {
     c_silk_gains_quant(&mut c_ind, &mut c_gains, &mut c_prev, false, 4);
 
     assert_eq!(&r_ind[..4], &c_ind[..4], "gains_quant ind (independent)");
-    assert_slice_eq(&r_gains[..4], &c_gains[..4], "gains_quant gains (independent)");
+    assert_slice_eq(
+        &r_gains[..4],
+        &c_gains[..4],
+        "gains_quant gains (independent)",
+    );
     assert_eq!(r_prev, c_prev, "gains_quant prev_ind");
 }
 
@@ -115,7 +131,11 @@ fn gains_quant_conditional() {
     c_silk_gains_quant(&mut c_ind, &mut c_gains, &mut c_prev, true, 4);
 
     assert_eq!(&r_ind[..4], &c_ind[..4], "gains_quant ind (conditional)");
-    assert_slice_eq(&r_gains[..4], &c_gains[..4], "gains_quant gains (conditional)");
+    assert_slice_eq(
+        &r_gains[..4],
+        &c_gains[..4],
+        "gains_quant gains (conditional)",
+    );
     assert_eq!(r_prev, c_prev, "gains_quant prev_ind (conditional)");
 }
 
@@ -155,10 +175,14 @@ fn gains_quant_roundtrip_cross() {
 
 #[test]
 fn interpolate_all_factors() {
-    let x0: [i16; 16] = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000,
-                          9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000];
-    let x1: [i16; 16] = [16000, 15000, 14000, 13000, 12000, 11000, 10000, 9000,
-                          8000, 7000, 6000, 5000, 4000, 3000, 2000, 1000];
+    let x0: [i16; 16] = [
+        1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000,
+        15000, 16000,
+    ];
+    let x1: [i16; 16] = [
+        16000, 15000, 14000, 13000, 12000, 11000, 10000, 9000, 8000, 7000, 6000, 5000, 4000, 3000,
+        2000, 1000,
+    ];
 
     for ifact in 0..=4i32 {
         let mut r_xi = [0i16; 16];
@@ -199,14 +223,27 @@ fn ltp_analysis_filter_voiced() {
 
     let mut r_res = vec![0.0f32; nb_subfr * seg_len];
     silk_ltp_analysis_filter_flp(
-        &mut r_res, &signal, x_offset,
-        &b, &pitch_l, &inv_gains, subfr_length, nb_subfr, pre_length,
+        &mut r_res,
+        &signal,
+        x_offset,
+        &b,
+        &pitch_l,
+        &inv_gains,
+        subfr_length,
+        nb_subfr,
+        pre_length,
     );
 
     let mut c_res = vec![0.0f32; nb_subfr * seg_len];
     c_silk_ltp_analysis_filter_flp(
-        &mut c_res, &signal[x_offset..],
-        &b, &pitch_l, &inv_gains, subfr_length, nb_subfr, pre_length,
+        &mut c_res,
+        &signal[x_offset..],
+        &b,
+        &pitch_l,
+        &inv_gains,
+        subfr_length,
+        nb_subfr,
+        pre_length,
     );
 
     assert_f32_slice_close(&r_res, &c_res, 1e-4, "LTP_analysis_filter voiced");
@@ -227,14 +264,27 @@ fn ltp_analysis_filter_zero_b() {
     let x_offset = 400;
     let mut r_res = vec![0.0f32; nb_subfr * seg_len];
     silk_ltp_analysis_filter_flp(
-        &mut r_res, &signal, x_offset,
-        &b, &pitch_l, &inv_gains, subfr_length, nb_subfr, pre_length,
+        &mut r_res,
+        &signal,
+        x_offset,
+        &b,
+        &pitch_l,
+        &inv_gains,
+        subfr_length,
+        nb_subfr,
+        pre_length,
     );
 
     let mut c_res = vec![0.0f32; nb_subfr * seg_len];
     c_silk_ltp_analysis_filter_flp(
-        &mut c_res, &signal[x_offset..],
-        &b, &pitch_l, &inv_gains, subfr_length, nb_subfr, pre_length,
+        &mut c_res,
+        &signal[x_offset..],
+        &b,
+        &pitch_l,
+        &inv_gains,
+        subfr_length,
+        nb_subfr,
+        pre_length,
     );
 
     assert_f32_slice_close(&r_res, &c_res, 1e-6, "LTP_analysis_filter zero B");
@@ -257,10 +307,11 @@ fn make_sine_f32(fs: i32) -> Vec<f32> {
 fn encode_indices_pulses_decodable_by_c() {
     // Rust encoder → C decoder: verifies encode_indices + encode_pulses
     // produce a valid bitstream that the C reference can decode
-    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
+    use opus::{Application, Bitrate, Channels, OpusEncoder, SampleRate};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    let mut r_enc =
+        OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
     r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
     r_enc.set_complexity(10);
 
@@ -268,27 +319,40 @@ fn encode_indices_pulses_decodable_by_c() {
     let mut pkt = vec![0u8; MAX_PKT];
     let mut bytes = 0i32;
     for _ in 0..16 {
-        bytes = r_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32).unwrap();
+        bytes = r_enc
+            .encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32)
+            .unwrap();
     }
     assert!(bytes > 0);
 
     let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
     let mut dec_pcm = vec![0.0f32; FRAME_SIZE as usize];
-    let samples = c_dec.decode_float(Some(&pkt[..bytes as usize]), &mut dec_pcm, FRAME_SIZE, false).unwrap();
+    let samples = c_dec
+        .decode_float(
+            Some(&pkt[..bytes as usize]),
+            &mut dec_pcm,
+            FRAME_SIZE,
+            false,
+        )
+        .unwrap();
     assert!(samples > 0, "C decoder failed on Rust packet");
 
     let rms = common::rms(&dec_pcm) as f32;
-    eprintln!("encode_indices+pulses: {} bytes, C decoded RMS = {:.4}", bytes, rms);
+    eprintln!(
+        "encode_indices+pulses: {} bytes, C decoded RMS = {:.4}",
+        bytes, rms
+    );
     assert!(rms > 0.01, "Decoded to silence (RMS={})", rms);
 }
 
 #[test]
 fn nsq_output_decodable_by_c() {
     // Tests NSQ with low complexity (non-del-dec path, silk_NSQ_c)
-    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
+    use opus::{Application, Bitrate, Channels, OpusEncoder, SampleRate};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    let mut r_enc =
+        OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
     r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
     r_enc.set_complexity(1); // low complexity → n_states_del_dec=1 → plain NSQ
 
@@ -296,12 +360,21 @@ fn nsq_output_decodable_by_c() {
     let mut pkt = vec![0u8; MAX_PKT];
     let mut bytes = 0i32;
     for _ in 0..8 {
-        bytes = r_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32).unwrap();
+        bytes = r_enc
+            .encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32)
+            .unwrap();
     }
 
     let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
     let mut dec_pcm = vec![0.0f32; FRAME_SIZE as usize];
-    let samples = c_dec.decode_float(Some(&pkt[..bytes as usize]), &mut dec_pcm, FRAME_SIZE, false).unwrap();
+    let samples = c_dec
+        .decode_float(
+            Some(&pkt[..bytes as usize]),
+            &mut dec_pcm,
+            FRAME_SIZE,
+            false,
+        )
+        .unwrap();
     assert!(samples > 0);
 
     let rms = common::rms(&dec_pcm) as f32;
@@ -313,7 +386,7 @@ fn nsq_output_decodable_by_c() {
 fn c_encoder_output_decodable_by_rust() {
     // C encoder → Rust decoder: verifies Rust decoder handles C's
     // encode_indices + encode_pulses + NSQ output
-    use opus::{OpusDecoder, SampleRate, Channels};
+    use opus::{Channels, OpusDecoder, SampleRate};
 
     let fs = 16000;
     let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
@@ -329,7 +402,14 @@ fn c_encoder_output_decodable_by_rust() {
 
     let mut r_dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut dec_pcm = vec![0.0f32; FRAME_SIZE as usize];
-    let samples = r_dec.decode_float(Some(&pkt[..bytes as usize]), &mut dec_pcm, FRAME_SIZE, false).unwrap();
+    let samples = r_dec
+        .decode_float(
+            Some(&pkt[..bytes as usize]),
+            &mut dec_pcm,
+            FRAME_SIZE,
+            false,
+        )
+        .unwrap();
     assert!(samples > 0);
 
     let rms = common::rms(&dec_pcm) as f32;
@@ -341,19 +421,26 @@ fn c_encoder_output_decodable_by_rust() {
 fn vad_produces_speech_activity() {
     // Both C and Rust should detect a 440Hz sine as speech (not silence)
     // VAD (1h) is implicitly tested: if VAD fails, encoder produces no output
-    use opus::{OpusEncoder, Application, Bitrate, SampleRate, Channels};
+    use opus::{Application, Bitrate, Channels, OpusEncoder, SampleRate};
 
     let fs = 16000;
-    let mut r_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    let mut r_enc =
+        OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
     r_enc.set_bitrate(Bitrate::BitsPerSecond(16000));
 
     let pcm = make_sine_f32(fs);
     let mut pkt = vec![0u8; MAX_PKT];
     let mut bytes = 0i32;
     for _ in 0..8 {
-        bytes = r_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32).unwrap();
+        bytes = r_enc
+            .encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PKT as i32)
+            .unwrap();
     }
-    assert!(bytes > 2, "VAD likely blocking output (only {} bytes)", bytes);
+    assert!(
+        bytes > 2,
+        "VAD likely blocking output (only {} bytes)",
+        bytes
+    );
 
     // SILK-only: TOC config 0-9 for NB/WB
     let config = (pkt[0] >> 3) & 0x1f;

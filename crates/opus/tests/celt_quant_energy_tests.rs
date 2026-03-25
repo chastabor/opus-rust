@@ -45,8 +45,18 @@ fn coarse_energy_c_encode_rust_decode_mono() {
     let mut c_error = vec![0.0f32; NB_EBANDS * c];
     let mut ec_buf = vec![0u8; 256];
     let ec_bytes = c_encode_coarse_energy(
-        start, end, &e_bands, &mut c_old, &mut c_error,
-        &mut ec_buf, c, lm, nb_available, false, 0, false,
+        start,
+        end,
+        &e_bands,
+        &mut c_old,
+        &mut c_error,
+        &mut ec_buf,
+        c,
+        lm,
+        nb_available,
+        false,
+        0,
+        false,
     );
     assert!(ec_bytes > 0, "C coarse encode produced no bytes");
 
@@ -78,8 +88,18 @@ fn coarse_energy_c_encode_rust_decode_stereo() {
     let mut c_error = vec![0.0f32; NB_EBANDS * c];
     let mut ec_buf = vec![0u8; 512];
     let ec_bytes = c_encode_coarse_energy(
-        start, end, &e_bands, &mut c_old, &mut c_error,
-        &mut ec_buf, c, lm, nb_available, false, 0, false,
+        start,
+        end,
+        &e_bands,
+        &mut c_old,
+        &mut c_error,
+        &mut ec_buf,
+        c,
+        lm,
+        nb_available,
+        false,
+        0,
+        false,
     );
     assert!(ec_bytes > 0);
 
@@ -115,8 +135,18 @@ fn coarse_energy_rust_vs_c_encode_mono() {
     let mut c_ref_error = vec![0.0f32; NB_EBANDS * c];
     let mut c_ref_buf = vec![0u8; 256];
     c_encode_coarse_energy(
-        start, end, &e_bands, &mut c_ref_old, &mut c_ref_error,
-        &mut c_ref_buf, c, lm, nb_available as usize, true, 0, false,
+        start,
+        end,
+        &e_bands,
+        &mut c_ref_old,
+        &mut c_ref_error,
+        &mut c_ref_buf,
+        c,
+        lm,
+        nb_available as usize,
+        true,
+        0,
+        false,
     );
 
     // Rust encode (force intra to avoid two-pass decision divergence)
@@ -125,10 +155,23 @@ fn coarse_energy_rust_vs_c_encode_mono() {
     let mut enc = EcCtx::enc_init(buf_size);
     let mut delayed_intra = 0.0f32;
     quant_energy::quant_coarse_energy(
-        m, start, end, end, &e_bands, &mut rust_old,
-        (buf_size * 8) as i32, &mut rust_error, &mut enc,
-        c, lm, nb_available,
-        true, &mut delayed_intra, false, 0, false,
+        m,
+        start,
+        end,
+        end,
+        &e_bands,
+        &mut rust_old,
+        (buf_size * 8) as i32,
+        &mut rust_error,
+        &mut enc,
+        c,
+        lm,
+        nb_available,
+        true,
+        &mut delayed_intra,
+        false,
+        0,
+        false,
     );
     enc.enc_done();
 
@@ -162,12 +205,25 @@ fn fine_energy_c_encode_rust_decode() {
     // C encode fine energy
     let mut ec_buf = vec![0u8; 256];
     let ec_bytes = c_encode_fine_energy(
-        start, end, &mut c_old, &mut c_error, &fine_quant, &mut ec_buf, c,
+        start,
+        end,
+        &mut c_old,
+        &mut c_error,
+        &fine_quant,
+        &mut ec_buf,
+        c,
     );
 
     // C decode
     let mut c_decoded = initial_old.clone();
-    c_decode_fine_energy(start, end, &mut c_decoded, &fine_quant, &ec_buf[..ec_bytes], c);
+    c_decode_fine_energy(
+        start,
+        end,
+        &mut c_decoded,
+        &fine_quant,
+        &ec_buf[..ec_bytes],
+        c,
+    );
 
     // Rust decode from same bytes
     let mut rust_decoded = initial_old.clone();
@@ -203,26 +259,49 @@ fn energy_finalise_c_encode_rust_decode() {
     // C encode energy finalise
     let mut ec_buf = vec![0u8; 256];
     let ec_bytes = c_encode_energy_finalise(
-        start, end, &mut c_old, &mut c_error,
-        &fine_quant, &fine_priority, bits_left,
-        &mut ec_buf, c,
+        start,
+        end,
+        &mut c_old,
+        &mut c_error,
+        &fine_quant,
+        &fine_priority,
+        bits_left,
+        &mut ec_buf,
+        c,
     );
 
     // C decode
     let mut c_decoded = initial_old.clone();
     c_decode_energy_finalise(
-        start, end, &mut c_decoded,
-        &fine_quant, &fine_priority, bits_left,
-        &ec_buf[..ec_bytes], c,
+        start,
+        end,
+        &mut c_decoded,
+        &fine_quant,
+        &fine_priority,
+        bits_left,
+        &ec_buf[..ec_bytes],
+        c,
     );
 
     // Rust decode from same bytes
     let mut rust_decoded = initial_old.clone();
     let mut dec = EcCtx::dec_init(&ec_buf[..ec_bytes]);
     quant_energy::unquant_energy_finalise(
-        m, start, end, Some(&mut rust_decoded),
-        &fine_quant, &fine_priority, bits_left, &mut dec, c,
+        m,
+        start,
+        end,
+        Some(&mut rust_decoded),
+        &fine_quant,
+        &fine_priority,
+        bits_left,
+        &mut dec,
+        c,
     );
 
-    assert_f32_slice_close(&rust_decoded, &c_decoded, 1e-4, "energy_finalise_decode(mono)");
+    assert_f32_slice_close(
+        &rust_decoded,
+        &c_decoded,
+        1e-4,
+        "energy_finalise_decode(mono)",
+    );
 }

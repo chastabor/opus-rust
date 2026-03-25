@@ -1,7 +1,9 @@
 // Port of silk/resampler.c, silk/resampler_private_up2_HQ.c,
 // silk/resampler_private_IIR_FIR.c - SILK resampler
 
-use crate::{silk_smulwb, silk_smlawb, silk_smlabb, silk_smulbb, silk_sat16, silk_rshift_round, MAX_FS_KHZ};
+use crate::{
+    MAX_FS_KHZ, silk_rshift_round, silk_sat16, silk_smlabb, silk_smlawb, silk_smulbb, silk_smulwb,
+};
 
 /// Resampler state
 #[derive(Clone)]
@@ -151,12 +153,7 @@ pub fn resampler_init(s: &mut ResamplerState, fs_hz_in: i32, fs_hz_out: i32, _fo
 }
 
 /// Resampler: convert from one sampling rate to another
-pub fn silk_resampler(
-    s: &mut ResamplerState,
-    out: &mut [i16],
-    input: &[i16],
-    in_len: usize,
-) {
+pub fn silk_resampler(s: &mut ResamplerState, out: &mut [i16], input: &[i16], in_len: usize) {
     let fs_in = s.fs_in_khz.max(1) as usize;
     let fs_out = s.fs_out_khz.max(1) as usize;
     let input_delay = s.input_delay as usize;
@@ -164,10 +161,11 @@ pub fn silk_resampler(
     let n_samples = fs_in - input_delay;
 
     // Copy to delay buffer
-    let copy_len = n_samples.min(input.len()).min(s.delay_buf.len().saturating_sub(input_delay));
+    let copy_len = n_samples
+        .min(input.len())
+        .min(s.delay_buf.len().saturating_sub(input_delay));
     if input_delay + copy_len <= s.delay_buf.len() {
-        s.delay_buf[input_delay..input_delay + copy_len]
-            .copy_from_slice(&input[..copy_len]);
+        s.delay_buf[input_delay..input_delay + copy_len].copy_from_slice(&input[..copy_len]);
     }
 
     // Copy delay_buf to stack once to avoid borrow conflict with other s fields
@@ -184,8 +182,7 @@ pub fn silk_resampler(
             let remaining_out = out.len().saturating_sub(fs_out);
             let copy2 = remaining_in.min(remaining_out);
             if copy2 > 0 && n_samples < input.len() {
-                out[fs_out..fs_out + copy2]
-                    .copy_from_slice(&input[n_samples..n_samples + copy2]);
+                out[fs_out..fs_out + copy2].copy_from_slice(&input[n_samples..n_samples + copy2]);
             }
         }
         ResamplerFunc::Up2Hq => {
@@ -204,7 +201,12 @@ pub fn silk_resampler(
             silk_resampler_private_iir_fir(s, out, &delay_tmp[..delay_len], fs_in as i32);
             if n_samples < input.len() && fs_out < out.len() {
                 let remain_len = (in_len as i32 - fs_in as i32).max(0);
-                silk_resampler_private_iir_fir_inner(s, &mut out[fs_out..], &input[n_samples..], remain_len);
+                silk_resampler_private_iir_fir_inner(
+                    s,
+                    &mut out[fs_out..],
+                    &input[n_samples..],
+                    remain_len,
+                );
             }
         }
         ResamplerFunc::DownFir => {
@@ -220,12 +222,7 @@ pub fn silk_resampler(
 
 /// Upsample by a factor 2, high quality
 /// Uses 2nd order allpass filters for the 2x upsampling
-fn silk_resampler_private_up2_hq(
-    s: &mut [i32; 6],
-    out: &mut [i16],
-    input: &[i16],
-    len: i32,
-) {
+fn silk_resampler_private_up2_hq(s: &mut [i32; 6], out: &mut [i16], input: &[i16], len: i32) {
     let len = len as usize;
     for k in 0..len.min(input.len()) {
         // Convert to Q10
@@ -387,13 +384,7 @@ fn silk_resampler_private_iir_fir_inner(
 }
 
 /// Simple linear interpolation resampler (fallback for down-FIR)
-fn resample_linear(
-    out: &mut [i16],
-    input: &[i16],
-    in_len: usize,
-    _fs_in: usize,
-    _fs_out: usize,
-) {
+fn resample_linear(out: &mut [i16], input: &[i16], in_len: usize, _fs_in: usize, _fs_out: usize) {
     if in_len == 0 || out.is_empty() || input.is_empty() {
         return;
     }
@@ -407,7 +398,8 @@ fn resample_linear(
         let frac = (in_pos_q16 & 0xFFFF) as i32;
 
         if in_idx + 1 < input.len() {
-            out[i] = ((input[in_idx] as i32 * (65536 - frac) + input[in_idx + 1] as i32 * frac) >> 16) as i16;
+            out[i] = ((input[in_idx] as i32 * (65536 - frac) + input[in_idx + 1] as i32 * frac)
+                >> 16) as i16;
         } else if in_idx < input.len() {
             out[i] = input[in_idx];
         } else {

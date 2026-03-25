@@ -43,13 +43,32 @@ fn bitexact_log2tan_matches_c() {
     for &(isin, icos) in &pairs {
         let rust = mathops::bitexact_log2tan(isin, icos);
         let c = c_bitexact_log2tan(isin, icos);
-        assert_eq!(rust, c, "bitexact_log2tan({isin}, {icos}): Rust={rust} C={c}");
+        assert_eq!(
+            rust, c,
+            "bitexact_log2tan({isin}, {icos}): Rust={rust} C={c}"
+        );
     }
 }
 
 #[test]
 fn isqrt32_matches_c() {
-    let vals: &[u32] = &[0, 1, 2, 3, 4, 9, 15, 16, 100, 255, 256, 1000, 65536, 1_000_000, u32::MAX];
+    let vals: &[u32] = &[
+        0,
+        1,
+        2,
+        3,
+        4,
+        9,
+        15,
+        16,
+        100,
+        255,
+        256,
+        1000,
+        65536,
+        1_000_000,
+        u32::MAX,
+    ];
     for &val in vals {
         let rust = mathops::isqrt32(val);
         let c = c_isqrt32(val);
@@ -71,9 +90,17 @@ fn celt_lcg_rand_chain() {
 #[test]
 fn frac_mul16_matches_c() {
     let pairs: &[(i32, i32)] = &[
-        (0, 0), (1, 1), (16384, 16384), (-16384, 16384), (16384, -16384),
-        (-626, 100), (-626, 1000), (8277, 5000), (-7651, 10000),
-        (32767, 32767), (-32768, 32767),
+        (0, 0),
+        (1, 1),
+        (16384, 16384),
+        (-16384, 16384),
+        (16384, -16384),
+        (-626, 100),
+        (-626, 1000),
+        (8277, 5000),
+        (-7651, 10000),
+        (32767, 32767),
+        (-32768, 32767),
     ];
     for &(a, b) in pairs {
         let rust = mathops::frac_mul16(a, b);
@@ -92,7 +119,11 @@ fn celt_exp2_matches_c() {
     for &x in &vals {
         let rust = mathops::celt_exp2(x);
         let c = c_celt_exp2(x);
-        let tol = if x < -50.0 { 1e-10 } else { c.abs() * 1e-5 + 1e-10 };
+        let tol = if x < -50.0 {
+            1e-10
+        } else {
+            c.abs() * 1e-5 + 1e-10
+        };
         assert_f32_close(rust, c, tol, &format!("celt_exp2({x})"));
     }
 }

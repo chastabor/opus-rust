@@ -4,7 +4,8 @@ use crate::*;
 
 const OFFSET: i32 = (MIN_QGAIN_DB * 128) / 6 + 16 * 128;
 const SCALE_Q16: i32 = (65536 * (N_LEVELS_QGAIN - 1)) / (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6);
-const INV_SCALE_Q16: i32 = (65536 * (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6)) / (N_LEVELS_QGAIN - 1);
+const INV_SCALE_Q16: i32 =
+    (65536 * (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6)) / (N_LEVELS_QGAIN - 1);
 
 /// Gain scalar quantization with hysteresis, uniform on log scale
 /// Port of silk_gains_quant from silk/gain_quant.c
@@ -28,10 +29,9 @@ pub fn silk_gains_quant(
         if k == 0 && !conditional {
             // Full index: clamp to [prev_ind + MIN_DELTA, N_LEVELS-1]
             // Note: lower bound CAN be negative when prev_ind is small (matching C)
-            ind[k] = (ind[k] as i32).clamp(
-                *prev_ind as i32 + MIN_DELTA_GAIN_QUANT,
-                N_LEVELS_QGAIN - 1,
-            ) as i8;
+            ind[k] = (ind[k] as i32)
+                .clamp(*prev_ind as i32 + MIN_DELTA_GAIN_QUANT, N_LEVELS_QGAIN - 1)
+                as i8;
             *prev_ind = ind[k];
         } else {
             // Delta index
@@ -41,8 +41,8 @@ pub fn silk_gains_quant(
             let double_step_size_threshold =
                 2 * MAX_DELTA_GAIN_QUANT - N_LEVELS_QGAIN + *prev_ind as i32;
             if cur_ind > double_step_size_threshold {
-                cur_ind = double_step_size_threshold
-                    + ((cur_ind - double_step_size_threshold + 1) >> 1);
+                cur_ind =
+                    double_step_size_threshold + ((cur_ind - double_step_size_threshold + 1) >> 1);
             }
 
             cur_ind = cur_ind.clamp(MIN_DELTA_GAIN_QUANT, MAX_DELTA_GAIN_QUANT);
@@ -60,9 +60,8 @@ pub fn silk_gains_quant(
         }
 
         // Scale and convert to linear scale
-        gain_q16[k] = silk_log2lin(
-            (silk_smulwb(INV_SCALE_Q16, *prev_ind as i32) + OFFSET).min(3967),
-        );
+        gain_q16[k] =
+            silk_log2lin((silk_smulwb(INV_SCALE_Q16, *prev_ind as i32) + OFFSET).min(3967));
     }
 }
 
@@ -85,17 +84,15 @@ pub fn silk_gains_dequant(
             let double_step_threshold =
                 2 * MAX_DELTA_GAIN_QUANT - N_LEVELS_QGAIN + *prev_ind as i32;
             if ind_tmp > double_step_threshold {
-                *prev_ind =
-                    (*prev_ind as i32 + (ind_tmp << 1) - double_step_threshold) as i8;
+                *prev_ind = (*prev_ind as i32 + (ind_tmp << 1) - double_step_threshold) as i8;
             } else {
                 *prev_ind = (*prev_ind as i32 + ind_tmp) as i8;
             }
         }
         *prev_ind = (*prev_ind).clamp(0, (N_LEVELS_QGAIN - 1) as i8);
 
-        gain_q16[k] = silk_log2lin(
-            (silk_smulwb(INV_SCALE_Q16, *prev_ind as i32) + OFFSET).min(3967),
-        );
+        gain_q16[k] =
+            silk_log2lin((silk_smulwb(INV_SCALE_Q16, *prev_ind as i32) + OFFSET).min(3967));
     }
 }
 

@@ -148,8 +148,12 @@ pub fn clt_mdct_forward(
             let yi = fft_buf[i].r * t1 + fft_buf[i].i * t0;
             let yp1 = 2 * i * stride;
             let yp2 = stride * (n2 - 1 - 2 * i);
-            if yp1 < out_len { output[yp1] = yr; }
-            if yp2 < out_len { output[yp2] = yi; }
+            if yp1 < out_len {
+                output[yp1] = yr;
+            }
+            if yp2 < out_len {
+                output[yp2] = yi;
+            }
         }
     }
 }

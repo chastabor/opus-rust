@@ -1,10 +1,10 @@
 // Port of silk/encode_indices.c - Encode side-information parameters to payload
 // This is the mirror of decode_indices.rs: every dec_icdf becomes enc_icdf.
 
-use opus_range_coder::EcCtx;
-use crate::*;
-use crate::tables::*;
 use crate::nlsf::nlsf_unpack;
+use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Encode side-information parameters to payload.
 /// Mirror of silk_decode_indices -- produces a bitstream the decoder can read.
@@ -65,7 +65,12 @@ pub fn silk_encode_indices(
     // Unpack entropy table indices and predictor
     let mut ec_ix = [0i16; MAX_LPC_ORDER];
     let mut pred_q8 = [0u8; MAX_LPC_ORDER];
-    nlsf_unpack(&mut ec_ix, &mut pred_q8, nlsf_cb, indices.nlsf_indices[0] as usize);
+    nlsf_unpack(
+        &mut ec_ix,
+        &mut pred_q8,
+        nlsf_cb,
+        indices.nlsf_indices[0] as usize,
+    );
 
     for i in 0..order {
         let nlsf_idx = indices.nlsf_indices[i + 1] as i32;
@@ -112,11 +117,7 @@ pub fn silk_encode_indices(
             let delta_lag_index = indices.lag_index as i32 - ec_prev_lag_index as i32;
             if delta_lag_index >= -8 && delta_lag_index <= 11 {
                 // Delta encoding
-                enc.enc_icdf(
-                    (delta_lag_index + 9) as usize,
-                    &SILK_PITCH_DELTA_ICDF,
-                    8,
-                );
+                enc.enc_icdf((delta_lag_index + 9) as usize, &SILK_PITCH_DELTA_ICDF, 8);
                 encode_absolute_lag_index = false;
             } else {
                 // Signal absolute coding by sending delta_lagIndex = 0
@@ -127,8 +128,7 @@ pub fn silk_encode_indices(
         if encode_absolute_lag_index {
             // Absolute encoding: split into high bits and low bits
             let pitch_high_bits = indices.lag_index as i32 / (fs_khz >> 1);
-            let pitch_low_bits =
-                indices.lag_index as i32 - pitch_high_bits * (fs_khz >> 1);
+            let pitch_low_bits = indices.lag_index as i32 - pitch_high_bits * (fs_khz >> 1);
 
             enc.enc_icdf(pitch_high_bits as usize, &SILK_PITCH_LAG_ICDF, 8);
 

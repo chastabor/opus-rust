@@ -2,18 +2,18 @@
 // Top-level per-frame encoder that orchestrates all analysis and quantization.
 // This is the heart of the SILK encoder.
 
-use opus_range_coder::EcCtx;
-use super::wrappers::*;
-use super::noise_shape::*;
 use super::find_pitch_lags::silk_find_pitch_lags_flp;
 use super::find_pred_coefs::silk_find_pred_coefs_flp;
-use super::process_gains::silk_process_gains_flp;
-use super::ltp_scale_ctrl::silk_ltp_scale_ctrl_flp;
 use super::lbrr::{LbrrState, silk_lbrr_encode_flp};
-use crate::*;
-use crate::nsq::NsqState;
+use super::ltp_scale_ctrl::silk_ltp_scale_ctrl_flp;
+use super::noise_shape::*;
+use super::process_gains::silk_process_gains_flp;
+use super::wrappers::*;
 use crate::encode_indices;
 use crate::encode_pulses;
+use crate::nsq::NsqState;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 use crate::LA_SHAPE_MS;
 
@@ -24,7 +24,7 @@ use crate::LA_SHAPE_MS;
 /// Returns the number of payload bytes written.
 pub fn silk_encode_frame_flp(
     // Persistent encoder state
-    x_buf: &mut [f32],                      // I/O: float analysis buffer (ltp_mem + la_shape + frame)
+    x_buf: &mut [f32], // I/O: float analysis buffer (ltp_mem + la_shape + frame)
     nsq_state: &mut NsqState,
     indices: &mut SideInfoIndices,
     prev_nlsf_q15: &mut [i16],
@@ -34,9 +34,9 @@ pub fn silk_encode_frame_flp(
     last_gain_index: &mut i8,
     prev_harm_smth: &mut f32,
     prev_tilt_smth: &mut f32,
-    prev_ltp_corr: &mut f32,               // I/O: LTP correlation from previous frame
-    sum_log_gain_q7: &mut i32,             // I/O: cumulative log gain for LTP quantization
-    frame_counter: &mut i32,               // I/O: running frame counter (for seed)
+    prev_ltp_corr: &mut f32,   // I/O: LTP correlation from previous frame
+    sum_log_gain_q7: &mut i32, // I/O: cumulative log gain for LTP quantization
+    frame_counter: &mut i32,   // I/O: running frame counter (for seed)
     speech_activity_q8: i32,
     input_quality_bands_q15: &[i32],
     input_tilt_q15: i32,
@@ -158,7 +158,13 @@ pub fn silk_encode_frame_flp(
     // ---- Step 4: Find prediction coefficients (with LTP for voiced) ----
     let use_interpolated = complexity >= 5;
     let n_survivors = match complexity {
-        0 => 2, 1 => 3, 2 => 2, 3 => 4, 4 | 5 => 6, 6 | 7 => 8, _ => 16,
+        0 => 2,
+        1 => 3,
+        2 => 2,
+        3 => 4,
+        4 | 5 => 6,
+        6 | 7 => 8,
+        _ => 16,
     } as i32;
 
     let mut pred_coef = [[0.0f32; MAX_LPC_ORDER]; 2];
@@ -198,10 +204,17 @@ pub fn silk_encode_frame_flp(
     // ---- Step 5: Process gains ----
     // C: condCoding = (nFramesEncoded > 0) ? CODE_CONDITIONALLY : CODE_INDEPENDENTLY
     let cond_coding = n_frames_encoded > 0 && !*first_frame_after_reset;
-    let cond_coding_int = if cond_coding { CODE_CONDITIONALLY } else { CODE_INDEPENDENTLY };
+    let cond_coding_int = if cond_coding {
+        CODE_CONDITIONALLY
+    } else {
+        CODE_INDEPENDENTLY
+    };
     let mut gains = ns_result.gains;
     let n_states_del_dec = match complexity {
-        0 | 1 => 1i32, 2..=5 => 2, 6 | 7 => 3, _ => 4,
+        0 | 1 => 1i32,
+        2..=5 => 2,
+        6 | 7 => 3,
+        _ => 4,
     };
 
     let lambda = silk_process_gains_flp(
@@ -319,16 +332,24 @@ pub fn silk_encode_frame_flp(
     // Select proper pitch contour table based on fs_khz and nb_subfr
     // C: fs_kHz == 8 → NB tables, else WB tables; type_offset == 2 → 10ms
     let pitch_contour_sel = match (fs_khz == 8, nb_subfr == 2) {
-        (true, true)   => PitchContourSel::Nb10ms,
-        (true, false)  => PitchContourSel::Nb,
-        (false, true)  => PitchContourSel::Wb10ms,
+        (true, true) => PitchContourSel::Nb10ms,
+        (true, false) => PitchContourSel::Nb,
+        (false, true) => PitchContourSel::Wb10ms,
         (false, false) => PitchContourSel::Wb,
     };
 
     encode_indices::silk_encode_indices(
-        indices, enc, 0, false, cond_coding_int,
+        indices,
+        enc,
+        0,
+        false,
+        cond_coding_int,
         nb_subfr,
-        if fs_khz <= 12 { NlsfCbSel::NbMb } else { NlsfCbSel::Wb },
+        if fs_khz <= 12 {
+            NlsfCbSel::NbMb
+        } else {
+            NlsfCbSel::Wb
+        },
         pitch_contour_sel,
         match fs_khz >> 1 {
             4 => PitchLagLowBitsSel::Uniform4,
@@ -340,8 +361,11 @@ pub fn silk_encode_frame_flp(
         0, // prev_lag_index
     );
     encode_pulses::silk_encode_pulses(
-        enc, &pulses, indices.signal_type as i32,
-        indices.quant_offset_type as i32, frame_length,
+        enc,
+        &pulses,
+        indices.signal_type as i32,
+        indices.quant_offset_type as i32,
+        frame_length,
     );
 
     // ---- Step 8: Update state for next frame ----

@@ -1,14 +1,11 @@
 // Port of silk/stereo_decode_pred.c, silk/stereo_MS_to_LR.c
 
-use opus_range_coder::EcCtx;
-use crate::*;
 use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Decode mid/side predictors
-pub fn silk_stereo_decode_pred(
-    ps_range_dec: &mut EcCtx,
-    pred_q13: &mut [i32; 2],
-) {
+pub fn silk_stereo_decode_pred(ps_range_dec: &mut EcCtx, pred_q13: &mut [i32; 2]) {
     let n = ps_range_dec.dec_icdf(&SILK_STEREO_PRED_JOINT_ICDF, 8) as i32;
     let ix0_2 = n / 5;
     let ix1_2 = n - 5 * ix0_2;
@@ -39,9 +36,7 @@ pub fn silk_stereo_decode_pred(
 }
 
 /// Decode mid-only flag
-pub fn silk_stereo_decode_mid_only(
-    ps_range_dec: &mut EcCtx,
-) -> i32 {
+pub fn silk_stereo_decode_mid_only(ps_range_dec: &mut EcCtx) -> i32 {
     ps_range_dec.dec_icdf(&SILK_STEREO_ONLY_CODE_MID_ICDF, 8) as i32
 }
 
@@ -70,10 +65,12 @@ pub fn silk_stereo_ms_to_lr(
     let interp_len = (STEREO_INTERP_LEN_MS * fs_khz) as usize;
     let denom_q16 = (1 << 16) / (interp_len as i32).max(1);
     let delta0_q13 = silk_rshift_round(
-        silk_smulbb(pred_q13[0] - state.pred_prev_q13[0] as i32, denom_q16), 16
+        silk_smulbb(pred_q13[0] - state.pred_prev_q13[0] as i32, denom_q16),
+        16,
     );
     let delta1_q13 = silk_rshift_round(
-        silk_smulbb(pred_q13[1] - state.pred_prev_q13[1] as i32, denom_q16), 16
+        silk_smulbb(pred_q13[1] - state.pred_prev_q13[1] as i32, denom_q16),
+        16,
     );
 
     for n in 0..interp_len.min(frame_length) {

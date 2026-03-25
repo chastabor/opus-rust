@@ -1,9 +1,9 @@
 // Port of silk/encode_pulses.c, silk/shell_coder.c (encoder), silk/code_signs.c (encoder)
 // This is the mirror of decode_pulses.rs.
 
-use opus_range_coder::EcCtx;
-use crate::*;
 use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Maximum pulses per block at each combining stage
 const SILK_MAX_PULSES_TABLE: [i32; 4] = [8, 10, 12, 16];
@@ -16,20 +16,43 @@ const SILK_RATE_LEVELS_BITS_Q5: [[i32; 9]; 2] = [
 
 /// Bit costs (Q5) for pulses per block at each rate level
 const SILK_PULSES_PER_BLOCK_BITS_Q5: [[i32; 18]; 9] = [
-    [31, 57, 107, 160, 205, 205, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
-    [69, 47, 67, 111, 166, 205, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
-    [82, 74, 79, 95, 109, 128, 145, 160, 173, 205, 205, 205, 224, 255, 255, 224, 255, 224],
-    [125, 74, 59, 69, 97, 141, 182, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
-    [173, 115, 85, 73, 76, 92, 115, 145, 173, 205, 224, 224, 255, 255, 255, 255, 255, 255],
-    [166, 134, 113, 102, 101, 102, 107, 118, 125, 138, 145, 155, 166, 182, 192, 192, 205, 150],
-    [224, 182, 134, 101, 83, 79, 85, 97, 120, 145, 173, 205, 224, 255, 255, 255, 255, 255],
-    [255, 224, 192, 150, 120, 101, 92, 89, 93, 102, 118, 134, 160, 182, 192, 224, 224, 224],
-    [255, 224, 224, 182, 155, 134, 118, 109, 104, 102, 106, 111, 118, 131, 145, 160, 173, 131],
+    [
+        31, 57, 107, 160, 205, 205, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    ],
+    [
+        69, 47, 67, 111, 166, 205, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    ],
+    [
+        82, 74, 79, 95, 109, 128, 145, 160, 173, 205, 205, 205, 224, 255, 255, 224, 255, 224,
+    ],
+    [
+        125, 74, 59, 69, 97, 141, 182, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    ],
+    [
+        173, 115, 85, 73, 76, 92, 115, 145, 173, 205, 224, 224, 255, 255, 255, 255, 255, 255,
+    ],
+    [
+        166, 134, 113, 102, 101, 102, 107, 118, 125, 138, 145, 155, 166, 182, 192, 192, 205, 150,
+    ],
+    [
+        224, 182, 134, 101, 83, 79, 85, 97, 120, 145, 173, 205, 224, 255, 255, 255, 255, 255,
+    ],
+    [
+        255, 224, 192, 150, 120, 101, 92, 89, 93, 102, 118, 134, 160, 182, 192, 224, 224, 224,
+    ],
+    [
+        255, 224, 224, 182, 155, 134, 118, 109, 104, 102, 106, 111, 118, 131, 145, 160, 173, 131,
+    ],
 ];
 
 /// Check if combining two child pulse vectors exceeds max_pulses.
 /// Returns true if any sum exceeds max_pulses (overflow).
-fn combine_and_check(pulses_comb: &mut [i32], pulses_in: &[i32], max_pulses: i32, len: usize) -> bool {
+fn combine_and_check(
+    pulses_comb: &mut [i32],
+    pulses_in: &[i32],
+    max_pulses: i32,
+    len: usize,
+) -> bool {
     let mut overflow = false;
     for k in 0..len {
         let sum = pulses_in[2 * k] + pulses_in[2 * k + 1];
@@ -169,12 +192,10 @@ pub fn silk_encode_pulses(
                 combine_and_check(&mut tmp4, &pulses_comb[..8], SILK_MAX_PULSES_TABLE[1], 4) as i32;
             // 4+4 -> 8
             let mut tmp2 = [0i32; 2];
-            scale_down +=
-                combine_and_check(&mut tmp2, &tmp4, SILK_MAX_PULSES_TABLE[2], 2) as i32;
+            scale_down += combine_and_check(&mut tmp2, &tmp4, SILK_MAX_PULSES_TABLE[2], 2) as i32;
             // 8+8 -> 16
             let mut tmp1 = [0i32; 1];
-            scale_down +=
-                combine_and_check(&mut tmp1, &tmp2, SILK_MAX_PULSES_TABLE[3], 1) as i32;
+            scale_down += combine_and_check(&mut tmp1, &tmp2, SILK_MAX_PULSES_TABLE[3], 1) as i32;
             sum_pulses[i] = tmp1[0];
 
             if scale_down != 0 {
@@ -265,5 +286,12 @@ pub fn silk_encode_pulses(
     }
 
     // Encode signs
-    silk_encode_signs(enc, pulses, frame_length, signal_type, quant_offset_type, &sum_pulses);
+    silk_encode_signs(
+        enc,
+        pulses,
+        frame_length,
+        signal_type,
+        quant_offset_type,
+        &sum_pulses,
+    );
 }

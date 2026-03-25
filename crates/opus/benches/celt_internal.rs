@@ -1,10 +1,10 @@
 //! Criterion benchmarks for CELT internal hot-path functions.
 //! Compares Rust vs C reference performance.
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use opus_celt::fft::{KissFftCpx, KissFftState, opus_fft};
 use opus_celt::lpc;
-use opus_celt::mdct::{clt_mdct_backward, clt_mdct_forward, MdctLookup};
+use opus_celt::mdct::{MdctLookup, clt_mdct_backward, clt_mdct_forward};
 use opus_celt::pitch;
 use opus_celt::tables::WINDOW_120;
 use opus_ffi::*;
@@ -40,7 +40,12 @@ fn bench_fft(c: &mut Criterion) {
 
         group.bench_function(&format!("rust_fft_{nfft}"), |b| {
             b.iter_batched(
-                || (KissFftState::new(nfft), vec![KissFftCpx { r: 0.0, i: 0.0 }; nfft]),
+                || {
+                    (
+                        KissFftState::new(nfft),
+                        vec![KissFftCpx { r: 0.0, i: 0.0 }; nfft],
+                    )
+                },
                 |(st, mut out)| opus_fft(&st, &input, &mut out),
                 BatchSize::SmallInput,
             );
@@ -53,7 +58,9 @@ fn bench_fft(c: &mut Criterion) {
             c_fft_bench_init(nfft);
             b.iter_batched(
                 || (vec![0.0f32; nfft], vec![0.0f32; nfft]),
-                |(mut fout_r, mut fout_i)| c_fft_bench_run(&fin_r, &fin_i, &mut fout_r, &mut fout_i),
+                |(mut fout_r, mut fout_i)| {
+                    c_fft_bench_run(&fin_r, &fin_i, &mut fout_r, &mut fout_i)
+                },
                 BatchSize::SmallInput,
             );
         });

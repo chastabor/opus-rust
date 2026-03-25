@@ -39,9 +39,9 @@ pub struct OpusDecoderC {
 unsafe extern "C" {
     // SILK low-level functions (for cross-validation)
     fn silk_A2NLSF(
-        nlsf: *mut i16,    // O: NLSFs in Q15 [d]
-        a_q16: *mut i32,   // I/O: LPC coefficients in Q16 [d]
-        d: i32,            // I: filter order (must be even)
+        nlsf: *mut i16,  // O: NLSFs in Q15 [d]
+        a_q16: *mut i32, // I/O: LPC coefficients in Q16 [d]
+        d: i32,          // I: filter order (must be even)
     );
 
     // silk_burg_modified_c: only available with OPUS_FIXED_POINT=ON
@@ -57,17 +57,54 @@ unsafe extern "C" {
     fn silk_k2a_FLP(a: *mut f32, rc: *const f32, order: i32);
     fn silk_bwexpander_FLP(ar: *mut f32, d: i32, chirp: f32);
     fn silk_apply_sine_window_FLP(px_win: *mut f32, px: *const f32, win_type: i32, length: i32);
-    fn silk_warped_autocorrelation_FLP(corr: *mut f32, input: *const f32, warping: f32, length: i32, order: i32);
-    fn silk_scale_copy_vector_FLP(data_out: *mut f32, data_in: *const f32, gain: f32, data_size: i32);
-    fn silk_LPC_analysis_filter_FLP(r_lpc: *mut f32, pred_coef: *const f32, s: *const f32, length: i32, order: i32);
+    fn silk_warped_autocorrelation_FLP(
+        corr: *mut f32,
+        input: *const f32,
+        warping: f32,
+        length: i32,
+        order: i32,
+    );
+    fn silk_scale_copy_vector_FLP(
+        data_out: *mut f32,
+        data_in: *const f32,
+        gain: f32,
+        data_size: i32,
+    );
+    fn silk_LPC_analysis_filter_FLP(
+        r_lpc: *mut f32,
+        pred_coef: *const f32,
+        s: *const f32,
+        length: i32,
+        order: i32,
+    );
     fn silk_LPC_inverse_pred_gain_FLP(a: *const f32, order: i32) -> f32;
-    fn silk_autocorrelation_FLP(results: *mut f32, input: *const f32, input_size: i32, corr_count: i32, arch: i32);
+    fn silk_autocorrelation_FLP(
+        results: *mut f32,
+        input: *const f32,
+        input_size: i32,
+        corr_count: i32,
+        arch: i32,
+    );
 
     // LTP analysis (Layer 0 / Layer 3)
-    fn silk_corrVector_FLP(x: *const f32, t: *const f32, l: i32, order: i32, xt: *mut f32, arch: i32);
+    fn silk_corrVector_FLP(
+        x: *const f32,
+        t: *const f32,
+        l: i32,
+        order: i32,
+        xt: *mut f32,
+        arch: i32,
+    );
     fn silk_corrMatrix_FLP(x: *const f32, l: i32, order: i32, xx: *mut f32, arch: i32);
-    fn silk_find_LTP_FLP(xx: *mut f32, x_x: *mut f32, r_ptr: *const f32, lag: *const i32,
-        subfr_length: i32, nb_subfr: i32, arch: i32);
+    fn silk_find_LTP_FLP(
+        xx: *mut f32,
+        x_x: *mut f32,
+        r_ptr: *const f32,
+        lag: *const i32,
+        subfr_length: i32,
+        nb_subfr: i32,
+        arch: i32,
+    );
     fn silk_quant_LTP_gains(
         b_q14: *mut i16,
         cbk_index: *mut i8,
@@ -82,53 +119,53 @@ unsafe extern "C" {
     );
 
     fn silk_NLSF2A(
-        a_q12: *mut i16,         // O: monic whitening filter coefficients in Q12 [d]
-        nlsf_q15: *const i16,    // I: normalized line spectral frequencies in Q15 [d]
-        d: i32,                  // I: filter order (should be even)
-        arch: i32,               // I: run-time architecture
+        a_q12: *mut i16,      // O: monic whitening filter coefficients in Q12 [d]
+        nlsf_q15: *const i16, // I: normalized line spectral frequencies in Q15 [d]
+        d: i32,               // I: filter order (should be even)
+        arch: i32,            // I: run-time architecture
     );
 
     fn silk_gains_quant(
-        ind: *mut i8,            // O: gain indices [nb_subfr]
-        gain_q16: *mut i32,      // I/O: gains (quantized out) [nb_subfr]
-        prev_ind: *mut i8,       // I/O: last index in previous frame
-        conditional: i32,        // I: first gain is delta coded if 1
-        nb_subfr: i32,           // I: number of subframes
+        ind: *mut i8,       // O: gain indices [nb_subfr]
+        gain_q16: *mut i32, // I/O: gains (quantized out) [nb_subfr]
+        prev_ind: *mut i8,  // I/O: last index in previous frame
+        conditional: i32,   // I: first gain is delta coded if 1
+        nb_subfr: i32,      // I: number of subframes
     );
 
     fn silk_gains_dequant(
-        gain_q16: *mut i32,      // O: quantized gains [nb_subfr]
-        ind: *const i8,          // I: gain indices [nb_subfr]
-        prev_ind: *mut i8,       // I/O: last index in previous frame
-        conditional: i32,        // I: first gain is delta coded if 1
-        nb_subfr: i32,           // I: number of subframes
+        gain_q16: *mut i32, // O: quantized gains [nb_subfr]
+        ind: *const i8,     // I: gain indices [nb_subfr]
+        prev_ind: *mut i8,  // I/O: last index in previous frame
+        conditional: i32,   // I: first gain is delta coded if 1
+        nb_subfr: i32,      // I: number of subframes
     );
 
     fn silk_interpolate(
-        xi: *mut i16,            // O: interpolated vector [d]
-        x0: *const i16,          // I: first vector [d]
-        x1: *const i16,          // I: second vector [d]
-        ifact_q2: i32,           // I: interp. factor, weight on 2nd vector
-        d: i32,                  // I: number of parameters
+        xi: *mut i16,   // O: interpolated vector [d]
+        x0: *const i16, // I: first vector [d]
+        x1: *const i16, // I: second vector [d]
+        ifact_q2: i32,  // I: interp. factor, weight on 2nd vector
+        d: i32,         // I: number of parameters
     );
 
     fn silk_NLSF_VQ_weights_laroia(
-        pNLSFW_Q_OUT: *mut i16,  // O: NLSF weights [order]
-        pNLSF_Q15: *const i16,   // I: NLSFs [order]
-        order: i32,              // I: filter order
+        pNLSFW_Q_OUT: *mut i16, // O: NLSF weights [order]
+        pNLSF_Q15: *const i16,  // I: NLSFs [order]
+        order: i32,             // I: filter order
     );
 
     // Codebook struct is opaque from Rust side; we access it via pointer
     static silk_NLSF_CB_WB: u8; // address-only — we pass &silk_NLSF_CB_WB as *const c_void
 
     fn silk_NLSF_encode(
-        nlsf_indices: *mut i8,         // O: codebook path [order+1]
-        pNLSF_Q15: *mut i16,          // I/O: quantized NLSFs [order]
-        psNLSF_CB: *const u8,         // I: codebook struct pointer
-        pW_QW: *const i16,            // I: NLSF weights [order]
-        NLSF_mu_Q20: i32,             // I: rate weight
-        nSurvivors: i32,              // I: max survivors
-        signalType: i32,              // I: signal type 0/1/2
+        nlsf_indices: *mut i8, // O: codebook path [order+1]
+        pNLSF_Q15: *mut i16,   // I/O: quantized NLSFs [order]
+        psNLSF_CB: *const u8,  // I: codebook struct pointer
+        pW_QW: *const i16,     // I: NLSF weights [order]
+        NLSF_mu_Q20: i32,      // I: rate weight
+        nSurvivors: i32,       // I: max survivors
+        signalType: i32,       // I: signal type 0/1/2
     ) -> i32;
 
     // Core encoder API
@@ -426,7 +463,13 @@ pub fn c_silk_gains_quant(
 ) {
     assert!(ind.len() >= nb_subfr && gain_q16.len() >= nb_subfr);
     unsafe {
-        silk_gains_quant(ind.as_mut_ptr(), gain_q16.as_mut_ptr(), prev_ind, conditional as i32, nb_subfr as i32);
+        silk_gains_quant(
+            ind.as_mut_ptr(),
+            gain_q16.as_mut_ptr(),
+            prev_ind,
+            conditional as i32,
+            nb_subfr as i32,
+        );
     }
 }
 
@@ -441,7 +484,13 @@ pub fn c_silk_gains_dequant(
 ) {
     assert!(gain_q16.len() >= nb_subfr && ind.len() >= nb_subfr);
     unsafe {
-        silk_gains_dequant(gain_q16.as_mut_ptr(), ind.as_ptr(), prev_ind, conditional as i32, nb_subfr as i32);
+        silk_gains_dequant(
+            gain_q16.as_mut_ptr(),
+            ind.as_ptr(),
+            prev_ind,
+            conditional as i32,
+            nb_subfr as i32,
+        );
     }
 }
 
@@ -450,7 +499,13 @@ pub fn c_silk_gains_dequant(
 pub fn c_silk_interpolate(xi: &mut [i16], x0: &[i16], x1: &[i16], ifact_q2: i32, d: usize) {
     assert!(xi.len() >= d && x0.len() >= d && x1.len() >= d);
     unsafe {
-        silk_interpolate(xi.as_mut_ptr(), x0.as_ptr(), x1.as_ptr(), ifact_q2, d as i32);
+        silk_interpolate(
+            xi.as_mut_ptr(),
+            x0.as_ptr(),
+            x1.as_ptr(),
+            ifact_q2,
+            d as i32,
+        );
     }
 }
 
@@ -515,12 +570,40 @@ pub fn c_silk_scale_copy_vector_flp(data_out: &mut [f32], data_in: &[f32], gain:
     unsafe { silk_scale_copy_vector_FLP(data_out.as_mut_ptr(), data_in.as_ptr(), gain, len as i32) }
 }
 
-pub fn c_silk_lpc_analysis_filter_flp(r_lpc: &mut [f32], pred_coef: &[f32], s: &[f32], length: usize, order: usize) {
-    unsafe { silk_LPC_analysis_filter_FLP(r_lpc.as_mut_ptr(), pred_coef.as_ptr(), s.as_ptr(), length as i32, order as i32) }
+pub fn c_silk_lpc_analysis_filter_flp(
+    r_lpc: &mut [f32],
+    pred_coef: &[f32],
+    s: &[f32],
+    length: usize,
+    order: usize,
+) {
+    unsafe {
+        silk_LPC_analysis_filter_FLP(
+            r_lpc.as_mut_ptr(),
+            pred_coef.as_ptr(),
+            s.as_ptr(),
+            length as i32,
+            order as i32,
+        )
+    }
 }
 
-pub fn c_silk_warped_autocorrelation_flp(corr: &mut [f32], input: &[f32], warping: f32, length: usize, order: usize) {
-    unsafe { silk_warped_autocorrelation_FLP(corr.as_mut_ptr(), input.as_ptr(), warping, length as i32, order as i32) }
+pub fn c_silk_warped_autocorrelation_flp(
+    corr: &mut [f32],
+    input: &[f32],
+    warping: f32,
+    length: usize,
+    order: usize,
+) {
+    unsafe {
+        silk_warped_autocorrelation_FLP(
+            corr.as_mut_ptr(),
+            input.as_ptr(),
+            warping,
+            length as i32,
+            order as i32,
+        )
+    }
 }
 
 pub fn c_silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
@@ -528,13 +611,30 @@ pub fn c_silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
 }
 
 pub fn c_silk_autocorrelation_flp(results: &mut [f32], input: &[f32], corr_count: usize) {
-    unsafe { silk_autocorrelation_FLP(results.as_mut_ptr(), input.as_ptr(), input.len() as i32, corr_count as i32, 0) }
+    unsafe {
+        silk_autocorrelation_FLP(
+            results.as_mut_ptr(),
+            input.as_ptr(),
+            input.len() as i32,
+            corr_count as i32,
+            0,
+        )
+    }
 }
 
 // ── LTP FFI wrappers ──
 
 pub fn c_silk_corr_vector_flp(x: &[f32], t: &[f32], l: usize, order: usize, xt: &mut [f32]) {
-    unsafe { silk_corrVector_FLP(x.as_ptr(), t.as_ptr(), l as i32, order as i32, xt.as_mut_ptr(), 0) }
+    unsafe {
+        silk_corrVector_FLP(
+            x.as_ptr(),
+            t.as_ptr(),
+            l as i32,
+            order as i32,
+            xt.as_mut_ptr(),
+            0,
+        )
+    }
 }
 
 pub fn c_silk_corr_matrix_flp(x: &[f32], l: usize, order: usize, xx: &mut [f32]) {
@@ -542,23 +642,51 @@ pub fn c_silk_corr_matrix_flp(x: &[f32], l: usize, order: usize, xx: &mut [f32])
 }
 
 pub fn c_silk_find_ltp_flp(
-    xx: &mut [f32], x_x: &mut [f32], res: &[f32], frame_offset: usize,
-    lag: &[i32], subfr_length: i32, nb_subfr: i32,
+    xx: &mut [f32],
+    x_x: &mut [f32],
+    res: &[f32],
+    frame_offset: usize,
+    lag: &[i32],
+    subfr_length: i32,
+    nb_subfr: i32,
 ) {
     let r_ptr = unsafe { res.as_ptr().add(frame_offset) };
-    unsafe { silk_find_LTP_FLP(xx.as_mut_ptr(), x_x.as_mut_ptr(), r_ptr, lag.as_ptr(), subfr_length, nb_subfr, 0) }
+    unsafe {
+        silk_find_LTP_FLP(
+            xx.as_mut_ptr(),
+            x_x.as_mut_ptr(),
+            r_ptr,
+            lag.as_ptr(),
+            subfr_length,
+            nb_subfr,
+            0,
+        )
+    }
 }
 
 pub fn c_silk_quant_ltp_gains(
-    b_q14: &mut [i16], cbk_index: &mut [i8], periodicity_index: &mut i8,
-    sum_log_gain_q7: &mut i32, pred_gain_db_q7: &mut i32,
-    xx_q17: &[i32], x_x_q17: &[i32], subfr_len: i32, nb_subfr: i32,
+    b_q14: &mut [i16],
+    cbk_index: &mut [i8],
+    periodicity_index: &mut i8,
+    sum_log_gain_q7: &mut i32,
+    pred_gain_db_q7: &mut i32,
+    xx_q17: &[i32],
+    x_x_q17: &[i32],
+    subfr_len: i32,
+    nb_subfr: i32,
 ) {
     unsafe {
         silk_quant_LTP_gains(
-            b_q14.as_mut_ptr(), cbk_index.as_mut_ptr(), periodicity_index,
-            sum_log_gain_q7, pred_gain_db_q7,
-            xx_q17.as_ptr(), x_x_q17.as_ptr(), subfr_len, nb_subfr, 0,
+            b_q14.as_mut_ptr(),
+            cbk_index.as_mut_ptr(),
+            periodicity_index,
+            sum_log_gain_q7,
+            pred_gain_db_q7,
+            xx_q17.as_ptr(),
+            x_x_q17.as_ptr(),
+            subfr_len,
+            nb_subfr,
+            0,
         )
     }
 }
@@ -572,30 +700,49 @@ pub fn c_silk_quant_ltp_gains(
 // The Burg float is also needed for generating realistic test LPC coefficients.
 unsafe extern "C" {
     fn silk_burg_modified_FLP(
-        a: *mut f32, x: *const f32, min_inv_gain: f32,
-        subfr_length: i32, nb_subfr: i32, d: i32, arch: i32,
+        a: *mut f32,
+        x: *const f32,
+        min_inv_gain: f32,
+        subfr_length: i32,
+        nb_subfr: i32,
+        d: i32,
+        arch: i32,
     ) -> f32;
 
     fn silk_A2NLSF_FLP(nlsf_q15: *mut i16, a: *const f32, order: i32);
     fn silk_NLSF2A_FLP(a: *mut f32, nlsf_q15: *const i16, order: i32, arch: i32);
 
     fn silk_LTP_analysis_filter_FLP(
-        ltp_res: *mut f32,       // O: LTP residual [nb_subfr * (pre_length + subfr_length)]
-        x: *const f32,           // I: input signal, with preceding samples
-        b: *const f32,           // I: LTP coefficients [LTP_ORDER * MAX_NB_SUBFR]
-        pitch_l: *const i32,     // I: pitch lags [MAX_NB_SUBFR]
-        inv_gains: *const f32,   // I: inverse quantization gains [MAX_NB_SUBFR]
-        subfr_length: i32,       // I: length of each subframe
-        nb_subfr: i32,           // I: number of subframes
-        pre_length: i32,         // I: preceding samples for each subframe
+        ltp_res: *mut f32,     // O: LTP residual [nb_subfr * (pre_length + subfr_length)]
+        x: *const f32,         // I: input signal, with preceding samples
+        b: *const f32,         // I: LTP coefficients [LTP_ORDER * MAX_NB_SUBFR]
+        pitch_l: *const i32,   // I: pitch lags [MAX_NB_SUBFR]
+        inv_gains: *const f32, // I: inverse quantization gains [MAX_NB_SUBFR]
+        subfr_length: i32,     // I: length of each subframe
+        nb_subfr: i32,         // I: number of subframes
+        pre_length: i32,       // I: preceding samples for each subframe
     );
 }
 
 pub fn c_silk_burg_modified_flp(
-    a: &mut [f32], x: &[f32], min_inv_gain: f32,
-    subfr_length: i32, nb_subfr: i32, d: i32,
+    a: &mut [f32],
+    x: &[f32],
+    min_inv_gain: f32,
+    subfr_length: i32,
+    nb_subfr: i32,
+    d: i32,
 ) -> f32 {
-    unsafe { silk_burg_modified_FLP(a.as_mut_ptr(), x.as_ptr(), min_inv_gain, subfr_length, nb_subfr, d, 0) }
+    unsafe {
+        silk_burg_modified_FLP(
+            a.as_mut_ptr(),
+            x.as_ptr(),
+            min_inv_gain,
+            subfr_length,
+            nb_subfr,
+            d,
+            0,
+        )
+    }
 }
 
 pub fn c_silk_a2nlsf_flp(nlsf_q15: &mut [i16], a: &[f32], order: usize) {
@@ -689,25 +836,36 @@ unsafe extern "C" {
     #[link_name = "_celt_lpc"]
     fn c_celt_lpc_raw(lpc: *mut f32, ac: *const f32, p: i32);
 
-    fn celt_fir_c(
-        x: *const f32, num: *const f32, y: *mut f32,
-        n: i32, ord: i32, arch: i32,
-    );
+    fn celt_fir_c(x: *const f32, num: *const f32, y: *mut f32, n: i32, ord: i32, arch: i32);
 
     fn celt_iir(
-        x: *const f32, den: *const f32, y: *mut f32,
-        n: i32, ord: i32, mem: *mut f32, arch: i32,
+        x: *const f32,
+        den: *const f32,
+        y: *mut f32,
+        n: i32,
+        ord: i32,
+        mem: *mut f32,
+        arch: i32,
     );
 
     #[link_name = "_celt_autocorr"]
     fn c_celt_autocorr_raw(
-        x: *const f32, ac: *mut f32, window: *const f32,
-        overlap: i32, lag: i32, n: i32, arch: i32,
+        x: *const f32,
+        ac: *mut f32,
+        window: *const f32,
+        overlap: i32,
+        lag: i32,
+        n: i32,
+        arch: i32,
     ) -> i32;
 
     fn celt_pitch_xcorr_c(
-        x: *const f32, y: *const f32, xcorr: *mut f32,
-        len: i32, max_pitch: i32, arch: i32,
+        x: *const f32,
+        y: *const f32,
+        xcorr: *mut f32,
+        len: i32,
+        max_pitch: i32,
+        arch: i32,
     );
 
     fn renormalise_vector(x: *mut f32, n: i32, gain: f32, arch: i32);
@@ -725,46 +883,74 @@ unsafe extern "C" {
     // FFT (requires kiss_fft_state*)
     fn wrap_opus_fft(
         nfft: i32,
-        fin_r: *const f32, fin_i: *const f32,
-        fout_r: *mut f32, fout_i: *mut f32,
+        fin_r: *const f32,
+        fin_i: *const f32,
+        fout_r: *mut f32,
+        fout_i: *mut f32,
     );
 
     // MDCT (requires mdct_lookup*)
     fn wrap_clt_mdct_forward(
-        input: *mut f32, output: *mut f32,
-        n: i32, overlap: i32, shift: i32, stride: i32,
+        input: *mut f32,
+        output: *mut f32,
+        n: i32,
+        overlap: i32,
+        shift: i32,
+        stride: i32,
     );
     fn wrap_clt_mdct_backward(
-        input: *mut f32, output: *mut f32,
-        n: i32, overlap: i32, shift: i32, stride: i32,
+        input: *mut f32,
+        output: *mut f32,
+        n: i32,
+        overlap: i32,
+        shift: i32,
+        stride: i32,
     );
 
     // Pitch (array-of-pointers or arch param)
     fn wrap_pitch_downsample_mono(x: *mut f32, x_lp: *mut f32, len: i32);
-    fn wrap_pitch_search(
-        x_lp: *const f32, y: *mut f32,
-        len: i32, max_pitch: i32, pitch: *mut i32,
-    );
+    fn wrap_pitch_search(x_lp: *const f32, y: *mut f32, len: i32, max_pitch: i32, pitch: *mut i32);
     fn wrap_remove_doubling(
-        x: *mut f32, maxperiod: i32, minperiod: i32,
-        n: i32, t0: *mut i32, prev_period: i32, prev_gain: f32,
+        x: *mut f32,
+        maxperiod: i32,
+        minperiod: i32,
+        n: i32,
+        t0: *mut i32,
+        prev_period: i32,
+        prev_gain: f32,
     ) -> f32;
     fn wrap_comb_filter(
-        y: *mut f32, x: *mut f32, t0: i32, t1: i32, n: i32,
-        g0: f32, g1: f32, tapset0: i32, tapset1: i32, overlap: i32,
+        y: *mut f32,
+        x: *mut f32,
+        t0: i32,
+        t1: i32,
+        n: i32,
+        g0: f32,
+        g1: f32,
+        tapset0: i32,
+        tapset1: i32,
+        overlap: i32,
     );
 
     // Band processing (CELTMode-dependent)
-    fn wrap_compute_band_energies(
-        x: *const f32, band_e: *mut f32, end: i32, c: i32, lm: i32,
-    );
+    fn wrap_compute_band_energies(x: *const f32, band_e: *mut f32, end: i32, c: i32, lm: i32);
     fn wrap_normalise_bands(
-        freq: *const f32, x: *mut f32, band_e: *const f32,
-        end: i32, c: i32, m: i32,
+        freq: *const f32,
+        x: *mut f32,
+        band_e: *const f32,
+        end: i32,
+        c: i32,
+        m: i32,
     );
     fn wrap_denormalise_bands(
-        x: *const f32, freq: *mut f32, band_log_e: *const f32,
-        start: i32, end: i32, m: i32, downsample: i32, silence: i32,
+        x: *const f32,
+        freq: *mut f32,
+        band_log_e: *const f32,
+        start: i32,
+        end: i32,
+        m: i32,
+        downsample: i32,
+        silence: i32,
     );
 
     // Rate allocation (CELTMode-dependent)
@@ -774,75 +960,110 @@ unsafe extern "C" {
 
     // Energy quantization (CELTMode + ec_enc/ec_dec)
     fn wrap_encode_coarse_energy(
-        start: i32, end: i32,
-        e_bands: *const f32, old_band_e: *mut f32, error: *mut f32,
-        ec_buf: *mut u8, ec_buf_size: i32,
-        c: i32, lm: i32, nb_available_bytes: i32,
-        force_intra: i32, loss_rate: i32, lfe: i32,
+        start: i32,
+        end: i32,
+        e_bands: *const f32,
+        old_band_e: *mut f32,
+        error: *mut f32,
+        ec_buf: *mut u8,
+        ec_buf_size: i32,
+        c: i32,
+        lm: i32,
+        nb_available_bytes: i32,
+        force_intra: i32,
+        loss_rate: i32,
+        lfe: i32,
     ) -> i32;
 
     fn wrap_decode_coarse_energy(
-        start: i32, end: i32,
+        start: i32,
+        end: i32,
         old_band_e: *mut f32,
-        ec_buf: *const u8, ec_bytes: i32,
-        c: i32, lm: i32,
+        ec_buf: *const u8,
+        ec_bytes: i32,
+        c: i32,
+        lm: i32,
     );
 
     fn wrap_encode_fine_energy(
-        start: i32, end: i32,
-        old_band_e: *mut f32, error: *mut f32,
+        start: i32,
+        end: i32,
+        old_band_e: *mut f32,
+        error: *mut f32,
         fine_quant: *const i32,
-        ec_buf: *mut u8, ec_buf_size: i32,
+        ec_buf: *mut u8,
+        ec_buf_size: i32,
         c: i32,
     ) -> i32;
 
     fn wrap_decode_fine_energy(
-        start: i32, end: i32,
+        start: i32,
+        end: i32,
         old_band_e: *mut f32,
         fine_quant: *const i32,
-        ec_buf: *const u8, ec_bytes: i32,
+        ec_buf: *const u8,
+        ec_bytes: i32,
         c: i32,
     );
 
     fn wrap_encode_energy_finalise(
-        start: i32, end: i32,
-        old_band_e: *mut f32, error: *mut f32,
-        fine_quant: *const i32, fine_priority: *const i32,
+        start: i32,
+        end: i32,
+        old_band_e: *mut f32,
+        error: *mut f32,
+        fine_quant: *const i32,
+        fine_priority: *const i32,
         bits_left: i32,
-        ec_buf: *mut u8, ec_buf_size: i32,
+        ec_buf: *mut u8,
+        ec_buf_size: i32,
         c: i32,
     ) -> i32;
 
     fn wrap_decode_energy_finalise(
-        start: i32, end: i32,
+        start: i32,
+        end: i32,
         old_band_e: *mut f32,
-        fine_quant: *const i32, fine_priority: *const i32,
+        fine_quant: *const i32,
+        fine_priority: *const i32,
         bits_left: i32,
-        ec_buf: *const u8, ec_bytes: i32,
+        ec_buf: *const u8,
+        ec_bytes: i32,
         c: i32,
     );
 
     fn wrap_anti_collapse(
-        x: *mut f32, collapse_masks: *mut u8,
-        lm: i32, c: i32, size: i32, start: i32, end: i32,
-        log_e: *const f32, prev1_log_e: *const f32, prev2_log_e: *const f32,
-        pulses: *const i32, seed: u32, encode: i32,
+        x: *mut f32,
+        collapse_masks: *mut u8,
+        lm: i32,
+        c: i32,
+        size: i32,
+        start: i32,
+        end: i32,
+        log_e: *const f32,
+        prev1_log_e: *const f32,
+        prev2_log_e: *const f32,
+        pulses: *const i32,
+        seed: u32,
+        encode: i32,
     );
 
     // Persistent-state wrappers for fair benchmarking
     fn wrap_fft_bench_init(nfft: i32);
-    fn wrap_fft_bench_run(
-        fin_r: *const f32, fin_i: *const f32,
-        fout_r: *mut f32, fout_i: *mut f32,
-    );
+    fn wrap_fft_bench_run(fin_r: *const f32, fin_i: *const f32, fout_r: *mut f32, fout_i: *mut f32);
     fn wrap_mdct_bench_init(n: i32);
     fn wrap_mdct_bench_forward(
-        input: *mut f32, output: *mut f32,
-        overlap: i32, shift: i32, stride: i32,
+        input: *mut f32,
+        output: *mut f32,
+        overlap: i32,
+        shift: i32,
+        stride: i32,
     );
     fn wrap_mdct_bench_backward(
-        input: *mut f32, output: *mut f32,
-        overlap: i32, shift: i32, stride: i32,
+        input: *mut f32,
+        output: *mut f32,
+        overlap: i32,
+        shift: i32,
+        stride: i32,
     );
 }
 
@@ -908,22 +1129,40 @@ pub fn c_celt_lpc(lpc: &mut [f32], ac: &[f32], p: usize) {
 
 pub fn c_celt_fir(x: &[f32], num: &[f32], y: &mut [f32], n: usize, ord: usize) {
     assert!(x.len() >= n && num.len() >= ord && y.len() >= n);
-    unsafe { celt_fir_c(x.as_ptr(), num.as_ptr(), y.as_mut_ptr(), n as i32, ord as i32, 0) }
+    unsafe {
+        celt_fir_c(
+            x.as_ptr(),
+            num.as_ptr(),
+            y.as_mut_ptr(),
+            n as i32,
+            ord as i32,
+            0,
+        )
+    }
 }
 
 pub fn c_celt_iir(x: &[f32], den: &[f32], y: &mut [f32], n: usize, ord: usize, mem: &mut [f32]) {
     assert!(x.len() >= n && den.len() >= ord && y.len() >= n && mem.len() >= ord);
     unsafe {
         celt_iir(
-            x.as_ptr(), den.as_ptr(), y.as_mut_ptr(),
-            n as i32, ord as i32, mem.as_mut_ptr(), 0,
+            x.as_ptr(),
+            den.as_ptr(),
+            y.as_mut_ptr(),
+            n as i32,
+            ord as i32,
+            mem.as_mut_ptr(),
+            0,
         )
     }
 }
 
 pub fn c_celt_autocorr(
-    x: &[f32], ac: &mut [f32], window: Option<&[f32]>,
-    overlap: usize, lag: usize, n: usize,
+    x: &[f32],
+    ac: &mut [f32],
+    window: Option<&[f32]>,
+    overlap: usize,
+    lag: usize,
+    n: usize,
 ) -> i32 {
     let win_ptr = match window {
         Some(w) => w.as_ptr(),
@@ -931,8 +1170,13 @@ pub fn c_celt_autocorr(
     };
     unsafe {
         c_celt_autocorr_raw(
-            x.as_ptr(), ac.as_mut_ptr(), win_ptr,
-            overlap as i32, lag as i32, n as i32, 0,
+            x.as_ptr(),
+            ac.as_mut_ptr(),
+            win_ptr,
+            overlap as i32,
+            lag as i32,
+            n as i32,
+            0,
         )
     }
 }
@@ -942,8 +1186,12 @@ pub fn c_celt_autocorr(
 pub fn c_celt_pitch_xcorr(x: &[f32], y: &[f32], xcorr: &mut [f32], len: usize, max_pitch: usize) {
     unsafe {
         celt_pitch_xcorr_c(
-            x.as_ptr(), y.as_ptr(), xcorr.as_mut_ptr(),
-            len as i32, max_pitch as i32, 0,
+            x.as_ptr(),
+            y.as_ptr(),
+            xcorr.as_mut_ptr(),
+            len as i32,
+            max_pitch as i32,
+            0,
         )
     }
 }
@@ -956,47 +1204,84 @@ pub fn c_pitch_search(x_lp: &[f32], y: &mut [f32], len: usize, max_pitch: usize)
     let mut pitch = 0i32;
     unsafe {
         wrap_pitch_search(
-            x_lp.as_ptr(), y.as_mut_ptr(),
-            len as i32, max_pitch as i32, &mut pitch,
+            x_lp.as_ptr(),
+            y.as_mut_ptr(),
+            len as i32,
+            max_pitch as i32,
+            &mut pitch,
         );
     }
     pitch
 }
 
 pub fn c_remove_doubling(
-    x: &mut [f32], maxperiod: usize, minperiod: usize,
-    n: usize, t0: &mut i32, prev_period: i32, prev_gain: f32,
+    x: &mut [f32],
+    maxperiod: usize,
+    minperiod: usize,
+    n: usize,
+    t0: &mut i32,
+    prev_period: i32,
+    prev_gain: f32,
 ) -> f32 {
     unsafe {
         wrap_remove_doubling(
-            x.as_mut_ptr(), maxperiod as i32, minperiod as i32,
-            n as i32, t0, prev_period, prev_gain,
+            x.as_mut_ptr(),
+            maxperiod as i32,
+            minperiod as i32,
+            n as i32,
+            t0,
+            prev_period,
+            prev_gain,
         )
     }
 }
 
 pub fn c_comb_filter(
-    y: &mut [f32], x: &mut [f32], t0: i32, t1: i32, n: usize,
-    g0: f32, g1: f32, tapset0: i32, tapset1: i32, overlap: usize,
+    y: &mut [f32],
+    x: &mut [f32],
+    t0: i32,
+    t1: i32,
+    n: usize,
+    g0: f32,
+    g1: f32,
+    tapset0: i32,
+    tapset1: i32,
+    overlap: usize,
 ) {
     unsafe {
         wrap_comb_filter(
-            y.as_mut_ptr(), x.as_mut_ptr(), t0, t1, n as i32,
-            g0, g1, tapset0, tapset1, overlap as i32,
+            y.as_mut_ptr(),
+            x.as_mut_ptr(),
+            t0,
+            t1,
+            n as i32,
+            g0,
+            g1,
+            tapset0,
+            tapset1,
+            overlap as i32,
         )
     }
 }
 
 // ── FFT ──
 
-pub fn c_opus_fft(nfft: usize, fin_r: &[f32], fin_i: &[f32], fout_r: &mut [f32], fout_i: &mut [f32]) {
+pub fn c_opus_fft(
+    nfft: usize,
+    fin_r: &[f32],
+    fin_i: &[f32],
+    fout_r: &mut [f32],
+    fout_i: &mut [f32],
+) {
     assert!(fin_r.len() >= nfft && fin_i.len() >= nfft);
     assert!(fout_r.len() >= nfft && fout_i.len() >= nfft);
     unsafe {
         wrap_opus_fft(
             nfft as i32,
-            fin_r.as_ptr(), fin_i.as_ptr(),
-            fout_r.as_mut_ptr(), fout_i.as_mut_ptr(),
+            fin_r.as_ptr(),
+            fin_i.as_ptr(),
+            fout_r.as_mut_ptr(),
+            fout_i.as_mut_ptr(),
         )
     }
 }
@@ -1004,25 +1289,41 @@ pub fn c_opus_fft(nfft: usize, fin_r: &[f32], fin_i: &[f32], fout_r: &mut [f32],
 // ── MDCT ──
 
 pub fn c_clt_mdct_forward(
-    input: &mut [f32], output: &mut [f32],
-    n: usize, overlap: usize, shift: usize, stride: usize,
+    input: &mut [f32],
+    output: &mut [f32],
+    n: usize,
+    overlap: usize,
+    shift: usize,
+    stride: usize,
 ) {
     unsafe {
         wrap_clt_mdct_forward(
-            input.as_mut_ptr(), output.as_mut_ptr(),
-            n as i32, overlap as i32, shift as i32, stride as i32,
+            input.as_mut_ptr(),
+            output.as_mut_ptr(),
+            n as i32,
+            overlap as i32,
+            shift as i32,
+            stride as i32,
         )
     }
 }
 
 pub fn c_clt_mdct_backward(
-    input: &mut [f32], output: &mut [f32],
-    n: usize, overlap: usize, shift: usize, stride: usize,
+    input: &mut [f32],
+    output: &mut [f32],
+    n: usize,
+    overlap: usize,
+    shift: usize,
+    stride: usize,
 ) {
     unsafe {
         wrap_clt_mdct_backward(
-            input.as_mut_ptr(), output.as_mut_ptr(),
-            n as i32, overlap as i32, shift as i32, stride as i32,
+            input.as_mut_ptr(),
+            output.as_mut_ptr(),
+            n as i32,
+            overlap as i32,
+            shift as i32,
+            stride as i32,
         )
     }
 }
@@ -1031,24 +1332,56 @@ pub fn c_clt_mdct_backward(
 
 pub fn c_compute_band_energies(x: &[f32], band_e: &mut [f32], end: usize, c: usize, lm: usize) {
     unsafe {
-        wrap_compute_band_energies(x.as_ptr(), band_e.as_mut_ptr(), end as i32, c as i32, lm as i32)
+        wrap_compute_band_energies(
+            x.as_ptr(),
+            band_e.as_mut_ptr(),
+            end as i32,
+            c as i32,
+            lm as i32,
+        )
     }
 }
 
-pub fn c_normalise_bands(freq: &[f32], x: &mut [f32], band_e: &[f32], end: usize, c: usize, m: usize) {
+pub fn c_normalise_bands(
+    freq: &[f32],
+    x: &mut [f32],
+    band_e: &[f32],
+    end: usize,
+    c: usize,
+    m: usize,
+) {
     unsafe {
-        wrap_normalise_bands(freq.as_ptr(), x.as_mut_ptr(), band_e.as_ptr(), end as i32, c as i32, m as i32)
+        wrap_normalise_bands(
+            freq.as_ptr(),
+            x.as_mut_ptr(),
+            band_e.as_ptr(),
+            end as i32,
+            c as i32,
+            m as i32,
+        )
     }
 }
 
 pub fn c_denormalise_bands(
-    x: &[f32], freq: &mut [f32], band_log_e: &[f32],
-    start: usize, end: usize, m: usize, downsample: usize, silence: bool,
+    x: &[f32],
+    freq: &mut [f32],
+    band_log_e: &[f32],
+    start: usize,
+    end: usize,
+    m: usize,
+    downsample: usize,
+    silence: bool,
 ) {
     unsafe {
         wrap_denormalise_bands(
-            x.as_ptr(), freq.as_mut_ptr(), band_log_e.as_ptr(),
-            start as i32, end as i32, m as i32, downsample as i32, silence as i32,
+            x.as_ptr(),
+            freq.as_mut_ptr(),
+            band_log_e.as_ptr(),
+            start as i32,
+            end as i32,
+            m as i32,
+            downsample as i32,
+            silence as i32,
         )
     }
 }
@@ -1071,19 +1404,34 @@ pub fn c_init_caps(cap: &mut [i32], lm: usize, c: usize) {
 
 /// Encode coarse energy with C reference. Returns number of encoded bytes.
 pub fn c_encode_coarse_energy(
-    start: usize, end: usize,
-    e_bands: &[f32], old_band_e: &mut [f32], error: &mut [f32],
+    start: usize,
+    end: usize,
+    e_bands: &[f32],
+    old_band_e: &mut [f32],
+    error: &mut [f32],
     ec_buf: &mut [u8],
-    c: usize, lm: usize, nb_available_bytes: usize,
-    force_intra: bool, loss_rate: i32, lfe: bool,
+    c: usize,
+    lm: usize,
+    nb_available_bytes: usize,
+    force_intra: bool,
+    loss_rate: i32,
+    lfe: bool,
 ) -> usize {
     let ret = unsafe {
         wrap_encode_coarse_energy(
-            start as i32, end as i32,
-            e_bands.as_ptr(), old_band_e.as_mut_ptr(), error.as_mut_ptr(),
-            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
-            c as i32, lm as i32, nb_available_bytes as i32,
-            force_intra as i32, loss_rate, lfe as i32,
+            start as i32,
+            end as i32,
+            e_bands.as_ptr(),
+            old_band_e.as_mut_ptr(),
+            error.as_mut_ptr(),
+            ec_buf.as_mut_ptr(),
+            ec_buf.len() as i32,
+            c as i32,
+            lm as i32,
+            nb_available_bytes as i32,
+            force_intra as i32,
+            loss_rate,
+            lfe as i32,
         )
     };
     ret as usize
@@ -1091,35 +1439,45 @@ pub fn c_encode_coarse_energy(
 
 /// Decode coarse energy with C reference (reads intra flag from bitstream).
 pub fn c_decode_coarse_energy(
-    start: usize, end: usize,
+    start: usize,
+    end: usize,
     old_band_e: &mut [f32],
     ec_buf: &[u8],
-    c: usize, lm: usize,
+    c: usize,
+    lm: usize,
 ) {
     unsafe {
         wrap_decode_coarse_energy(
-            start as i32, end as i32,
+            start as i32,
+            end as i32,
             old_band_e.as_mut_ptr(),
-            ec_buf.as_ptr(), ec_buf.len() as i32,
-            c as i32, lm as i32,
+            ec_buf.as_ptr(),
+            ec_buf.len() as i32,
+            c as i32,
+            lm as i32,
         )
     }
 }
 
 /// Encode fine energy with C reference. Returns number of encoded bytes.
 pub fn c_encode_fine_energy(
-    start: usize, end: usize,
-    old_band_e: &mut [f32], error: &mut [f32],
+    start: usize,
+    end: usize,
+    old_band_e: &mut [f32],
+    error: &mut [f32],
     fine_quant: &[i32],
     ec_buf: &mut [u8],
     c: usize,
 ) -> usize {
     let ret = unsafe {
         wrap_encode_fine_energy(
-            start as i32, end as i32,
-            old_band_e.as_mut_ptr(), error.as_mut_ptr(),
+            start as i32,
+            end as i32,
+            old_band_e.as_mut_ptr(),
+            error.as_mut_ptr(),
             fine_quant.as_ptr(),
-            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
+            ec_buf.as_mut_ptr(),
+            ec_buf.len() as i32,
             c as i32,
         )
     };
@@ -1128,7 +1486,8 @@ pub fn c_encode_fine_energy(
 
 /// Decode fine energy with C reference.
 pub fn c_decode_fine_energy(
-    start: usize, end: usize,
+    start: usize,
+    end: usize,
     old_band_e: &mut [f32],
     fine_quant: &[i32],
     ec_buf: &[u8],
@@ -1136,10 +1495,12 @@ pub fn c_decode_fine_energy(
 ) {
     unsafe {
         wrap_decode_fine_energy(
-            start as i32, end as i32,
+            start as i32,
+            end as i32,
             old_band_e.as_mut_ptr(),
             fine_quant.as_ptr(),
-            ec_buf.as_ptr(), ec_buf.len() as i32,
+            ec_buf.as_ptr(),
+            ec_buf.len() as i32,
             c as i32,
         )
     }
@@ -1147,20 +1508,27 @@ pub fn c_decode_fine_energy(
 
 /// Encode energy finalise with C reference. Returns number of encoded bytes.
 pub fn c_encode_energy_finalise(
-    start: usize, end: usize,
-    old_band_e: &mut [f32], error: &mut [f32],
-    fine_quant: &[i32], fine_priority: &[i32],
+    start: usize,
+    end: usize,
+    old_band_e: &mut [f32],
+    error: &mut [f32],
+    fine_quant: &[i32],
+    fine_priority: &[i32],
     bits_left: i32,
     ec_buf: &mut [u8],
     c: usize,
 ) -> usize {
     unsafe {
         wrap_encode_energy_finalise(
-            start as i32, end as i32,
-            old_band_e.as_mut_ptr(), error.as_mut_ptr(),
-            fine_quant.as_ptr(), fine_priority.as_ptr(),
+            start as i32,
+            end as i32,
+            old_band_e.as_mut_ptr(),
+            error.as_mut_ptr(),
+            fine_quant.as_ptr(),
+            fine_priority.as_ptr(),
             bits_left,
-            ec_buf.as_mut_ptr(), ec_buf.len() as i32,
+            ec_buf.as_mut_ptr(),
+            ec_buf.len() as i32,
             c as i32,
         ) as usize
     }
@@ -1168,20 +1536,25 @@ pub fn c_encode_energy_finalise(
 
 /// Decode energy finalise with C reference.
 pub fn c_decode_energy_finalise(
-    start: usize, end: usize,
+    start: usize,
+    end: usize,
     old_band_e: &mut [f32],
-    fine_quant: &[i32], fine_priority: &[i32],
+    fine_quant: &[i32],
+    fine_priority: &[i32],
     bits_left: i32,
     ec_buf: &[u8],
     c: usize,
 ) {
     unsafe {
         wrap_decode_energy_finalise(
-            start as i32, end as i32,
+            start as i32,
+            end as i32,
             old_band_e.as_mut_ptr(),
-            fine_quant.as_ptr(), fine_priority.as_ptr(),
+            fine_quant.as_ptr(),
+            fine_priority.as_ptr(),
             bits_left,
-            ec_buf.as_ptr(), ec_buf.len() as i32,
+            ec_buf.as_ptr(),
+            ec_buf.len() as i32,
             c as i32,
         )
     }
@@ -1189,17 +1562,35 @@ pub fn c_decode_energy_finalise(
 
 /// Anti-collapse with C reference.
 pub fn c_anti_collapse(
-    x: &mut [f32], collapse_masks: &mut [u8],
-    lm: i32, c: usize, size: usize, start: usize, end: usize,
-    log_e: &[f32], prev1_log_e: &[f32], prev2_log_e: &[f32],
-    pulses: &[i32], seed: u32, encode: bool,
+    x: &mut [f32],
+    collapse_masks: &mut [u8],
+    lm: i32,
+    c: usize,
+    size: usize,
+    start: usize,
+    end: usize,
+    log_e: &[f32],
+    prev1_log_e: &[f32],
+    prev2_log_e: &[f32],
+    pulses: &[i32],
+    seed: u32,
+    encode: bool,
 ) {
     unsafe {
         wrap_anti_collapse(
-            x.as_mut_ptr(), collapse_masks.as_mut_ptr(),
-            lm, c as i32, size as i32, start as i32, end as i32,
-            log_e.as_ptr(), prev1_log_e.as_ptr(), prev2_log_e.as_ptr(),
-            pulses.as_ptr(), seed, encode as i32,
+            x.as_mut_ptr(),
+            collapse_masks.as_mut_ptr(),
+            lm,
+            c as i32,
+            size as i32,
+            start as i32,
+            end as i32,
+            log_e.as_ptr(),
+            prev1_log_e.as_ptr(),
+            prev2_log_e.as_ptr(),
+            pulses.as_ptr(),
+            seed,
+            encode as i32,
         )
     }
 }
@@ -1214,7 +1605,12 @@ pub fn c_fft_bench_init(nfft: usize) {
 /// Run C FFT using pre-initialized state (no per-call allocation).
 pub fn c_fft_bench_run(fin_r: &[f32], fin_i: &[f32], fout_r: &mut [f32], fout_i: &mut [f32]) {
     unsafe {
-        wrap_fft_bench_run(fin_r.as_ptr(), fin_i.as_ptr(), fout_r.as_mut_ptr(), fout_i.as_mut_ptr())
+        wrap_fft_bench_run(
+            fin_r.as_ptr(),
+            fin_i.as_ptr(),
+            fout_r.as_mut_ptr(),
+            fout_i.as_mut_ptr(),
+        )
     }
 }
 
@@ -1224,15 +1620,39 @@ pub fn c_mdct_bench_init(n: usize) {
 }
 
 /// Run C MDCT forward using pre-initialized state.
-pub fn c_mdct_bench_forward(input: &mut [f32], output: &mut [f32], overlap: usize, shift: usize, stride: usize) {
+pub fn c_mdct_bench_forward(
+    input: &mut [f32],
+    output: &mut [f32],
+    overlap: usize,
+    shift: usize,
+    stride: usize,
+) {
     unsafe {
-        wrap_mdct_bench_forward(input.as_mut_ptr(), output.as_mut_ptr(), overlap as i32, shift as i32, stride as i32)
+        wrap_mdct_bench_forward(
+            input.as_mut_ptr(),
+            output.as_mut_ptr(),
+            overlap as i32,
+            shift as i32,
+            stride as i32,
+        )
     }
 }
 
 /// Run C MDCT backward using pre-initialized state.
-pub fn c_mdct_bench_backward(input: &mut [f32], output: &mut [f32], overlap: usize, shift: usize, stride: usize) {
+pub fn c_mdct_bench_backward(
+    input: &mut [f32],
+    output: &mut [f32],
+    overlap: usize,
+    shift: usize,
+    stride: usize,
+) {
     unsafe {
-        wrap_mdct_bench_backward(input.as_mut_ptr(), output.as_mut_ptr(), overlap as i32, shift as i32, stride as i32)
+        wrap_mdct_bench_backward(
+            input.as_mut_ptr(),
+            output.as_mut_ptr(),
+            overlap as i32,
+            shift as i32,
+            stride as i32,
+        )
     }
 }

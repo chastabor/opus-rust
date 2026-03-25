@@ -6,12 +6,12 @@
 // - silk_find_pitch_contour: find best pitch contour index
 // - silk_find_ltp_params: find best LTP (Long-Term Prediction) parameters
 
-use crate::*;
-use crate::tables::*;
 use crate::signal_processing::{
-    silk_inner_prod_aligned, silk_resampler_down2, silk_resampler_down2_3,
-    silk_insertion_sort_decreasing_int16,
+    silk_inner_prod_aligned, silk_insertion_sort_decreasing_int16, silk_resampler_down2,
+    silk_resampler_down2_3,
 };
+use crate::tables::*;
+use crate::*;
 
 // Constants derived from pitch_est_defines.h
 const SF_LENGTH_4KHZ: usize = (PE_SUBFR_LENGTH_MS * 4) as usize;
@@ -37,17 +37,17 @@ const SCRATCH_SIZE: usize = 22;
 ///   Stage 2: Refinement at 8kHz with d_comp candidate expansion
 ///   Stage 3: Full-rate per-subframe refinement (only if fs_khz > 8)
 pub fn silk_pitch_analysis_core(
-    frame_unscaled: &[i16],   // Input signal
-    pitch_out: &mut [i32],    // Output pitch lags per subframe [nb_subfr]
-    lag_index: &mut i16,      // Output lag index for encoding
-    contour_index: &mut i8,   // Output contour index for encoding
-    ltp_corr_q15: &mut i32,   // I/O normalized correlation
-    prev_lag: i32,            // Previous frame's lag (0 = unvoiced)
-    search_thres1_q16: i32,   // Stage 1 threshold
-    search_thres2_q13: i32,   // Stage 2/3 threshold
-    fs_khz: i32,              // 8, 12, or 16
-    complexity: i32,           // 0, 1, or 2
-    nb_subfr: i32,            // 2 or 4
+    frame_unscaled: &[i16], // Input signal
+    pitch_out: &mut [i32],  // Output pitch lags per subframe [nb_subfr]
+    lag_index: &mut i16,    // Output lag index for encoding
+    contour_index: &mut i8, // Output contour index for encoding
+    ltp_corr_q15: &mut i32, // I/O normalized correlation
+    prev_lag: i32,          // Previous frame's lag (0 = unvoiced)
+    search_thres1_q16: i32, // Stage 1 threshold
+    search_thres2_q13: i32, // Stage 2/3 threshold
+    fs_khz: i32,            // 8, 12, or 16
+    complexity: i32,        // 0, 1, or 2
+    nb_subfr: i32,          // 2 or 4
 ) -> i32 {
     debug_assert!(fs_khz == 8 || fs_khz == 12 || fs_khz == 16);
     debug_assert!(complexity >= 0 && complexity <= 2);
@@ -67,7 +67,12 @@ pub fn silk_pitch_analysis_core(
     // ========================================================================
     let mut energy = 0i32;
     let mut shift = 0i32;
-    silk_sum_sqr_shift(&mut energy, &mut shift, &frame_unscaled[..frame_length], frame_length);
+    silk_sum_sqr_shift(
+        &mut energy,
+        &mut shift,
+        &frame_unscaled[..frame_length],
+        frame_length,
+    );
     shift += 3 - silk_clz32(energy);
 
     // Stack-allocate buffers. Max frame length for 16kHz, 4 subfr = (20+20)*16 = 640
@@ -107,7 +112,12 @@ pub fn silk_pitch_analysis_core(
     let mut filt_state = [0i32; 2];
     // Max frame_length_4khz = (20+20)*4 = 160
     let mut frame_4khz = [0i16; 160];
-    silk_resampler_down2(&mut filt_state, &mut frame_4khz, frame_8khz, frame_length_8khz);
+    silk_resampler_down2(
+        &mut filt_state,
+        &mut frame_4khz,
+        frame_8khz,
+        frame_length_8khz,
+    );
 
     // Low-pass filter
     for i in (1..frame_length_4khz).rev() {
@@ -138,7 +148,7 @@ pub fn silk_pitch_analysis_core(
         // xcorr32[d] = inner_prod(target, target - MAX_LAG_4KHZ + d) for d in 0..CSTRIDE_4KHZ
         let mut xcorr32 = [0i32; CSTRIDE_4KHZ];
         for d in 0..CSTRIDE_4KHZ {
-            let lag = MAX_LAG_4KHZ - d;  // d=0 -> lag=MAX_LAG, d=CSTRIDE-1 -> lag=MIN_LAG
+            let lag = MAX_LAG_4KHZ - d; // d=0 -> lag=MAX_LAG, d=CSTRIDE-1 -> lag=MIN_LAG
             let basis_start = target_start - lag;
             xcorr32[d] = silk_inner_prod_aligned(
                 &frame_4khz[target_start..],
@@ -179,11 +189,12 @@ pub fn silk_pitch_analysis_core(
             let new_sample = frame_4khz[basis_start] as i32;
             let old_sample = frame_4khz[basis_start + SF_LENGTH_8KHZ] as i32;
             normalizer = normalizer.wrapping_add(
-                new_sample.wrapping_mul(new_sample).wrapping_sub(old_sample.wrapping_mul(old_sample)),
+                new_sample
+                    .wrapping_mul(new_sample)
+                    .wrapping_sub(old_sample.wrapping_mul(old_sample)),
             );
 
-            c_buf[c_offset + d - MIN_LAG_4KHZ] =
-                silk_div32_varq(cross_corr, normalizer, 14) as i16; // Q13
+            c_buf[c_offset + d - MIN_LAG_4KHZ] = silk_div32_varq(cross_corr, normalizer, 14) as i16; // Q13
         }
     }
 
@@ -209,12 +220,7 @@ pub fn silk_pitch_analysis_core(
     debug_assert!(3 * length_d_srch_init <= PE_D_SRCH_LENGTH);
 
     let mut d_srch = [0i32; PE_D_SRCH_LENGTH];
-    silk_insertion_sort_decreasing_int16(
-        &mut c_buf,
-        &mut d_srch,
-        CSTRIDE_4KHZ,
-        length_d_srch_init,
-    );
+    silk_insertion_sort_decreasing_int16(&mut c_buf, &mut d_srch, CSTRIDE_4KHZ, length_d_srch_init);
 
     // Escape if correlation is very low already here
     let cmax = c_buf[0] as i32; // Q14
@@ -305,7 +311,8 @@ pub fn silk_pitch_analysis_core(
             &frame_8khz[target_start..],
             &frame_8khz[target_start..],
             SF_LENGTH_8KHZ,
-        ).wrapping_add(1);
+        )
+        .wrapping_add(1);
 
         for j in 0..length_d_comp {
             let d = d_comp[j] as usize;
@@ -327,11 +334,9 @@ pub fn silk_pitch_analysis_core(
                     SF_LENGTH_8KHZ,
                 );
                 let c_idx = k * CSTRIDE_8KHZ + d - (MIN_LAG_8KHZ - 2);
-                c_buf[c_idx] = silk_div32_varq(
-                    cross_corr,
-                    energy_target.wrapping_add(energy_basis),
-                    14,
-                ) as i16; // Q13
+                c_buf[c_idx] =
+                    silk_div32_varq(cross_corr, energy_target.wrapping_add(energy_basis), 14)
+                        as i16; // Q13
             }
         }
     }
@@ -400,16 +405,15 @@ pub fn silk_pitch_analysis_core(
 
         // Bias towards shorter lags
         let lag_log2_q7 = silk_lin2log(d);
-        let mut cc_max_new_b = cc_max_new
-            - ((silk_smulbb(nb_subfr * PE_SHORTLAG_BIAS, lag_log2_q7 as i32)) >> 7); // Q13
+        let mut cc_max_new_b =
+            cc_max_new - ((silk_smulbb(nb_subfr * PE_SHORTLAG_BIAS, lag_log2_q7 as i32)) >> 7); // Q13
 
         // Bias towards previous lag
         if prev_lag_8khz > 0 {
             let delta_lag_log2_sqr_q7_raw = lag_log2_q7 - prev_lag_log2_q7;
             let delta_lag_log2_sqr_q7 =
                 (silk_smulbb(delta_lag_log2_sqr_q7_raw, delta_lag_log2_sqr_q7_raw)) >> 7;
-            let prev_lag_bias_q13 =
-                (silk_smulbb(nb_subfr * PE_PREVLAG_BIAS, *ltp_corr_q15)) >> 15; // Q13
+            let prev_lag_bias_q13 = (silk_smulbb(nb_subfr * PE_PREVLAG_BIAS, *ltp_corr_q15)) >> 15; // Q13
             let prev_lag_bias_q13 = silk_div32(
                 prev_lag_bias_q13.wrapping_mul(delta_lag_log2_sqr_q7),
                 delta_lag_log2_sqr_q7 + 64, // SILK_FIX_CONST(0.5, 7) = 64
@@ -497,7 +501,8 @@ pub fn silk_pitch_analysis_core(
 
         // Calculate the correlations and energies needed in stage 3
         // Max = PE_MAX_NB_SUBFR * PE_NB_CBKS_STAGE3_MAX = 4 * 34 = 136 entries
-        let mut cross_corr_st3 = [[0i32; PE_NB_STAGE3_LAGS]; PE_MAX_NB_SUBFR * PE_NB_CBKS_STAGE3_MAX];
+        let mut cross_corr_st3 =
+            [[0i32; PE_NB_STAGE3_LAGS]; PE_MAX_NB_SUBFR * PE_NB_CBKS_STAGE3_MAX];
         let mut energies_st3 = [[0i32; PE_NB_STAGE3_LAGS]; PE_MAX_NB_SUBFR * PE_NB_CBKS_STAGE3_MAX];
 
         silk_p_ana_calc_corr_st3(
@@ -540,8 +545,8 @@ pub fn silk_pitch_analysis_core(
                 for k in 0..nb_subfr_usize {
                     cross_corr = cross_corr
                         .wrapping_add(cross_corr_st3[k * nb_cbk_search_st3 + j][lag_counter]);
-                    energy = energy
-                        .wrapping_add(energies_st3[k * nb_cbk_search_st3 + j][lag_counter]);
+                    energy =
+                        energy.wrapping_add(energies_st3[k * nb_cbk_search_st3 + j][lag_counter]);
                 }
 
                 let cc_max_new;
@@ -576,7 +581,8 @@ pub fn silk_pitch_analysis_core(
             } else {
                 SILK_CB_LAGS_STAGE3[k][cb_imax] as i32
             };
-            pitch_out[k] = (lag_new + offset).clamp(min_lag as i32, (PE_MAX_LAG_MS * fs_khz) as i32);
+            pitch_out[k] =
+                (lag_new + offset).clamp(min_lag as i32, (PE_MAX_LAG_MS * fs_khz) as i32);
         }
         *lag_index = (lag_new - min_lag as i32) as i16;
         *contour_index = cb_imax as i8;
@@ -588,8 +594,7 @@ pub fn silk_pitch_analysis_core(
             } else {
                 SILK_CB_LAGS_STAGE2[k][cb_imax] as i32
             };
-            pitch_out[k] =
-                (lag + offset).clamp(MIN_LAG_8KHZ as i32, (PE_MAX_LAG_MS * 8) as i32);
+            pitch_out[k] = (lag + offset).clamp(MIN_LAG_8KHZ as i32, (PE_MAX_LAG_MS * 8) as i32);
         }
         *lag_index = (lag - MIN_LAG_8KHZ as i32) as i16;
         *contour_index = cb_imax as i8;
@@ -720,11 +725,8 @@ fn silk_p_ana_calc_energy_st3(
         let mut lag_counter = 0usize;
 
         if basis_start + sf_length <= frame.len() {
-            let mut energy_val = silk_inner_prod_aligned(
-                &frame[basis_start..],
-                &frame[basis_start..],
-                sf_length,
-            );
+            let mut energy_val =
+                silk_inner_prod_aligned(&frame[basis_start..], &frame[basis_start..], sf_length);
             scratch_mem[lag_counter] = energy_val;
             lag_counter += 1;
 
@@ -743,9 +745,8 @@ fn silk_p_ana_calc_energy_st3(
                 let new_idx_signed = basis_start as i32 - i as i32;
                 if new_idx_signed >= 0 && (new_idx_signed as usize) < frame.len() {
                     let new_idx = new_idx_signed as usize;
-                    energy_val = energy_val.saturating_add(
-                        silk_smulbb(frame[new_idx] as i32, frame[new_idx] as i32),
-                    );
+                    energy_val = energy_val
+                        .saturating_add(silk_smulbb(frame[new_idx] as i32, frame[new_idx] as i32));
                 }
                 if energy_val < 0 {
                     energy_val = 0;
@@ -789,8 +790,7 @@ pub fn silk_pitch_analysis_simple(
 
     // The full pitch analysis expects the signal to include LTP memory prefix.
     // The expected length is (PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz.
-    let expected_len =
-        ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
+    let expected_len = ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
 
     if input.len() < expected_len {
         // Not enough data -- fall back to unvoiced
@@ -1015,7 +1015,8 @@ mod tests {
     fn test_pitch_analysis_300hz_at_16khz() {
         let fs_khz = 16;
         let nb_subfr = 4i32;
-        let expected_len = ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
+        let expected_len =
+            ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
 
         // Generate 300Hz tone at 16kHz
         let mut frame = vec![0i16; expected_len];
@@ -1034,7 +1035,7 @@ mod tests {
             &mut lag_index,
             &mut contour_index,
             &mut ltp_corr_q15,
-            0, // prev_lag
+            0,     // prev_lag
             52429, // search_thres1_q16
             2458,  // search_thres2_q13
             fs_khz,
@@ -1043,14 +1044,20 @@ mod tests {
         );
 
         let expected_period = 16000.0 / 300.0; // ~53.3
-        eprintln!("ret={}, pitch_lags={:?}, lag_index={}, contour_index={}, ltp_corr_q15={}",
-                  ret, pitch_lags, lag_index, contour_index, ltp_corr_q15);
+        eprintln!(
+            "ret={}, pitch_lags={:?}, lag_index={}, contour_index={}, ltp_corr_q15={}",
+            ret, pitch_lags, lag_index, contour_index, ltp_corr_q15
+        );
         eprintln!("Expected period: {:.1}", expected_period);
 
         assert_eq!(ret, 0, "300Hz tone should be detected as voiced");
         for k in 0..4 {
-            assert!((pitch_lags[k] - 53).abs() <= 2,
-                    "Pitch lag [{}] = {} should be near 53", k, pitch_lags[k]);
+            assert!(
+                (pitch_lags[k] - 53).abs() <= 2,
+                "Pitch lag [{}] = {} should be near 53",
+                k,
+                pitch_lags[k]
+            );
         }
     }
 
@@ -1058,7 +1065,8 @@ mod tests {
     fn test_pitch_analysis_simple_300hz() {
         let fs_khz = 16;
         let nb_subfr = 4i32;
-        let expected_len = ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
+        let expected_len =
+            ((PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * fs_khz) as usize;
 
         // Generate 300Hz tone at 16kHz
         let mut frame = vec![0i16; expected_len];
@@ -1091,7 +1099,8 @@ mod tests {
         let mut frame = vec![0i16; total_len];
         // Only fill the frame portion (history is zero)
         for i in ltp_mem_length..total_len {
-            frame[i] = (10000.0 * (2.0 * PI * 300.0 * (i - ltp_mem_length) as f64 / 16000.0).sin()) as i16;
+            frame[i] =
+                (10000.0 * (2.0 * PI * 300.0 * (i - ltp_mem_length) as f64 / 16000.0).sin()) as i16;
         }
 
         let mut pitch_lags = [0i32; 4];
@@ -1103,7 +1112,10 @@ mod tests {
             frame_length as i32,
         );
 
-        eprintln!("With zero history: voiced={}, pitch_lags={:?}", voiced, pitch_lags);
+        eprintln!(
+            "With zero history: voiced={}, pitch_lags={:?}",
+            voiced, pitch_lags
+        );
         // Even with zero history, a strong tone should be detected
     }
 }

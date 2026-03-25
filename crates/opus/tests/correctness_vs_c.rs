@@ -7,11 +7,10 @@
 mod common;
 
 use common::{gen_sine, gen_stereo_sine};
-use opus::{
-    OpusDecoder, OpusEncoder,
-    Application, Bandwidth, SampleRate, Channels, Bitrate, ForceChannels,
-};
 use opus::packet::*;
+use opus::{
+    Application, Bandwidth, Bitrate, Channels, ForceChannels, OpusDecoder, OpusEncoder, SampleRate,
+};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const SAMPLE_RATE: i32 = 48000;
@@ -72,7 +71,13 @@ struct TestConfig {
 // ── Comparison utilities ──
 
 fn compare_pcm(a: &[f32], b: &[f32]) -> (f64, f64) {
-    assert_eq!(a.len(), b.len(), "PCM length mismatch: {} vs {}", a.len(), b.len());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "PCM length mismatch: {} vs {}",
+        a.len(),
+        b.len()
+    );
     let mut max_err: f64 = 0.0;
     let mut sum_sq: f64 = 0.0;
     for i in 0..a.len() {
@@ -82,7 +87,11 @@ fn compare_pcm(a: &[f32], b: &[f32]) -> (f64, f64) {
         }
         sum_sq += err * err;
     }
-    let rms = if a.is_empty() { 0.0 } else { (sum_sq / a.len() as f64).sqrt() };
+    let rms = if a.is_empty() {
+        0.0
+    } else {
+        (sum_sq / a.len() as f64).sqrt()
+    };
     (max_err, rms)
 }
 
@@ -103,7 +112,8 @@ fn first_divergence(a: &[f32], b: &[f32], threshold: f64, channels: usize) -> St
                 let marker = if j == i { " <---" } else { "" };
                 s += &format!(
                     "    [{j:5}] a={:12.8} b={:12.8} err={:.2e}{marker}\n",
-                    a[j], b[j],
+                    a[j],
+                    b[j],
                     (a[j] as f64 - b[j] as f64).abs()
                 );
             }
@@ -116,12 +126,18 @@ fn first_divergence(a: &[f32], b: &[f32], threshold: f64, channels: usize) -> St
 // ── Encoder/decoder helpers ──
 
 fn make_c_encoder(cfg: &TestConfig) -> COpusEncoder {
-    let mut enc = COpusEncoder::new(SAMPLE_RATE, i32::from(cfg.channels), i32::from(cfg.application)).unwrap();
+    let mut enc = COpusEncoder::new(
+        SAMPLE_RATE,
+        i32::from(cfg.channels),
+        i32::from(cfg.application),
+    )
+    .unwrap();
     enc.set_max_bandwidth(i32::from(cfg.max_bandwidth)).unwrap();
     enc.set_complexity(10).unwrap();
     enc.set_bitrate(cfg.bitrate).unwrap();
     if cfg.force_channels != ForceChannels::Auto {
-        enc.set_force_channels(i32::from(cfg.force_channels)).unwrap();
+        enc.set_force_channels(i32::from(cfg.force_channels))
+            .unwrap();
     }
     enc
 }
@@ -152,15 +168,21 @@ fn test_decode_comparison(cfg: &TestConfig) {
 
     for frame_pcm in &frames {
         let mut packet = vec![0u8; MAX_PACKET];
-        let pkt_len = c_enc.encode_float(frame_pcm, FRAME_SIZE, &mut packet).unwrap();
+        let pkt_len = c_enc
+            .encode_float(frame_pcm, FRAME_SIZE, &mut packet)
+            .unwrap();
         let packet = &packet[..pkt_len as usize];
 
         let mut c_out = vec![0.0f32; FRAME_SIZE as usize * ch];
-        let c_samples = c_dec.decode_float(Some(packet), &mut c_out, FRAME_SIZE, false).unwrap();
+        let c_samples = c_dec
+            .decode_float(Some(packet), &mut c_out, FRAME_SIZE, false)
+            .unwrap();
         assert_eq!(c_samples, FRAME_SIZE);
 
         let mut rust_out = vec![0.0f32; FRAME_SIZE as usize * ch];
-        let rust_samples = rust_dec.decode_float(Some(packet), &mut rust_out, FRAME_SIZE, false).unwrap();
+        let rust_samples = rust_dec
+            .decode_float(Some(packet), &mut rust_out, FRAME_SIZE, false)
+            .unwrap();
         assert_eq!(rust_samples, FRAME_SIZE);
 
         // Check range coder state
@@ -214,7 +236,9 @@ fn test_encode_comparison(cfg: &TestConfig) {
 
     for frame_pcm in &frames {
         let mut c_packet = vec![0u8; MAX_PACKET];
-        let c_len = c_enc.encode_float(frame_pcm, FRAME_SIZE, &mut c_packet).unwrap();
+        let c_len = c_enc
+            .encode_float(frame_pcm, FRAME_SIZE, &mut c_packet)
+            .unwrap();
 
         let mut rust_packet = vec![0u8; MAX_PACKET];
         let rust_len = rust_enc
@@ -229,7 +253,12 @@ fn test_encode_comparison(cfg: &TestConfig) {
         // Decode C packet
         let mut c_decoded = vec![0.0f32; FRAME_SIZE as usize * ch];
         c_dec_for_c
-            .decode_float(Some(&c_packet[..c_len as usize]), &mut c_decoded, FRAME_SIZE, false)
+            .decode_float(
+                Some(&c_packet[..c_len as usize]),
+                &mut c_decoded,
+                FRAME_SIZE,
+                false,
+            )
             .unwrap();
         all_c_decoded.extend_from_slice(&c_decoded);
 
@@ -245,7 +274,10 @@ fn test_encode_comparison(cfg: &TestConfig) {
             Err(e) => {
                 eprintln!(
                     "  {} WARNING: C decoder rejected Rust packet (frame {}, len={}, err={})",
-                    cfg.name, packets_total - 1, rust_len, e
+                    cfg.name,
+                    packets_total - 1,
+                    rust_len,
+                    e
                 );
                 rust_invalid += 1;
             }
@@ -283,9 +315,13 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
 
     for frame_pcm in &frames {
         let mut packet = vec![0u8; MAX_PACKET];
-        let len = c_enc.encode_float(frame_pcm, FRAME_SIZE, &mut packet).unwrap();
+        let len = c_enc
+            .encode_float(frame_pcm, FRAME_SIZE, &mut packet)
+            .unwrap();
         let mut out = vec![0.0f32; FRAME_SIZE as usize * ch];
-        c_dec.decode_float(Some(&packet[..len as usize]), &mut out, FRAME_SIZE, false).unwrap();
+        c_dec
+            .decode_float(Some(&packet[..len as usize]), &mut out, FRAME_SIZE, false)
+            .unwrap();
         c_pcm.extend_from_slice(&out);
     }
 

@@ -1,9 +1,9 @@
 // Port of silk/decode_indices.c
 
-use opus_range_coder::EcCtx;
-use crate::*;
-use crate::tables::*;
 use crate::nlsf::nlsf_unpack;
+use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Decode side-information parameters from payload
 pub fn silk_decode_indices(
@@ -24,17 +24,17 @@ pub fn silk_decode_indices(
 
     // Decode gains
     if cond_coding == CODE_CONDITIONALLY {
-        ps_dec.indices.gains_indices[0] =
-            ps_range_dec.dec_icdf(&SILK_DELTA_GAIN_ICDF, 8) as i8;
+        ps_dec.indices.gains_indices[0] = ps_range_dec.dec_icdf(&SILK_DELTA_GAIN_ICDF, 8) as i8;
     } else {
-        ps_dec.indices.gains_indices[0] =
-            ((ps_range_dec.dec_icdf(&SILK_GAIN_ICDF[ps_dec.indices.signal_type as usize], 8) as i8) << 3)
+        ps_dec.indices.gains_indices[0] = ((ps_range_dec
+            .dec_icdf(&SILK_GAIN_ICDF[ps_dec.indices.signal_type as usize], 8)
+            as i8)
+            << 3)
             .wrapping_add(ps_range_dec.dec_icdf(&SILK_UNIFORM8_ICDF, 8) as i8);
     }
 
     for i in 1..ps_dec.nb_subfr as usize {
-        ps_dec.indices.gains_indices[i] =
-            ps_range_dec.dec_icdf(&SILK_DELTA_GAIN_ICDF, 8) as i8;
+        ps_dec.indices.gains_indices[i] = ps_range_dec.dec_icdf(&SILK_DELTA_GAIN_ICDF, 8) as i8;
     }
 
     // Decode LSF indices
@@ -43,21 +43,21 @@ pub fn silk_decode_indices(
     let n_vectors = nlsf_cb.n_vectors as usize;
     let order = nlsf_cb.order as usize;
 
-    ps_dec.indices.nlsf_indices[0] = ps_range_dec.dec_icdf(
-        &nlsf_cb.cb1_icdf[signal_type_half * n_vectors..],
-        8,
-    ) as i8;
+    ps_dec.indices.nlsf_indices[0] =
+        ps_range_dec.dec_icdf(&nlsf_cb.cb1_icdf[signal_type_half * n_vectors..], 8) as i8;
 
     // Unpack entropy table indices and predictor
     let mut ec_ix = [0i16; MAX_LPC_ORDER];
     let mut pred_q8 = [0u8; MAX_LPC_ORDER];
-    nlsf_unpack(&mut ec_ix, &mut pred_q8, nlsf_cb, ps_dec.indices.nlsf_indices[0] as usize);
+    nlsf_unpack(
+        &mut ec_ix,
+        &mut pred_q8,
+        nlsf_cb,
+        ps_dec.indices.nlsf_indices[0] as usize,
+    );
 
     for i in 0..order {
-        let mut ix_val = ps_range_dec.dec_icdf(
-            &nlsf_cb.ec_icdf[ec_ix[i] as usize..],
-            8,
-        ) as i32;
+        let mut ix_val = ps_range_dec.dec_icdf(&nlsf_cb.ec_icdf[ec_ix[i] as usize..], 8) as i32;
         if ix_val == 0 {
             ix_val -= ps_range_dec.dec_icdf(&SILK_NLSF_EXT_ICDF, 8) as i32;
         } else if ix_val == 2 * NLSF_QUANT_MAX_AMPLITUDE {
@@ -88,10 +88,8 @@ pub fn silk_decode_indices(
         if decode_absolute_lag_index {
             ps_dec.indices.lag_index = (ps_range_dec.dec_icdf(&SILK_PITCH_LAG_ICDF, 8) as i32
                 * (ps_dec.fs_khz >> 1)) as i16;
-            ps_dec.indices.lag_index += ps_range_dec.dec_icdf(
-                ps_dec.get_pitch_lag_low_bits_icdf(),
-                8,
-            ) as i16;
+            ps_dec.indices.lag_index +=
+                ps_range_dec.dec_icdf(ps_dec.get_pitch_lag_low_bits_icdf(), 8) as i16;
         }
         ps_dec.ec_prev_lag_index = ps_dec.indices.lag_index;
 
@@ -100,8 +98,7 @@ pub fn silk_decode_indices(
             ps_range_dec.dec_icdf(ps_dec.get_pitch_contour_icdf(), 8) as i8;
 
         // Decode LTP gains
-        ps_dec.indices.per_index =
-            ps_range_dec.dec_icdf(&SILK_LTP_PER_INDEX_ICDF, 8) as i8;
+        ps_dec.indices.per_index = ps_range_dec.dec_icdf(&SILK_LTP_PER_INDEX_ICDF, 8) as i8;
 
         for k in 0..ps_dec.nb_subfr as usize {
             ps_dec.indices.ltp_index[k] = ps_range_dec.dec_icdf(
@@ -112,8 +109,7 @@ pub fn silk_decode_indices(
 
         // Decode LTP scaling
         if cond_coding == CODE_INDEPENDENTLY {
-            ps_dec.indices.ltp_scale_index =
-                ps_range_dec.dec_icdf(&SILK_LTPSCALE_ICDF, 8) as i8;
+            ps_dec.indices.ltp_scale_index = ps_range_dec.dec_icdf(&SILK_LTPSCALE_ICDF, 8) as i8;
         } else {
             ps_dec.indices.ltp_scale_index = 0;
         }
@@ -123,4 +119,3 @@ pub fn silk_decode_indices(
     // Decode seed
     ps_dec.indices.seed = ps_range_dec.dec_icdf(&SILK_UNIFORM4_ICDF, 8) as i8;
 }
-

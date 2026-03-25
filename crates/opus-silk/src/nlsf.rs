@@ -1,18 +1,14 @@
 // Port of silk/NLSF_decode.c, silk/NLSF2A.c, silk/NLSF_stabilize.c,
 // silk/LPC_inv_pred_gain.c, silk/bwexpander.c, silk/LPC_fit.c
 
-use crate::*;
 use crate::tables::*;
+use crate::*;
 
 const QA: i32 = 16;
 const SILK_MAX_ORDER_LPC: usize = 16;
 
 /// NLSF vector decoder
-pub fn silk_nlsf_decode(
-    p_nlsf_q15: &mut [i16],
-    nlsf_indices: &[i8],
-    cb: &NlsfCbStruct,
-) {
+pub fn silk_nlsf_decode(p_nlsf_q15: &mut [i16], nlsf_indices: &[i8], cb: &NlsfCbStruct) {
     let order = cb.order as usize;
 
     // Unpack entropy table indices and predictor
@@ -132,9 +128,9 @@ pub fn silk_nlsf_stabilize(nlsf_q15: &mut [i16], n_delta_min_q15: &[i16], l: usi
             }
             max_center_q15 -= (n_delta_min_q15[min_idx] as i32) >> 1;
 
-            let center_freq_q15 = silk_rshift_round(
-                nlsf_q15[min_idx - 1] as i32 + nlsf_q15[min_idx] as i32, 1
-            ).clamp(min_center_q15, max_center_q15) as i16;
+            let center_freq_q15 =
+                silk_rshift_round(nlsf_q15[min_idx - 1] as i32 + nlsf_q15[min_idx] as i32, 1)
+                    .clamp(min_center_q15, max_center_q15) as i16;
 
             nlsf_q15[min_idx - 1] = center_freq_q15 - ((n_delta_min_q15[min_idx] as i16) >> 1);
             nlsf_q15[min_idx] = nlsf_q15[min_idx - 1] + n_delta_min_q15[min_idx];
@@ -179,10 +175,7 @@ pub fn silk_nlsf2a(a_q12: &mut [i16], nlsf: &[i16], d: usize) {
         let cos_val = SILK_LSF_COS_TAB_FIX_Q12[f_int as usize] as i32;
         let delta = SILK_LSF_COS_TAB_FIX_Q12[f_int as usize + 1] as i32 - cos_val;
 
-        cos_lsf_qa[ordering[k]] = silk_rshift_round(
-            (cos_val << 8) + delta * f_frac,
-            20 - QA,
-        );
+        cos_lsf_qa[ordering[k]] = silk_rshift_round((cos_val << 8) + delta * f_frac, 20 - QA);
     }
 
     let dd = d >> 1;
@@ -223,26 +216,17 @@ fn nlsf2a_find_poly(out: &mut [i32], c_lsf: &[i32], offset: usize, dd: usize) {
     out[1] = -c_lsf[offset];
     for k in 1..dd {
         let ftmp = c_lsf[2 * k + offset];
-        out[k + 1] = (out[k - 1] << 1) - silk_rshift_round64(
-            out[k] as i64 * ftmp as i64, QA
-        ) as i32;
+        out[k + 1] =
+            (out[k - 1] << 1) - silk_rshift_round64(out[k] as i64 * ftmp as i64, QA) as i32;
         for n in (2..=k).rev() {
-            out[n] += out[n - 2] - silk_rshift_round64(
-                out[n - 1] as i64 * ftmp as i64, QA
-            ) as i32;
+            out[n] += out[n - 2] - silk_rshift_round64(out[n - 1] as i64 * ftmp as i64, QA) as i32;
         }
         out[1] -= ftmp;
     }
 }
 
 /// Convert int32 coefficients to int16 with bandwidth expansion if needed
-fn silk_lpc_fit(
-    a_qout: &mut [i16],
-    a_qin: &mut [i32],
-    qout: i32,
-    qin: i32,
-    d: usize,
-) {
+fn silk_lpc_fit(a_qout: &mut [i16], a_qin: &mut [i32], qout: i32, qin: i32, d: usize) {
     let mut idx = 0usize;
     for _iter in 0..10 {
         let mut maxabs = 0i32;
@@ -257,8 +241,8 @@ fn silk_lpc_fit(
 
         if maxabs > i16::MAX as i32 {
             maxabs = maxabs.min(163838);
-            let chirp_q16 = 65470 - ((maxabs - i16::MAX as i32) << 14)
-                / ((maxabs * (idx as i32 + 1)) >> 2).max(1);
+            let chirp_q16 = 65470
+                - ((maxabs - i16::MAX as i32) << 14) / ((maxabs * (idx as i32 + 1)) >> 2).max(1);
             silk_bwexpander_32(a_qin, d, chirp_q16);
         } else {
             // Converged
@@ -306,7 +290,8 @@ pub fn silk_lpc_inverse_pred_gain(a_q12: &[i16], order: usize) -> i32 {
         }
 
         inv_gain_q30 = silk_smmul(inv_gain_q30, rc_mult1_q30) << 2;
-        if inv_gain_q30 < ((1.0f64 / MAX_PREDICTION_POWER_GAIN as f64) * (1i64 << 30) as f64) as i32 {
+        if inv_gain_q30 < ((1.0f64 / MAX_PREDICTION_POWER_GAIN as f64) * (1i64 << 30) as f64) as i32
+        {
             return 0;
         }
 

@@ -2,7 +2,7 @@
 // Quantizes LTP gains using codebook VQ search with rate-distortion optimization.
 
 use crate::tables::*;
-use crate::{silk_smlawb, silk_lin2log, silk_log2lin, LTP_ORDER, MAX_NB_SUBFR};
+use crate::{LTP_ORDER, MAX_NB_SUBFR, silk_lin2log, silk_log2lin, silk_smlawb};
 
 const MAX_SUM_LOG_GAIN_DB: f32 = 250.0;
 const MAX_SUM_LOG_GAIN_Q7: i32 = ((MAX_SUM_LOG_GAIN_DB / 6.0) * 128.0) as i32;
@@ -14,14 +14,14 @@ fn silk_vq_wmat_ec(
     res_nrg_q15: &mut i32,
     rate_dist_q8: &mut i32,
     gain_q7: &mut i32,
-    xx_q17: &[i32],      // [LTP_ORDER * LTP_ORDER] correlation matrix
-    x_x_q17: &[i32],     // [LTP_ORDER] correlation vector
-    cb_q7: &[[i8; 5]],   // codebook
-    cb_gain_q7: &[u8],   // codebook effective gains
-    cl_q5: &[u8],        // code lengths
+    xx_q17: &[i32],    // [LTP_ORDER * LTP_ORDER] correlation matrix
+    x_x_q17: &[i32],   // [LTP_ORDER] correlation vector
+    cb_q7: &[[i8; 5]], // codebook
+    cb_gain_q7: &[u8], // codebook effective gains
+    cl_q5: &[u8],      // code lengths
     subfr_len: i32,
     max_gain_q7: i32,
-    l: usize,            // codebook size
+    l: usize, // codebook size
 ) {
     // Negate and shift xX to Q24
     let mut neg_x_x_q24 = [0i32; 5];
@@ -64,16 +64,13 @@ fn silk_vq_wmat_ec(
         sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[1] as i32);
 
         // Row 2 of XX
-        sum2_q24 = neg_x_x_q24[2]
-            + xx_q17[13] * cb_row[3] as i32
-            + xx_q17[14] * cb_row[4] as i32;
+        sum2_q24 = neg_x_x_q24[2] + xx_q17[13] * cb_row[3] as i32 + xx_q17[14] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[12] * cb_row[2] as i32;
         sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[2] as i32);
 
         // Row 3 of XX
-        sum2_q24 = neg_x_x_q24[3]
-            + xx_q17[19] * cb_row[4] as i32;
+        sum2_q24 = neg_x_x_q24[3] + xx_q17[19] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[18] * cb_row[3] as i32;
         sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[3] as i32);
@@ -107,8 +104,8 @@ pub fn silk_quant_ltp_gains(
     periodicity_index: &mut i8,
     sum_log_gain_q7: &mut i32,
     pred_gain_db_q7: &mut i32,
-    xx_q17: &[i32],   // [nb_subfr * LTP_ORDER * LTP_ORDER]
-    x_x_q17: &[i32],  // [nb_subfr * LTP_ORDER]
+    xx_q17: &[i32],  // [nb_subfr * LTP_ORDER * LTP_ORDER]
+    x_x_q17: &[i32], // [nb_subfr * LTP_ORDER]
     subfr_len: i32,
     nb_subfr: usize,
 ) {
@@ -163,9 +160,8 @@ pub fn silk_quant_ltp_gains(
             res_nrg_q15 = res_nrg_q15.saturating_add(res_nrg_q15_subfr);
             rate_dist_q7 = rate_dist_q7.saturating_add(rate_dist_q7_subfr);
 
-            sum_log_gain_tmp_q7 = 0i32.max(
-                sum_log_gain_tmp_q7 + silk_lin2log(gain_safety + gain_q7) - (7 << 7),
-            );
+            sum_log_gain_tmp_q7 =
+                0i32.max(sum_log_gain_tmp_q7 + silk_lin2log(gain_safety + gain_q7) - (7 << 7));
         }
 
         if rate_dist_q7 <= min_rate_dist_q7 {
@@ -205,11 +201,11 @@ pub fn silk_quant_ltp_gains(
 pub fn silk_quant_ltp_gains_flp(
     b: &mut [f32; MAX_NB_SUBFR * LTP_ORDER], // O: quantized LTP gains (float)
     cbk_index: &mut [i8; MAX_NB_SUBFR],      // O: codebook indices
-    periodicity_index: &mut i8,                // O: periodicity index
-    sum_log_gain_q7: &mut i32,                 // I/O: cumulative max prediction gain
-    pred_gain_db: &mut f32,                    // O: LTP prediction coding gain (dB)
-    xx: &[f32],                                // I: correlation matrices [nb_subfr * 25]
-    x_x: &[f32],                               // I: correlation vectors [nb_subfr * 5]
+    periodicity_index: &mut i8,              // O: periodicity index
+    sum_log_gain_q7: &mut i32,               // I/O: cumulative max prediction gain
+    pred_gain_db: &mut f32,                  // O: LTP prediction coding gain (dB)
+    xx: &[f32],                              // I: correlation matrices [nb_subfr * 25]
+    x_x: &[f32],                             // I: correlation vectors [nb_subfr * 5]
     subfr_len: i32,
     nb_subfr: usize,
 ) {

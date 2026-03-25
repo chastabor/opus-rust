@@ -2,8 +2,8 @@
 // Ported from the C reference implementation (fixed-point path).
 
 use crate::{
-    silk_clz32, silk_div32_varq, silk_rshift_round, silk_sat16, silk_smlawb, silk_smulbb,
-    silk_smulwb, silk_smmul,
+    silk_clz32, silk_div32_varq, silk_rshift_round, silk_sat16, silk_smlawb, silk_smmul,
+    silk_smulbb, silk_smulwb,
 };
 
 // Use the shared MAX_SHAPE_LPC_ORDER (=24) from nsq.rs for both Schur recursion and warped autocorrelation
@@ -202,7 +202,8 @@ pub fn silk_schur64(rc_q16: &mut [i32], c: &[i32], order: usize) -> i32 {
             let ctmp2_q30 = big_c[n][1];
 
             // Multiply and add the highest int32
-            big_c[n + k + 1][0] = ctmp1_q30.wrapping_add(silk_smmul(ctmp2_q30.wrapping_shl(1), rc_tmp_q31));
+            big_c[n + k + 1][0] =
+                ctmp1_q30.wrapping_add(silk_smmul(ctmp2_q30.wrapping_shl(1), rc_tmp_q31));
             big_c[n][1] = ctmp2_q30.wrapping_add(silk_smmul(ctmp1_q30.wrapping_shl(1), rc_tmp_q31));
         }
 
@@ -605,19 +606,15 @@ pub fn silk_resampler_down2(s: &mut [i32; 2], out: &mut [i16], input: &[i16], in
 // ============================================================================
 
 /// AR filter coefficients for 2/3 resampler (from silk/resampler_rom.c)
-const SILK_RESAMPLER_2_3_COEFS_LQ: [i16; 6] = [
-    -2797, -6507,
-     4697, 10739,
-     1567,  8276,
-];
+const SILK_RESAMPLER_2_3_COEFS_LQ: [i16; 6] = [-2797, -6507, 4697, 10739, 1567, 8276];
 
 /// Second order AR filter with single delay elements.
 /// Ported from silk/resampler_private_AR2.c.
 fn silk_resampler_private_ar2(
-    s: &mut [i32],       // state [2]
-    out_q8: &mut [i32],  // output Q8
-    input: &[i16],       // input
-    a_q14: &[i16],       // AR coefficients, Q14
+    s: &mut [i32],      // state [2]
+    out_q8: &mut [i32], // output Q8
+    input: &[i16],      // input
+    a_q14: &[i16],      // AR coefficients, Q14
     len: usize,
 ) {
     for k in 0..len {
@@ -667,17 +664,41 @@ pub fn silk_resampler_down2_3(s: &mut [i32; 6], out: &mut [i16], input: &[i16], 
         while counter > 2 {
             // Inner product (first output sample per 3 inputs)
             let mut res_q6 = silk_smulwb(buf[buf_idx], SILK_RESAMPLER_2_3_COEFS_LQ[2] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 1], SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 2], SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 3], SILK_RESAMPLER_2_3_COEFS_LQ[4] as i32);
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 1],
+                SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32,
+            );
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 2],
+                SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32,
+            );
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 3],
+                SILK_RESAMPLER_2_3_COEFS_LQ[4] as i32,
+            );
             out[out_offset] = silk_sat16(silk_rshift_round(res_q6, 6));
             out_offset += 1;
 
             // Inner product (second output sample per 3 inputs)
             res_q6 = silk_smulwb(buf[buf_idx + 1], SILK_RESAMPLER_2_3_COEFS_LQ[4] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 2], SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 3], SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32);
-            res_q6 = silk_smlawb(res_q6, buf[buf_idx + 4], SILK_RESAMPLER_2_3_COEFS_LQ[2] as i32);
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 2],
+                SILK_RESAMPLER_2_3_COEFS_LQ[5] as i32,
+            );
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 3],
+                SILK_RESAMPLER_2_3_COEFS_LQ[3] as i32,
+            );
+            res_q6 = silk_smlawb(
+                res_q6,
+                buf[buf_idx + 4],
+                SILK_RESAMPLER_2_3_COEFS_LQ[2] as i32,
+            );
             out[out_offset] = silk_sat16(silk_rshift_round(res_q6, 6));
             out_offset += 1;
 
@@ -718,12 +739,7 @@ pub fn silk_resampler_down2_3(s: &mut [i32; 6], out: &mut [i16], input: &[i16], 
 /// - `idx`: index array (filled), length >= `k`
 /// - `len`: number of elements in `a`
 /// - `k`: number of correctly sorted positions needed
-pub fn silk_insertion_sort_decreasing_int16(
-    a: &mut [i16],
-    idx: &mut [i32],
-    len: usize,
-    k: usize,
-) {
+pub fn silk_insertion_sort_decreasing_int16(a: &mut [i16], idx: &mut [i32], len: usize, k: usize) {
     debug_assert!(k > 0 && len > 0 && len >= k);
 
     // Write start indices in index vector

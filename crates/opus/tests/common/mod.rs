@@ -8,8 +8,7 @@ pub const SAMPLE_RATE: i32 = 48000;
 pub fn gen_sine(buf: &mut [f32], offset: usize, freq: f32, amp: f32) {
     for i in 0..buf.len() {
         buf[i] = amp
-            * (2.0 * std::f32::consts::PI * freq * (i + offset) as f32 / SAMPLE_RATE as f32)
-                .sin();
+            * (2.0 * std::f32::consts::PI * freq * (i + offset) as f32 / SAMPLE_RATE as f32).sin();
     }
 }
 
@@ -62,13 +61,24 @@ pub fn assert_f32_close(rust: f32, c: f32, tol: f32, name: &str) {
     assert!(
         diff <= tol,
         "{}: Rust={} C={} diff={} (tol={})",
-        name, rust, c, diff, tol
+        name,
+        rust,
+        c,
+        diff,
+        tol
     );
 }
 
 /// Assert two f32 slices match within tolerance. Reports worst element.
 pub fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
-    assert_eq!(rust.len(), c.len(), "{}: length mismatch {} vs {}", name, rust.len(), c.len());
+    assert_eq!(
+        rust.len(),
+        c.len(),
+        "{}: length mismatch {} vs {}",
+        name,
+        rust.len(),
+        c.len()
+    );
     let mut max_diff = 0.0f32;
     let mut max_idx = 0;
     for i in 0..rust.len() {
@@ -81,6 +91,11 @@ pub fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
     assert!(
         max_diff <= tol,
         "{}: max diff={} at [{}] (Rust={} C={}), tol={}",
-        name, max_diff, max_idx, rust[max_idx], c[max_idx], tol
+        name,
+        max_diff,
+        max_idx,
+        rust[max_idx],
+        c[max_idx],
+        tol
     );
 }

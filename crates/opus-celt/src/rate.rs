@@ -1,6 +1,6 @@
+use crate::mathops::celt_udiv;
 use crate::mode::CeltMode;
 use crate::tables::*;
-use crate::mathops::celt_udiv;
 use opus_range_coder::EcCtx;
 
 /// Look up the number of pulses for a given number of bits.
@@ -23,7 +23,11 @@ pub fn bits2pulses(m: &CeltMode, band: usize, lm: i32, b: i32) -> i32 {
         }
     }
     // C: bits- (lo == 0 ? -1 : (int)cache[lo]) <= (int)cache[hi]-bits
-    let lo_val = if lo == 0 { -1i32 } else { cache[lo as usize] as i32 };
+    let lo_val = if lo == 0 {
+        -1i32
+    } else {
+        cache[lo as usize] as i32
+    };
     if bits - lo_val <= cache[hi as usize] as i32 - bits {
         lo
     } else {
@@ -49,8 +53,7 @@ pub fn pulses2bits(m: &CeltMode, band: usize, lm: i32, k: i32) -> i32 {
 pub fn init_caps(m: &CeltMode, cap: &mut [i32], lm: i32, c: i32) {
     for i in 0..m.nb_ebands {
         let n = ((m.ebands[i + 1] - m.ebands[i]) as i32) << lm;
-        cap[i] = ((m.cache.caps[m.nb_ebands * (2 * lm as usize + c as usize - 1) + i] as i32)
-            + 64)
+        cap[i] = ((m.cache.caps[m.nb_ebands * (2 * lm as usize + c as usize - 1) + i] as i32) + 64)
             * c
             * n
             >> 2;
@@ -112,8 +115,8 @@ pub fn clt_compute_allocation(
     let mut trim_offset = vec![0i32; len];
 
     for j in start..end {
-        thresh[j] = (c << BITRES)
-            .max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
+        thresh[j] =
+            (c << BITRES).max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
         trim_offset[j] = c
             * (m.ebands[j + 1] - m.ebands[j]) as i32
             * (alloc_trim - 5 - lm)
@@ -283,12 +286,15 @@ fn interp_bits2pulses(
         }
         let left = total - psum;
         let band_width = (m.ebands[coded_bands] - m.ebands[start]) as i32;
-        let percoeff = if band_width > 0 { celt_udiv(left, band_width) } else { 0 };
+        let percoeff = if band_width > 0 {
+            celt_udiv(left, band_width)
+        } else {
+            0
+        };
         let left2 = left - band_width * percoeff;
         let rem = (left2 - (m.ebands[j] - m.ebands[start]) as i32).max(0);
         let bw = (m.ebands[coded_bands] - m.ebands[j]) as i32;
         let band_bits = bits[j] + percoeff * bw + rem;
-
 
         if band_bits >= thresh[j].max(alloc_floor + (1 << BITRES)) {
             let flag = ec.dec_bit_logp(1);
@@ -320,7 +326,11 @@ fn interp_bits2pulses(
     if *intensity <= start as i32 {
         total += dual_stereo_rsv;
     }
-    let dual_stereo_rsv = if *intensity <= start as i32 { 0 } else { dual_stereo_rsv };
+    let dual_stereo_rsv = if *intensity <= start as i32 {
+        0
+    } else {
+        dual_stereo_rsv
+    };
     if dual_stereo_rsv > 0 {
         *dual_stereo = if ec.dec_bit_logp(1) { 1 } else { 0 };
     } else {
@@ -330,7 +340,11 @@ fn interp_bits2pulses(
     // Allocate remaining bits
     let left = total - psum;
     let band_width = (m.ebands[coded_bands] - m.ebands[start]) as i32;
-    let percoeff = if band_width > 0 { celt_udiv(left, band_width) } else { 0 };
+    let percoeff = if band_width > 0 {
+        celt_udiv(left, band_width)
+    } else {
+        0
+    };
     let mut left = left - band_width * percoeff;
     for j in start..coded_bands {
         bits[j] += percoeff * (m.ebands[j + 1] - m.ebands[j]) as i32;
@@ -482,8 +496,8 @@ pub fn clt_compute_allocation_enc(
     let mut trim_offset = vec![0i32; len];
 
     for j in start..end {
-        thresh[j] = (c << BITRES)
-            .max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
+        thresh[j] =
+            (c << BITRES).max((3 * ((m.ebands[j + 1] - m.ebands[j]) as i32) << lm << BITRES) >> 4);
         trim_offset[j] = c
             * (m.ebands[j + 1] - m.ebands[j]) as i32
             * (alloc_trim - 5 - lm)
@@ -665,7 +679,11 @@ fn interp_bits2pulses_enc(
         }
         let left = total - psum;
         let band_width = (m.ebands[coded_bands] - m.ebands[start]) as i32;
-        let percoeff = if band_width > 0 { celt_udiv(left, band_width) } else { 0 };
+        let percoeff = if band_width > 0 {
+            celt_udiv(left, band_width)
+        } else {
+            0
+        };
         let left2 = left - band_width * percoeff;
         let rem = (left2 - (m.ebands[j] - m.ebands[start]) as i32).max(0);
         let bw = (m.ebands[coded_bands] - m.ebands[j]) as i32;
@@ -680,8 +698,7 @@ fn interp_bits2pulses_enc(
             };
 
             let keep = coded_bands <= start + 2
-                || (band_bits
-                    > (depth_threshold * bw << lm << BITRES) >> 4
+                || (band_bits > (depth_threshold * bw << lm << BITRES) >> 4
                     && j as i32 <= signal_bandwidth);
 
             ec.enc_bit_logp(keep, 1);
@@ -720,7 +737,11 @@ fn interp_bits2pulses_enc(
     if *intensity <= start as i32 {
         total += dual_stereo_rsv;
     }
-    let dual_stereo_rsv = if *intensity <= start as i32 { 0 } else { dual_stereo_rsv };
+    let dual_stereo_rsv = if *intensity <= start as i32 {
+        0
+    } else {
+        dual_stereo_rsv
+    };
     if dual_stereo_rsv > 0 {
         ec.enc_bit_logp(*dual_stereo != 0, 1);
     } else {
@@ -730,7 +751,11 @@ fn interp_bits2pulses_enc(
     // Allocate remaining bits (same as decoder)
     let left = total - psum;
     let band_width = (m.ebands[coded_bands] - m.ebands[start]) as i32;
-    let percoeff = if band_width > 0 { celt_udiv(left, band_width) } else { 0 };
+    let percoeff = if band_width > 0 {
+        celt_udiv(left, band_width)
+    } else {
+        0
+    };
     let mut left = left - band_width * percoeff;
     for j in start..coded_bands {
         bits[j] += percoeff * (m.ebands[j + 1] - m.ebands[j]) as i32;

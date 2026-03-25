@@ -3,9 +3,9 @@
 // This implements the core scalar quantization with noise shaping
 // for the SILK encoder. Faithfully ported from the C reference.
 
-use crate::*;
-use crate::tables::*;
 use crate::nlsf;
+use crate::tables::*;
+use crate::*;
 
 // Constants from silk/define.h
 pub const MAX_SHAPE_LPC_ORDER: usize = 24;
@@ -128,7 +128,6 @@ fn silk_nsq_scale_states(
 
         nsq.prev_gain_q16 = gains_q16[subfr];
     }
-
 }
 
 /// Per-sample noise shape quantizer (matching silk_noise_shape_quantizer)
@@ -168,8 +167,7 @@ fn silk_noise_shape_quantizer(
         // C: silk_SMULWB(buf_Q14, coef_Q12) = (buf * (int16)coef) >> 16 → Q10
         let mut lpc_pred_q10: i64 = 0;
         for j in 0..predict_lpc_order {
-            lpc_pred_q10 += (nsq.s_lpc_q14[ps_lpc_idx - j] as i64)
-                * (a_q12[j] as i16 as i64);
+            lpc_pred_q10 += (nsq.s_lpc_q14[ps_lpc_idx - j] as i64) * (a_q12[j] as i16 as i64);
         }
         let lpc_pred_q10 = (lpc_pred_q10 >> 16) as i32;
 
@@ -212,9 +210,8 @@ fn silk_noise_shape_quantizer(
         // silk_SMULWB: (a * (b as i16)) >> 16
         let n_lf_q12 = silk_smulwb(prev_shp, lf_shp_q14);
         // silk_SMLAWT: a + ((b * (c >> 16)) >> 16)
-        let n_lf_q12 = n_lf_q12.wrapping_add(
-            ((nsq.s_lf_ar_shp_q14 as i64 * (lf_shp_q14 as i64 >> 16)) >> 16) as i32,
-        );
+        let n_lf_q12 = n_lf_q12
+            .wrapping_add(((nsq.s_lf_ar_shp_q14 as i64 * (lf_shp_q14 as i64 >> 16)) >> 16) as i32);
 
         // Combine prediction and noise shaping signals
         let mut tmp1 = (lpc_pred_q10 << 2).wrapping_sub(n_ar_q12); // Q12
@@ -240,10 +237,7 @@ fn silk_noise_shape_quantizer(
                 0
             };
 
-            let n_ltp_q13 = silk_smulwb(
-                silk_add_sat32(shp0, shp_m2),
-                harm_shape_fir_packed_q14,
-            );
+            let n_ltp_q13 = silk_smulwb(silk_add_sat32(shp0, shp_m2), harm_shape_fir_packed_q14);
             let n_ltp_q13 = n_ltp_q13.wrapping_add(
                 ((shp_m1 as i64 * (harm_shape_fir_packed_q14 as i64 >> 16)) >> 16) as i32,
             );
@@ -344,10 +338,7 @@ fn silk_noise_shape_quantizer(
         let xq_q14 = lpc_exc_q14.wrapping_add(lpc_pred_q10 << 4);
 
         // Scale XQ back to normal level before saving
-        xq[i] = silk_sat16(silk_rshift_round(
-            silk_smulww_correct(xq_q14, gain_q10),
-            8,
-        ));
+        xq[i] = silk_sat16(silk_rshift_round(silk_smulww_correct(xq_q14, gain_q10), 8));
 
         // Update states
         ps_lpc_idx += 1;
@@ -441,8 +432,7 @@ pub fn silk_nsq(
     // Set unvoiced lag to the previous one, overwrite later for voiced
     let mut lag = nsq.lag_prev;
 
-    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10
-        [(signal_type >> 1) as usize]
+    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10[(signal_type >> 1) as usize]
         [quant_offset_type as usize] as i32;
 
     let lsf_interpolation_flag = if nlsf_interp_coef_q2 == 4 { 0 } else { 1 };
@@ -451,9 +441,15 @@ pub fn silk_nsq(
     let mut s_ltp_q15 = &mut scratch_s_ltp_q15[..total_len];
     let s_ltp = &mut scratch_s_ltp[..total_len];
     let mut x_sc_q10 = &mut scratch_x_sc_q10[..subfr_len];
-    for v in s_ltp_q15.iter_mut() { *v = 0; }
-    for v in s_ltp.iter_mut() { *v = 0; }
-    for v in x_sc_q10.iter_mut() { *v = 0; }
+    for v in s_ltp_q15.iter_mut() {
+        *v = 0;
+    }
+    for v in s_ltp.iter_mut() {
+        *v = 0;
+    }
+    for v in x_sc_q10.iter_mut() {
+        *v = 0;
+    }
 
     // Set up pointers to start of sub frame
     nsq.s_ltp_shp_buf_idx = ltp_mem_length;
@@ -464,8 +460,7 @@ pub fn silk_nsq(
 
     for k in 0..nb_subfr as usize {
         // Select A_Q12 coefficients: ((k >> 1) | (1 - LSF_interpolation_flag)) * MAX_LPC_ORDER
-        let a_q12_offset =
-            ((k >> 1) | (1 - lsf_interpolation_flag as usize)) * MAX_LPC_ORDER;
+        let a_q12_offset = ((k >> 1) | (1 - lsf_interpolation_flag as usize)) * MAX_LPC_ORDER;
         let a_q12 = &pred_coef_q12[a_q12_offset..a_q12_offset + lpc_ord];
         let b_q14 = &ltp_coef_q14[k * LTP_ORDER..(k + 1) * LTP_ORDER];
         let ar_shp_q13 = &ar_q13[k * MAX_SHAPE_LPC_ORDER..(k + 1) * MAX_SHAPE_LPC_ORDER];
@@ -516,7 +511,9 @@ pub fn silk_nsq(
 
         // Use caller-provided scratch for xq output to avoid double-borrowing nsq
         let mut xq_tmp = &mut scratch_xq_tmp[..subfr_len];
-        for v in xq_tmp.iter_mut() { *v = 0; }
+        for v in xq_tmp.iter_mut() {
+            *v = 0;
+        }
 
         silk_noise_shape_quantizer(
             nsq,

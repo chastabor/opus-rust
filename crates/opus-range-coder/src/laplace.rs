@@ -34,7 +34,8 @@ impl EcCtx {
             }
 
             if fs == 0 {
-                let ndi_max = ((32768u32.wrapping_sub(fl) + LAPLACE_MINP - 1) >> LAPLACE_LOG_MINP) as i32;
+                let ndi_max =
+                    ((32768u32.wrapping_sub(fl) + LAPLACE_MINP - 1) >> LAPLACE_LOG_MINP) as i32;
                 let ndi_max = (ndi_max - s) >> 1;
                 let di = (val_abs - i).min(ndi_max - 1);
                 fl += ((2 * di + 1 + s) as u32).wrapping_mul(LAPLACE_MINP);

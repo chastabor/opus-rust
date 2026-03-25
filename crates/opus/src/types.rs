@@ -254,7 +254,11 @@ mod tests {
 
     #[test]
     fn application_round_trip() {
-        for app in [Application::Voip, Application::Audio, Application::RestrictedLowDelay] {
+        for app in [
+            Application::Voip,
+            Application::Audio,
+            Application::RestrictedLowDelay,
+        ] {
             let raw = i32::from(app);
             assert_eq!(Application::try_from(raw).unwrap(), app);
         }
@@ -335,7 +339,11 @@ mod tests {
 
     #[test]
     fn force_channels_round_trip() {
-        for fc in [ForceChannels::Auto, ForceChannels::Mono, ForceChannels::Stereo] {
+        for fc in [
+            ForceChannels::Auto,
+            ForceChannels::Mono,
+            ForceChannels::Stereo,
+        ] {
             let raw = i32::from(fc);
             assert_eq!(ForceChannels::try_from(raw).unwrap(), fc);
         }

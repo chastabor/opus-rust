@@ -1,10 +1,10 @@
 // Float SILK encoder persistent state.
 // Mirrors silk_encoder_state_FLP from silk/float/structs_FLP.h.
 
-use crate::*;
+use super::lbrr::LbrrState;
 use crate::nsq::NsqState;
 use crate::vad;
-use super::lbrr::LbrrState;
+use crate::*;
 
 use crate::LA_SHAPE_MS;
 const MAX_SILK_X_BUF: usize = 2 * MAX_FRAME_LENGTH + LA_SHAPE_MS * MAX_FS_KHZ;
@@ -138,7 +138,11 @@ impl SilkEncoderStateFlp {
         }
 
         self.fs_khz = fs_khz;
-        self.nb_subfr = if payload_size_ms == 10 { 2 } else { MAX_NB_SUBFR as i32 };
+        self.nb_subfr = if payload_size_ms == 10 {
+            2
+        } else {
+            MAX_NB_SUBFR as i32
+        };
         self.subfr_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz;
         self.frame_length = self.nb_subfr * self.subfr_length;
         self.ltp_mem_length = LTP_MEM_LENGTH_MS as i32 * fs_khz;

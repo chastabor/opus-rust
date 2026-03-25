@@ -3,12 +3,12 @@
 // These thin layers convert between f32 analysis values and the fixed-point
 // functions (NLSF, NSQ, gain quant, LTP quant) that always operate in Qxx.
 
-use crate::*;
+use crate::lpc_analysis;
 use crate::nlsf::silk_nlsf2a;
 use crate::nlsf_encode;
 use crate::nsq;
 use crate::nsq_del_dec;
-use crate::lpc_analysis;
+use crate::*;
 
 /// silk_float2int: round float to nearest integer (matching C's lrintf).
 #[inline(always)]
@@ -89,7 +89,8 @@ pub fn silk_process_nlsfs_flp(
         // Interpolate NLSFs for first half
         for i in 0..lpc_order {
             nlsf0_temp_q15[i] = (prev_nlsf_q15[i] as i32
-                + ((interp_coef * (nlsf_q15[i] as i32 - prev_nlsf_q15[i] as i32)) >> 2)) as i16;
+                + ((interp_coef * (nlsf_q15[i] as i32 - prev_nlsf_q15[i] as i32)) >> 2))
+                as i16;
         }
         let mut nlsf_w0_temp = [0i16; MAX_LPC_ORDER];
         lpc_analysis::silk_nlsf_vq_weights_laroia(&mut nlsf_w0_temp, &nlsf0_temp_q15, lpc_order);
@@ -102,10 +103,18 @@ pub fn silk_process_nlsfs_flp(
     }
 
     // NLSF encode
-    let survivors = if n_survivors > 0 { n_survivors as usize } else { 16 };
+    let survivors = if n_survivors > 0 {
+        n_survivors as usize
+    } else {
+        16
+    };
     nlsf_encode::silk_nlsf_encode(
-        &mut indices.nlsf_indices, nlsf_q15,
-        nlsf_cb, &p_nlsf_w_q2, nlsf_mu_q20, survivors,
+        &mut indices.nlsf_indices,
+        nlsf_q15,
+        nlsf_cb,
+        &p_nlsf_w_q2,
+        nlsf_mu_q20,
+        survivors,
         signal_type,
     );
 
@@ -122,7 +131,8 @@ pub fn silk_process_nlsfs_flp(
         let mut nlsf0_q15 = [0i16; MAX_LPC_ORDER];
         for i in 0..lpc_order {
             nlsf0_q15[i] = (prev_nlsf_q15[i] as i32
-                + ((interp_coef * (nlsf_q15[i] as i32 - prev_nlsf_q15[i] as i32)) >> 2)) as i16;
+                + ((interp_coef * (nlsf_q15[i] as i32 - prev_nlsf_q15[i] as i32)) >> 2))
+                as i16;
         }
         let mut pred_coef0_q12 = [0i16; MAX_LPC_ORDER];
         silk_nlsf2a(&mut pred_coef0_q12, &nlsf0_q15, lpc_order);
@@ -143,18 +153,18 @@ pub fn silk_process_nlsfs_flp(
 pub fn silk_nsq_wrapper_flp(
     nsq_state: &mut nsq::NsqState,
     indices: &mut SideInfoIndices,
-    x: &[f32],                           // float input signal
-    pulses: &mut [i8],                    // output quantized pulses
+    x: &[f32],                             // float input signal
+    pulses: &mut [i8],                     // output quantized pulses
     pred_coef: &[[f32; MAX_LPC_ORDER]; 2], // float PredCoef[2][order]
-    ltp_coef: &[f32],                     // float LTP coefficients [nb_subfr * LTP_ORDER]
-    ar: &[f32],                           // float AR shaping [nb_subfr * MAX_SHAPE_LPC_ORDER]
-    harm_shape_gain: &[f32],              // float harmonic shaping [nb_subfr]
-    tilt: &[f32],                         // float tilt [nb_subfr]
-    lf_ma_shp: &[f32],                    // float LF MA shaping [nb_subfr]
-    lf_ar_shp: &[f32],                    // float LF AR shaping [nb_subfr]
-    gains: &[f32],                        // float gains [nb_subfr]
-    pitch_l: &[i32],                      // pitch lags [nb_subfr]
-    lambda: f32,                          // rate-distortion lambda
+    ltp_coef: &[f32],                      // float LTP coefficients [nb_subfr * LTP_ORDER]
+    ar: &[f32],                            // float AR shaping [nb_subfr * MAX_SHAPE_LPC_ORDER]
+    harm_shape_gain: &[f32],               // float harmonic shaping [nb_subfr]
+    tilt: &[f32],                          // float tilt [nb_subfr]
+    lf_ma_shp: &[f32],                     // float LF MA shaping [nb_subfr]
+    lf_ar_shp: &[f32],                     // float LF AR shaping [nb_subfr]
+    gains: &[f32],                         // float gains [nb_subfr]
+    pitch_l: &[i32],                       // pitch lags [nb_subfr]
+    lambda: f32,                           // rate-distortion lambda
     ltp_scale_q14: i32,
     // Config
     frame_length: i32,
@@ -239,29 +249,63 @@ pub fn silk_nsq_wrapper_flp(
     // Dispatch to NSQ
     if n_states_delayed_decision > 1 || warping_q16 > 0 {
         nsq_del_dec::silk_nsq_del_dec(
-            nsq_state, indices,
-            &x16, pulses,
-            &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-            &harm_shape_gain_q14, &tilt_q14, &lf_shp_q14,
-            &gains_q16, pitch_l, lambda_q10, ltp_scale_q14,
-            frame_length, subfr_length, ltp_mem_length,
-            lpc_order, shaping_lpc_order, nb_subfr,
-            signal_type, quant_offset_type, nlsf_interp_coef_q2,
-            n_states_delayed_decision, warping_q16,
-            scratch_s_ltp_q15, scratch_s_ltp,
+            nsq_state,
+            indices,
+            &x16,
+            pulses,
+            &pred_coef_q12,
+            &ltp_coef_q14,
+            &ar_q13,
+            &harm_shape_gain_q14,
+            &tilt_q14,
+            &lf_shp_q14,
+            &gains_q16,
+            pitch_l,
+            lambda_q10,
+            ltp_scale_q14,
+            frame_length,
+            subfr_length,
+            ltp_mem_length,
+            lpc_order,
+            shaping_lpc_order,
+            nb_subfr,
+            signal_type,
+            quant_offset_type,
+            nlsf_interp_coef_q2,
+            n_states_delayed_decision,
+            warping_q16,
+            scratch_s_ltp_q15,
+            scratch_s_ltp,
         );
     } else {
         nsq::silk_nsq(
-            nsq_state, indices,
-            &x16, pulses,
-            &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-            &harm_shape_gain_q14, &tilt_q14, &lf_shp_q14,
-            &gains_q16, pitch_l, lambda_q10, ltp_scale_q14,
-            frame_length, subfr_length, ltp_mem_length,
-            lpc_order, shaping_lpc_order, nb_subfr,
-            signal_type, quant_offset_type, nlsf_interp_coef_q2,
-            scratch_s_ltp_q15, scratch_s_ltp,
-            scratch_x_sc_q10, scratch_xq_tmp,
+            nsq_state,
+            indices,
+            &x16,
+            pulses,
+            &pred_coef_q12,
+            &ltp_coef_q14,
+            &ar_q13,
+            &harm_shape_gain_q14,
+            &tilt_q14,
+            &lf_shp_q14,
+            &gains_q16,
+            pitch_l,
+            lambda_q10,
+            ltp_scale_q14,
+            frame_length,
+            subfr_length,
+            ltp_mem_length,
+            lpc_order,
+            shaping_lpc_order,
+            nb_subfr,
+            signal_type,
+            quant_offset_type,
+            nlsf_interp_coef_q2,
+            scratch_s_ltp_q15,
+            scratch_s_ltp,
+            scratch_x_sc_q10,
+            scratch_xq_tmp,
         );
     }
 
@@ -273,13 +317,13 @@ pub fn silk_nsq_wrapper_flp(
 
 /// Quantize LTP gains in float → Q14/Q17 → fixed-point quant → Q14 → float.
 pub fn silk_quant_ltp_gains_flp(
-    b: &mut [f32],                        // O: quantized LTP gains [nb_subfr * LTP_ORDER]
-    _ltp_index: &mut [i8],               // O: LTP codebook indices [nb_subfr]
-    _per_index: &mut i8,                 // O: periodicity codebook index
-    _sum_log_gain_q7: &mut i32,          // I/O: cumulative log gain
-    pred_gain_db: &mut f32,               // O: LTP prediction gain in dB
-    xx: &[f32],                           // I: correlation matrix [nb_subfr * LTP_ORDER * LTP_ORDER]
-    x_x: &[f32],                         // I: correlation vector [nb_subfr * LTP_ORDER]
+    b: &mut [f32],              // O: quantized LTP gains [nb_subfr * LTP_ORDER]
+    _ltp_index: &mut [i8],      // O: LTP codebook indices [nb_subfr]
+    _per_index: &mut i8,        // O: periodicity codebook index
+    _sum_log_gain_q7: &mut i32, // I/O: cumulative log gain
+    pred_gain_db: &mut f32,     // O: LTP prediction gain in dB
+    xx: &[f32],                 // I: correlation matrix [nb_subfr * LTP_ORDER * LTP_ORDER]
+    x_x: &[f32],                // I: correlation vector [nb_subfr * LTP_ORDER]
     _subfr_length: i32,
     nb_subfr: i32,
 ) {

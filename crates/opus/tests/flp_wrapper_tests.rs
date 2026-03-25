@@ -3,10 +3,10 @@
 //! output to the C wrappers for realistic LPC/NLSF inputs.
 
 use opus_ffi::*;
+use opus_silk::MAX_LPC_ORDER;
 use opus_silk::encoder_flp::dsp::*;
 use opus_silk::encoder_flp::wrappers::*;
 use opus_silk::lpc_analysis::silk_burg_modified_flp;
-use opus_silk::MAX_LPC_ORDER;
 
 const ORDER: usize = 16;
 
@@ -39,21 +39,27 @@ fn burg_flp_matches_c() {
     let signal = gen_sine(384, 440.0, 16000.0);
 
     let mut rust_a = [0.0f32; ORDER];
-    let rust_nrg = silk_burg_modified_flp(
-        &mut rust_a, &signal, 1.0 / 10000.0, 96, 4, ORDER,
-    );
+    let rust_nrg = silk_burg_modified_flp(&mut rust_a, &signal, 1.0 / 10000.0, 96, 4, ORDER);
 
     let mut c_a = [0.0f32; ORDER];
-    let c_nrg = c_silk_burg_modified_flp(
-        &mut c_a, &signal, 1.0 / 10000.0, 96, 4, ORDER as i32,
-    );
+    let c_nrg = c_silk_burg_modified_flp(&mut c_a, &signal, 1.0 / 10000.0, 96, 4, ORDER as i32);
 
     eprintln!("Burg nrg: Rust={} C={}", rust_nrg, c_nrg);
-    assert!((rust_nrg - c_nrg).abs() < 1e-2, "Burg residual energy mismatch");
+    assert!(
+        (rust_nrg - c_nrg).abs() < 1e-2,
+        "Burg residual energy mismatch"
+    );
 
     for i in 0..ORDER {
         let diff = (rust_a[i] - c_a[i]).abs();
-        assert!(diff < 1e-6, "Burg a[{}]: Rust={} C={} diff={}", i, rust_a[i], c_a[i], diff);
+        assert!(
+            diff < 1e-6,
+            "Burg a[{}]: Rust={} C={} diff={}",
+            i,
+            rust_a[i],
+            c_a[i],
+            diff
+        );
     }
 }
 
@@ -107,7 +113,14 @@ fn nlsf2a_flp_matches_c() {
 
     for i in 0..ORDER {
         let diff = (rust_a[i] - c_a[i]).abs();
-        assert!(diff < 1e-6, "NLSF2A_FLP a[{}]: Rust={} C={} diff={}", i, rust_a[i], c_a[i], diff);
+        assert!(
+            diff < 1e-6,
+            "NLSF2A_FLP a[{}]: Rust={} C={} diff={}",
+            i,
+            rust_a[i],
+            c_a[i],
+            diff
+        );
     }
 }
 

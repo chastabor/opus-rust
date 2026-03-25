@@ -30,7 +30,11 @@ fn assert_f64_eq(rust: f64, c: f64, tol: f64, name: &str) {
     assert!(
         diff <= tol,
         "{}: Rust={} C={} diff={} (tol={})",
-        name, rust, c, diff, tol
+        name,
+        rust,
+        c,
+        diff,
+        tol
     );
 }
 
@@ -39,7 +43,11 @@ fn assert_f32_eq(rust: f32, c: f32, tol: f32, name: &str) {
     assert!(
         diff <= tol,
         "{}: Rust={} C={} diff={} (tol={})",
-        name, rust, c, diff, tol
+        name,
+        rust,
+        c,
+        diff,
+        tol
     );
 }
 
@@ -50,7 +58,12 @@ fn assert_f32_slice_eq(rust: &[f32], c: &[f32], tol: f32, name: &str) {
         assert!(
             diff <= tol,
             "{}[{}]: Rust={} C={} diff={} (tol={})",
-            name, i, rust[i], c[i], diff, tol
+            name,
+            i,
+            rust[i],
+            c[i],
+            diff,
+            tol
         );
     }
 }
@@ -146,8 +159,9 @@ fn k2a_flp_matches() {
 
 #[test]
 fn bwexpander_flp_matches() {
-    let mut rust_ar = [0.9f32, 0.5, -0.3, 0.1, 0.8, -0.4, 0.2, 0.6,
-                       0.3, -0.1, 0.05, 0.7, -0.6, 0.4, -0.2, 0.15];
+    let mut rust_ar = [
+        0.9f32, 0.5, -0.3, 0.1, 0.8, -0.4, 0.2, 0.6, 0.3, -0.1, 0.05, 0.7, -0.6, 0.4, -0.2, 0.15,
+    ];
     let mut c_ar = rust_ar;
 
     silk_bwexpander_flp(&mut rust_ar, ORDER, 0.95);
@@ -251,7 +265,12 @@ fn warped_autocorrelation_flp_matches() {
     silk_warped_autocorrelation_flp(&mut rust_corr, &signal, warping, 160, order);
     c_silk_warped_autocorrelation_flp(&mut c_corr, &signal, warping, 160, order);
 
-    assert_f32_slice_eq(&rust_corr[..order + 1], &c_corr[..order + 1], 1e-2, "warped_autocorrelation_flp");
+    assert_f32_slice_eq(
+        &rust_corr[..order + 1],
+        &c_corr[..order + 1],
+        1e-2,
+        "warped_autocorrelation_flp",
+    );
 }
 
 #[test]
@@ -266,12 +285,19 @@ fn warped_autocorrelation_flp_noise() {
     silk_warped_autocorrelation_flp(&mut rust_corr, &signal, warping, 256, order);
     c_silk_warped_autocorrelation_flp(&mut c_corr, &signal, warping, 256, order);
 
-    assert_f32_slice_eq(&rust_corr[..order + 1], &c_corr[..order + 1], 1e-2, "warped_autocorrelation_flp(noise)");
+    assert_f32_slice_eq(
+        &rust_corr[..order + 1],
+        &c_corr[..order + 1],
+        1e-2,
+        "warped_autocorrelation_flp(noise)",
+    );
 }
 
 // ---- LTP analysis tests ----
 
-use opus_silk::encoder_flp::find_ltp::{silk_corr_vector_flp, silk_corr_matrix_flp, silk_find_ltp_flp};
+use opus_silk::encoder_flp::find_ltp::{
+    silk_corr_matrix_flp, silk_corr_vector_flp, silk_find_ltp_flp,
+};
 use opus_silk::encoder_flp::quant_ltp_gains::silk_quant_ltp_gains;
 use opus_silk::{LTP_ORDER, MAX_NB_SUBFR};
 
@@ -329,24 +355,36 @@ fn find_ltp_flp_matches() {
     let frame_offset = 320usize;
 
     silk_find_ltp_flp(
-        &mut rust_xx, &mut rust_x_x,
-        &signal, frame_offset, &lags, subfr_length, nb_subfr,
+        &mut rust_xx,
+        &mut rust_x_x,
+        &signal,
+        frame_offset,
+        &lags,
+        subfr_length,
+        nb_subfr,
     );
 
     c_silk_find_ltp_flp(
-        &mut c_xx, &mut c_x_x, &signal, frame_offset,
-        &lags, subfr_length as i32, nb_subfr as i32,
+        &mut c_xx,
+        &mut c_x_x,
+        &signal,
+        frame_offset,
+        &lags,
+        subfr_length as i32,
+        nb_subfr as i32,
     );
 
     assert_f32_slice_eq(
         &rust_xx[..nb_subfr * LTP_ORDER * LTP_ORDER],
         &c_xx[..nb_subfr * LTP_ORDER * LTP_ORDER],
-        1e-2, "find_LTP_FLP XX",
+        1e-2,
+        "find_LTP_FLP XX",
     );
     assert_f32_slice_eq(
         &rust_x_x[..nb_subfr * LTP_ORDER],
         &c_x_x[..nb_subfr * LTP_ORDER],
-        1e-2, "find_LTP_FLP xX",
+        1e-2,
+        "find_LTP_FLP xX",
     );
 }
 
@@ -364,7 +402,13 @@ fn quant_ltp_gains_matches() {
     let mut xx = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
     let mut x_x = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
     silk_find_ltp_flp(
-        &mut xx, &mut x_x, &signal, frame_offset, &lags, subfr_length, nb_subfr,
+        &mut xx,
+        &mut x_x,
+        &signal,
+        frame_offset,
+        &lags,
+        subfr_length,
+        nb_subfr,
     );
 
     // Convert to Q17
@@ -372,8 +416,12 @@ fn quant_ltp_gains_matches() {
     let n_x_x = nb_subfr * LTP_ORDER;
     let mut xx_q17 = vec![0i32; n_xx];
     let mut x_x_q17 = vec![0i32; n_x_x];
-    for i in 0..n_xx { xx_q17[i] = (xx[i] * 131072.0).round() as i32; }
-    for i in 0..n_x_x { x_x_q17[i] = (x_x[i] * 131072.0).round() as i32; }
+    for i in 0..n_xx {
+        xx_q17[i] = (xx[i] * 131072.0).round() as i32;
+    }
+    for i in 0..n_x_x {
+        x_x_q17[i] = (x_x[i] * 131072.0).round() as i32;
+    }
 
     // Rust
     let mut r_b_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
@@ -383,8 +431,15 @@ fn quant_ltp_gains_matches() {
     let mut r_pgdb = 0i32;
 
     silk_quant_ltp_gains(
-        &mut r_b_q14, &mut r_cbk, &mut r_per, &mut r_slg, &mut r_pgdb,
-        &xx_q17, &x_x_q17, subfr_length as i32, nb_subfr,
+        &mut r_b_q14,
+        &mut r_cbk,
+        &mut r_per,
+        &mut r_slg,
+        &mut r_pgdb,
+        &xx_q17,
+        &x_x_q17,
+        subfr_length as i32,
+        nb_subfr,
     );
 
     // C
@@ -395,21 +450,43 @@ fn quant_ltp_gains_matches() {
     let mut c_pgdb = 0i32;
 
     c_silk_quant_ltp_gains(
-        &mut c_b_q14, &mut c_cbk, &mut c_per,
-        &mut c_slg, &mut c_pgdb,
-        &xx_q17, &x_x_q17, subfr_length as i32, nb_subfr as i32,
+        &mut c_b_q14,
+        &mut c_cbk,
+        &mut c_per,
+        &mut c_slg,
+        &mut c_pgdb,
+        &xx_q17,
+        &x_x_q17,
+        subfr_length as i32,
+        nb_subfr as i32,
     );
 
-    eprintln!("Rust: per={} cbk={:?} B_Q14={:?}", r_per, &r_cbk[..nb_subfr], &r_b_q14[..nb_subfr * LTP_ORDER]);
-    eprintln!("C:    per={} cbk={:?} B_Q14={:?}", c_per, &c_cbk[..nb_subfr], &c_b_q14[..nb_subfr * LTP_ORDER]);
+    eprintln!(
+        "Rust: per={} cbk={:?} B_Q14={:?}",
+        r_per,
+        &r_cbk[..nb_subfr],
+        &r_b_q14[..nb_subfr * LTP_ORDER]
+    );
+    eprintln!(
+        "C:    per={} cbk={:?} B_Q14={:?}",
+        c_per,
+        &c_cbk[..nb_subfr],
+        &c_b_q14[..nb_subfr * LTP_ORDER]
+    );
 
     // Periodicity index must match (codebook family selection)
     assert_eq!(r_per, c_per, "periodicity_index mismatch");
 
     // Allow minor VQ differences: count subframes where cbk index differs
     let cbk_diff = (0..nb_subfr).filter(|&i| r_cbk[i] != c_cbk[i]).count();
-    assert!(cbk_diff <= 1, "too many cbk_index mismatches: {}/{}. Rust={:?} C={:?}",
-        cbk_diff, nb_subfr, &r_cbk[..nb_subfr], &c_cbk[..nb_subfr]);
+    assert!(
+        cbk_diff <= 1,
+        "too many cbk_index mismatches: {}/{}. Rust={:?} C={:?}",
+        cbk_diff,
+        nb_subfr,
+        &r_cbk[..nb_subfr],
+        &c_cbk[..nb_subfr]
+    );
     if cbk_diff > 0 {
         eprintln!("  (minor VQ difference: {} subframe(s) differ)", cbk_diff);
     }
@@ -418,30 +495,30 @@ fn quant_ltp_gains_matches() {
 // ---- LTP scale control tests ----
 
 use opus_silk::encoder_flp::ltp_scale_ctrl::silk_ltp_scale_ctrl_flp;
-use opus_silk::{CODE_INDEPENDENTLY, CODE_CONDITIONALLY};
+use opus_silk::{CODE_CONDITIONALLY, CODE_INDEPENDENTLY};
 
 #[test]
 fn ltp_scale_ctrl_zero_loss() {
     // With 0% packet loss, scale index should always be 0
     let result = silk_ltp_scale_ctrl_flp(
-        500,  // ltp_pred_cod_gain_q7 (moderate)
-        2415, // snr_db_q7 (~19dB)
-        0,    // packet_loss_perc
-        1,    // n_frames_per_packet
+        500,   // ltp_pred_cod_gain_q7 (moderate)
+        2415,  // snr_db_q7 (~19dB)
+        0,     // packet_loss_perc
+        1,     // n_frames_per_packet
         false, // lbrr_flag
         CODE_INDEPENDENTLY,
     );
     assert_eq!(result.ltp_scale_index, 0, "zero loss should give index 0");
-    assert!(result.ltp_scale > 0.9, "scale should be close to 1.0 for index 0");
+    assert!(
+        result.ltp_scale > 0.9,
+        "scale should be close to 1.0 for index 0"
+    );
 }
 
 #[test]
 fn ltp_scale_ctrl_conditional_coding() {
     // Conditional coding always produces index 0 regardless of loss
-    let result = silk_ltp_scale_ctrl_flp(
-        500, 2415, 20, 1, false,
-        CODE_CONDITIONALLY,
-    );
+    let result = silk_ltp_scale_ctrl_flp(500, 2415, 20, 1, false, CODE_CONDITIONALLY);
     assert_eq!(result.ltp_scale_index, 0, "conditional coding → index 0");
 }
 
@@ -456,25 +533,29 @@ fn ltp_scale_ctrl_high_loss_high_gain() {
         false,
         CODE_INDEPENDENTLY,
     );
-    eprintln!("high_loss: index={} scale={}", result.ltp_scale_index, result.ltp_scale);
+    eprintln!(
+        "high_loss: index={} scale={}",
+        result.ltp_scale_index, result.ltp_scale
+    );
     // product = silk_smulbb(3000, 50) — but silk_smulbb truncates to i16
     // (3000 as i16) * (50 as i16) = 3000 * 50 = 150000
     // thresh1 = silk_log2lin(2900 - 1500) = silk_log2lin(1400)
     // thresh2 = silk_log2lin(3900 - 1500) = silk_log2lin(2400)
     // If product > both thresholds, index = 2
-    assert!(result.ltp_scale_index >= 1, "high loss should increase scale index");
+    assert!(
+        result.ltp_scale_index >= 1,
+        "high loss should increase scale index"
+    );
 }
 
 #[test]
 fn ltp_scale_ctrl_lbrr_reduces_loss() {
     // With LBRR flag, effective loss is reduced: round_loss = 2 + loss^2/100
     // 10% loss * 1 frame = 10, with LBRR: 2 + 10*10/100 = 3
-    let no_lbrr = silk_ltp_scale_ctrl_flp(
-        2000, 2000, 10, 1, false, CODE_INDEPENDENTLY,
+    let no_lbrr = silk_ltp_scale_ctrl_flp(2000, 2000, 10, 1, false, CODE_INDEPENDENTLY);
+    let with_lbrr = silk_ltp_scale_ctrl_flp(2000, 2000, 10, 1, true, CODE_INDEPENDENTLY);
+    assert!(
+        with_lbrr.ltp_scale_index <= no_lbrr.ltp_scale_index,
+        "LBRR should reduce or maintain scale index"
     );
-    let with_lbrr = silk_ltp_scale_ctrl_flp(
-        2000, 2000, 10, 1, true, CODE_INDEPENDENTLY,
-    );
-    assert!(with_lbrr.ltp_scale_index <= no_lbrr.ltp_scale_index,
-        "LBRR should reduce or maintain scale index");
 }

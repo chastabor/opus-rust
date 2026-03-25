@@ -66,12 +66,7 @@ fn encode_frame_flp_produces_output() {
     // Encode multiple frames of a 440Hz sine
     let mut total_bytes = 0;
     for frame in 0..16 {
-        let input = gen_sine_i16(
-            FRAME_LENGTH as usize,
-            440.0,
-            16000.0,
-            0.5,
-        );
+        let input = gen_sine_i16(FRAME_LENGTH as usize, 440.0, 16000.0, 0.5);
 
         let mut enc = EcCtx::enc_init(max_packet as u32);
         // Write VAD + LBRR flags (2 bits)
@@ -103,13 +98,17 @@ fn encode_frame_flp_produces_output() {
             FRAME_LENGTH,
             LTP_MEM_LENGTH,
             LPC_ORDER,
-            SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH, LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
-            0, // warping_q16
+            SHAPING_LPC_ORDER,
+            SHAPE_WIN_LENGTH,
+            LA_PITCH,
+            PITCH_LPC_WIN_LENGTH,
+            PITCH_EST_LPC_ORDER,
+            0,  // warping_q16
             10, // complexity
             nlsf_cb,
             (max_packet - 1) * 8,
-            0, // packet_loss_perc
-            1, // n_frames_per_packet
+            0,              // packet_loss_perc
+            1,              // n_frames_per_packet
             frame as usize, // n_frames_encoded
             &mut lbrr,
             &mut enc,
@@ -125,16 +124,22 @@ fn encode_frame_flp_produces_output() {
 
         if frame == 15 {
             total_bytes = bytes;
-            eprintln!("[frame {}] bytes={} gain_idx={:?} interp={}",
-                frame, bytes,
+            eprintln!(
+                "[frame {}] bytes={} gain_idx={:?} interp={}",
+                frame,
+                bytes,
                 &indices.gains_indices[..NB_SUBFR as usize],
-                indices.nlsf_interp_coef_q2);
+                indices.nlsf_interp_coef_q2
+            );
         }
     }
 
     eprintln!("Float frame encoder: {} bytes on frame 15", total_bytes);
     assert!(total_bytes > 0, "Frame encoder produced no output");
-    assert!(total_bytes < 1275, "Frame encoder produced oversized output");
+    assert!(
+        total_bytes < 1275,
+        "Frame encoder produced oversized output"
+    );
 }
 
 /// Test that the encoder handles the first-frame-after-reset case.
@@ -174,26 +179,63 @@ fn encode_frame_flp_first_frame() {
     let mut lbrr2_xq_tmp = vec![0i16; SUBFR_LENGTH as usize];
 
     let bytes = silk_encode_frame_flp(
-        &mut x_buf, &mut nsq_state, &mut indices,
-        &mut prev_nlsf_q15, &mut prev_signal_type, &mut prev_lag,
-        &mut first_frame_after_reset, &mut last_gain_index,
-        &mut prev_harm_smth, &mut prev_tilt_smth,
-        &mut prev_ltp_corr2, &mut sum_log_gain2, &mut frame_counter2,
-        255, &[16384; 4], 0, 2415, &input,
-        FS_KHZ, NB_SUBFR, SUBFR_LENGTH, FRAME_LENGTH,
-        LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH, LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
-        0, 10, get_nlsf_cb(NlsfCbSel::Wb), 1275 * 8,
-        0, 1, 0, &mut lbrr2,
+        &mut x_buf,
+        &mut nsq_state,
+        &mut indices,
+        &mut prev_nlsf_q15,
+        &mut prev_signal_type,
+        &mut prev_lag,
+        &mut first_frame_after_reset,
+        &mut last_gain_index,
+        &mut prev_harm_smth,
+        &mut prev_tilt_smth,
+        &mut prev_ltp_corr2,
+        &mut sum_log_gain2,
+        &mut frame_counter2,
+        255,
+        &[16384; 4],
+        0,
+        2415,
+        &input,
+        FS_KHZ,
+        NB_SUBFR,
+        SUBFR_LENGTH,
+        FRAME_LENGTH,
+        LTP_MEM_LENGTH,
+        LPC_ORDER,
+        SHAPING_LPC_ORDER,
+        SHAPE_WIN_LENGTH,
+        LA_PITCH,
+        PITCH_LPC_WIN_LENGTH,
+        PITCH_EST_LPC_ORDER,
+        0,
+        10,
+        get_nlsf_cb(NlsfCbSel::Wb),
+        1275 * 8,
+        0,
+        1,
+        0,
+        &mut lbrr2,
         &mut enc,
-        &mut scratch_s_ltp_q15, &mut scratch_s_ltp,
-        &mut scratch_x_sc_q10, &mut scratch_xq_tmp,
-        &mut lbrr2_s_ltp_q15, &mut lbrr2_s_ltp,
-        &mut lbrr2_x_sc_q10, &mut lbrr2_xq_tmp,
+        &mut scratch_s_ltp_q15,
+        &mut scratch_s_ltp,
+        &mut scratch_x_sc_q10,
+        &mut scratch_xq_tmp,
+        &mut lbrr2_s_ltp_q15,
+        &mut lbrr2_s_ltp,
+        &mut lbrr2_x_sc_q10,
+        &mut lbrr2_xq_tmp,
     );
 
-    eprintln!("First frame: {} bytes, first_frame_after_reset now = {}", bytes, first_frame_after_reset);
+    eprintln!(
+        "First frame: {} bytes, first_frame_after_reset now = {}",
+        bytes, first_frame_after_reset
+    );
     assert!(bytes > 0, "First frame produced no output");
-    assert!(!first_frame_after_reset, "first_frame_after_reset should be cleared");
+    assert!(
+        !first_frame_after_reset,
+        "first_frame_after_reset should be cleared"
+    );
 }
 
 /// Test that LBRR encoding produces valid redundancy data when enabled.
@@ -243,25 +285,58 @@ fn encode_frame_flp_lbrr_enabled() {
         }
 
         let bytes = silk_encode_frame_flp(
-            &mut x_buf, &mut nsq_state, &mut indices,
-            &mut prev_nlsf_q15, &mut prev_signal_type, &mut prev_lag,
-            &mut first_frame_after_reset, &mut last_gain_index,
-            &mut prev_harm_smth, &mut prev_tilt_smth,
-            &mut prev_ltp_corr3, &mut sum_log_gain3, &mut frame_counter3,
-            255, &input_quality_bands, 0, snr_db_q7, &input,
-            FS_KHZ, NB_SUBFR, SUBFR_LENGTH, FRAME_LENGTH,
-            LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH,
-            LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
-            0, 10, nlsf_cb, (max_packet - 1) * 8,
-            5, 1, frame as usize, &mut lbrr,
+            &mut x_buf,
+            &mut nsq_state,
+            &mut indices,
+            &mut prev_nlsf_q15,
+            &mut prev_signal_type,
+            &mut prev_lag,
+            &mut first_frame_after_reset,
+            &mut last_gain_index,
+            &mut prev_harm_smth,
+            &mut prev_tilt_smth,
+            &mut prev_ltp_corr3,
+            &mut sum_log_gain3,
+            &mut frame_counter3,
+            255,
+            &input_quality_bands,
+            0,
+            snr_db_q7,
+            &input,
+            FS_KHZ,
+            NB_SUBFR,
+            SUBFR_LENGTH,
+            FRAME_LENGTH,
+            LTP_MEM_LENGTH,
+            LPC_ORDER,
+            SHAPING_LPC_ORDER,
+            SHAPE_WIN_LENGTH,
+            LA_PITCH,
+            PITCH_LPC_WIN_LENGTH,
+            PITCH_EST_LPC_ORDER,
+            0,
+            10,
+            nlsf_cb,
+            (max_packet - 1) * 8,
+            5,
+            1,
+            frame as usize,
+            &mut lbrr,
             &mut enc,
-            &mut scratch_s_ltp_q15, &mut scratch_s_ltp,
-            &mut scratch_x_sc_q10, &mut scratch_xq_tmp,
-            &mut lbrr_s_ltp_q15, &mut lbrr_s_ltp,
-            &mut lbrr_x_sc_q10, &mut lbrr_xq_tmp,
+            &mut scratch_s_ltp_q15,
+            &mut scratch_s_ltp,
+            &mut scratch_x_sc_q10,
+            &mut scratch_xq_tmp,
+            &mut lbrr_s_ltp_q15,
+            &mut lbrr_s_ltp,
+            &mut lbrr_x_sc_q10,
+            &mut lbrr_xq_tmp,
         );
 
-        eprintln!("[LBRR frame {}] bytes={} lbrr_flag={}", frame, bytes, lbrr.flags[frame as usize]);
+        eprintln!(
+            "[LBRR frame {}] bytes={} lbrr_flag={}",
+            frame, bytes, lbrr.flags[frame as usize]
+        );
     }
 
     // First frame is first_frame_after_reset → no pitch analysis → TYPE_UNVOICED
@@ -270,12 +345,17 @@ fn encode_frame_flp_lbrr_enabled() {
     let lbrr_count: i32 = lbrr.flags.iter().sum();
     eprintln!("LBRR flags: {:?}, count={}", &lbrr.flags[..3], lbrr_count);
 
-    assert!(lbrr_count >= 1, "LBRR should produce at least one redundancy frame");
+    assert!(
+        lbrr_count >= 1,
+        "LBRR should produce at least one redundancy frame"
+    );
 
     for f in 0..3 {
         if lbrr.flags[f] == 1 {
             let pulse_sum: i32 = lbrr.pulses[f][..FRAME_LENGTH as usize]
-                .iter().map(|&p| p.abs() as i32).sum();
+                .iter()
+                .map(|&p| p.abs() as i32)
+                .sum();
             assert!(pulse_sum > 0, "LBRR frame {} has flag=1 but zero pulses", f);
             eprintln!("  LBRR frame {} pulse energy: {}", f, pulse_sum);
         }

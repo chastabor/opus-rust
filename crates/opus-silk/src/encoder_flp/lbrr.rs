@@ -48,9 +48,9 @@ impl LbrrState {
 #[allow(clippy::too_many_arguments)]
 pub fn silk_lbrr_encode_flp(
     lbrr: &mut LbrrState,
-    nsq_state: &NsqState,          // main NSQ state (cloned, not modified)
-    indices: &SideInfoIndices,      // main frame indices
-    x_frame: &[f32],               // input signal for NSQ
+    nsq_state: &NsqState,      // main NSQ state (cloned, not modified)
+    indices: &SideInfoIndices, // main frame indices
+    x_frame: &[f32],           // input signal for NSQ
     // Noise shaping params (from noise_shape analysis)
     pred_coef: &[[f32; MAX_LPC_ORDER]; 2],
     ltp_coef: &[f32],
@@ -59,7 +59,7 @@ pub fn silk_lbrr_encode_flp(
     tilt: &[f32],
     lf_ma_shp: &[f32],
     lf_ar_shp: &[f32],
-    gains: &[f32],                  // original gains from process_gains
+    gains: &[f32], // original gains from process_gains
     pitch_lags: &[i32; MAX_NB_SUBFR],
     lambda: f32,
     ltp_scale_q14: i32,

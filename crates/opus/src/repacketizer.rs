@@ -68,7 +68,12 @@ impl OpusRepacketizer {
     }
 
     /// Output a repacketized packet containing frames [begin, end).
-    pub fn out_range(&self, begin: usize, end: usize, out: &mut Vec<u8>) -> Result<usize, OpusError> {
+    pub fn out_range(
+        &self,
+        begin: usize,
+        end: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, OpusError> {
         if begin >= end || end > self.nb_frames {
             return Err(OpusError::BadArg);
         }

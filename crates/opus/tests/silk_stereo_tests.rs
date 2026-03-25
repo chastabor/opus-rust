@@ -22,8 +22,7 @@ mod common;
 // Then paste the output into the C_STEREO_* constants below.
 
 use opus::{
-    OpusDecoder, OpusEncoder,
-    Application, Bandwidth, Bitrate, Signal, SampleRate, Channels,
+    Application, Bandwidth, Bitrate, Channels, OpusDecoder, OpusEncoder, SampleRate, Signal,
     opus_packet_get_bandwidth, opus_packet_get_mode, opus_packet_get_nb_channels,
 };
 
@@ -216,7 +215,8 @@ fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
 
 /// Create a stereo encoder configured for SILK stereo testing.
 fn create_stereo_encoder() -> OpusEncoder {
-    let mut enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Stereo, Application::Voip).unwrap();
+    let mut enc =
+        OpusEncoder::new(SampleRate::Hz16000, Channels::Stereo, Application::Voip).unwrap();
     enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
     enc.set_complexity(COMPLEXITY);
     enc.set_signal(Signal::Voice);
@@ -242,12 +242,21 @@ fn encode_stereo_frames(
     let mut packets = Vec::new();
     for frame_idx in 0..num_frames {
         let input = generate_frame(frame_idx);
-        assert_eq!(input.len(), STEREO_FRAME, "Stereo frame must have {} samples", STEREO_FRAME);
+        assert_eq!(
+            input.len(),
+            STEREO_FRAME,
+            "Stereo frame must have {} samples",
+            STEREO_FRAME
+        );
         let mut packet = vec![0u8; 1500];
         let nbytes = enc
             .encode_float(&input, FRAME_SIZE as i32, &mut packet, 1500)
             .expect("Stereo encode should succeed");
-        assert!(nbytes > 0, "Encode should produce bytes at frame {}", frame_idx);
+        assert!(
+            nbytes > 0,
+            "Encode should produce bytes at frame {}",
+            frame_idx
+        );
         packet.truncate(nbytes as usize);
         packets.push(packet);
     }
@@ -263,12 +272,21 @@ fn encode_mono_frames(
     let mut packets = Vec::new();
     for frame_idx in 0..num_frames {
         let input = generate_frame(frame_idx);
-        assert_eq!(input.len(), FRAME_SIZE, "Mono frame must have {} samples", FRAME_SIZE);
+        assert_eq!(
+            input.len(),
+            FRAME_SIZE,
+            "Mono frame must have {} samples",
+            FRAME_SIZE
+        );
         let mut packet = vec![0u8; 1500];
         let nbytes = enc
             .encode_float(&input, FRAME_SIZE as i32, &mut packet, 1500)
             .expect("Mono encode should succeed");
-        assert!(nbytes > 0, "Mono encode should produce bytes at frame {}", frame_idx);
+        assert!(
+            nbytes > 0,
+            "Mono encode should produce bytes at frame {}",
+            frame_idx
+        );
         packet.truncate(nbytes as usize);
         packets.push(packet);
     }
@@ -297,24 +315,38 @@ fn decode_all_stereo(packets: &[Vec<u8>]) -> Vec<f32> {
 fn test_decode_c_ref_stereo_sine() {
     // Skip if placeholder vector (only 2 bytes is too short to be real)
     if C_STEREO_SINE_440L_880R.len() <= 2 {
-        eprintln!("SKIP: C_STEREO_SINE_440L_880R is placeholder; run gen_stereo_vectors to populate");
+        eprintln!(
+            "SKIP: C_STEREO_SINE_440L_880R is placeholder; run gen_stereo_vectors to populate"
+        );
         return;
     }
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
-    let result = dec.decode_float(Some(C_STEREO_SINE_440L_880R), &mut pcm, FRAME_SIZE as i32, false);
+    let result = dec.decode_float(
+        Some(C_STEREO_SINE_440L_880R),
+        &mut pcm,
+        FRAME_SIZE as i32,
+        false,
+    );
     assert!(
         result.is_ok(),
         "Should decode C ref stereo sine packet: {:?}",
         result
     );
     let n = result.unwrap() as usize;
-    assert_eq!(n, FRAME_SIZE, "Should decode exactly one frame of {} samples", FRAME_SIZE);
+    assert_eq!(
+        n, FRAME_SIZE,
+        "Should decode exactly one frame of {} samples",
+        FRAME_SIZE
+    );
 
     // Stereo sine should have non-trivial energy
     let energy = total_energy(&pcm[..n * 2]);
-    println!("  C ref stereo sine: decoded {} samples, energy = {:.6}", n, energy);
+    println!(
+        "  C ref stereo sine: decoded {} samples, energy = {:.6}",
+        n, energy
+    );
 }
 
 #[test]
@@ -326,8 +358,17 @@ fn test_decode_c_ref_stereo_mono_collapsed() {
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
-    let result = dec.decode_float(Some(C_STEREO_MONO_COLLAPSED), &mut pcm, FRAME_SIZE as i32, false);
-    assert!(result.is_ok(), "Should decode C ref mono-collapsed: {:?}", result);
+    let result = dec.decode_float(
+        Some(C_STEREO_MONO_COLLAPSED),
+        &mut pcm,
+        FRAME_SIZE as i32,
+        false,
+    );
+    assert!(
+        result.is_ok(),
+        "Should decode C ref mono-collapsed: {:?}",
+        result
+    );
     let n = result.unwrap() as usize;
     assert_eq!(n, FRAME_SIZE);
 }
@@ -342,7 +383,11 @@ fn test_decode_c_ref_stereo_silence() {
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_SILENCE), &mut pcm, FRAME_SIZE as i32, false);
-    assert!(result.is_ok(), "Should decode C ref stereo silence: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should decode C ref stereo silence: {:?}",
+        result
+    );
     let n = result.unwrap() as usize;
     assert_eq!(n, FRAME_SIZE);
 
@@ -360,7 +405,11 @@ fn test_decode_c_ref_stereo_left_only() {
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
     let result = dec.decode_float(Some(C_STEREO_LEFT_ONLY), &mut pcm, FRAME_SIZE as i32, false);
-    assert!(result.is_ok(), "Should decode C ref left-only: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should decode C ref left-only: {:?}",
+        result
+    );
     let n = result.unwrap() as usize;
     assert_eq!(n, FRAME_SIZE);
 }
@@ -374,8 +423,17 @@ fn test_decode_c_ref_stereo_right_only() {
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut pcm = vec![0.0f32; STEREO_FRAME];
-    let result = dec.decode_float(Some(C_STEREO_RIGHT_ONLY), &mut pcm, FRAME_SIZE as i32, false);
-    assert!(result.is_ok(), "Should decode C ref right-only: {:?}", result);
+    let result = dec.decode_float(
+        Some(C_STEREO_RIGHT_ONLY),
+        &mut pcm,
+        FRAME_SIZE as i32,
+        false,
+    );
+    assert!(
+        result.is_ok(),
+        "Should decode C ref right-only: {:?}",
+        result
+    );
     let n = result.unwrap() as usize;
     assert_eq!(n, FRAME_SIZE);
 }
@@ -387,19 +445,31 @@ fn test_decode_c_ref_stereo_right_only() {
 #[test]
 fn test_stereo_encode_sine_440l_880r() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // All packets should be non-empty
     for (i, pkt) in packets.iter().enumerate() {
-        assert!(!pkt.is_empty(), "Frame {i} should produce a non-empty packet");
-        assert!(pkt.len() >= 2, "Frame {i} packet too short: {} bytes", pkt.len());
+        assert!(
+            !pkt.is_empty(),
+            "Frame {i} should produce a non-empty packet"
+        );
+        assert!(
+            pkt.len() >= 2,
+            "Frame {i} packet too short: {} bytes",
+            pkt.len()
+        );
     }
 
     // The last (steady-state) packet should be a reasonable size
     let last = packets.last().unwrap();
-    println!("  Stereo sine 440L+880R: last packet = {} bytes", last.len());
+    println!(
+        "  Stereo sine 440L+880R: last packet = {} bytes",
+        last.len()
+    );
     assert!(
         last.len() >= 5 && last.len() <= 1275,
         "Last stereo packet should be valid size, got {} bytes",
@@ -410,27 +480,37 @@ fn test_stereo_encode_sine_440l_880r() {
 #[test]
 fn test_stereo_encode_mono_collapsed() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     for (i, pkt) in packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "Frame {i} should produce a packet");
     }
-    println!("  Stereo mono-collapsed: last packet = {} bytes", packets.last().unwrap().len());
+    println!(
+        "  Stereo mono-collapsed: last packet = {} bytes",
+        packets.last().unwrap().len()
+    );
 }
 
 #[test]
 fn test_stereo_encode_silence() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|_| {
-        generate_stereo_silence(FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|_| generate_stereo_silence(FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     for (i, pkt) in packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "Silence frame {i} should produce a packet");
     }
-    println!("  Stereo silence: last packet = {} bytes", packets.last().unwrap().len());
+    println!(
+        "  Stereo silence: last packet = {} bytes",
+        packets.last().unwrap().len()
+    );
 }
 
 // =========================================================================
@@ -440,9 +520,11 @@ fn test_stereo_encode_silence() {
 #[test]
 fn test_stereo_roundtrip_sine_440l_880r() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Decode all packets
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
@@ -452,7 +534,11 @@ fn test_stereo_roundtrip_sine_440l_880r() {
         let result = dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE as i32, false);
         assert!(result.is_ok(), "Stereo decode should succeed: {:?}", result);
         let n = result.unwrap() as usize;
-        assert_eq!(n, FRAME_SIZE, "Should decode exactly {} samples", FRAME_SIZE);
+        assert_eq!(
+            n, FRAME_SIZE,
+            "Should decode exactly {} samples",
+            FRAME_SIZE
+        );
         last_pcm = pcm;
     }
 
@@ -462,8 +548,10 @@ fn test_stereo_roundtrip_sine_440l_880r() {
     let left_energy = total_energy(&left);
     let right_energy = total_energy(&right);
 
-    println!("  Stereo sine roundtrip: left energy = {:.6}, right energy = {:.6}",
-             left_energy, right_energy);
+    println!(
+        "  Stereo sine roundtrip: left energy = {:.6}, right energy = {:.6}",
+        left_energy, right_energy
+    );
 
     assert!(
         left_energy > 1e-6,
@@ -480,16 +568,22 @@ fn test_stereo_roundtrip_sine_440l_880r() {
 #[test]
 fn test_stereo_roundtrip_silence() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|_| {
-        generate_stereo_silence(FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|_| generate_stereo_silence(FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut last_pcm = vec![0.0f32; STEREO_FRAME];
     for pkt in &packets {
         let mut pcm = vec![0.0f32; STEREO_FRAME];
         let result = dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE as i32, false);
-        assert!(result.is_ok(), "Silence decode should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Silence decode should succeed: {:?}",
+            result
+        );
         last_pcm = pcm;
     }
 
@@ -505,9 +599,11 @@ fn test_stereo_roundtrip_silence() {
 #[test]
 fn test_stereo_roundtrip_mono_collapsed() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     let mut last_pcm = vec![0.0f32; STEREO_FRAME];
@@ -524,12 +620,22 @@ fn test_stereo_roundtrip_mono_collapsed() {
     let left_energy = total_energy(&left);
     let right_energy = total_energy(&right);
 
-    println!("  Mono-collapsed roundtrip: left = {:.6}, right = {:.6}",
-             left_energy, right_energy);
+    println!(
+        "  Mono-collapsed roundtrip: left = {:.6}, right = {:.6}",
+        left_energy, right_energy
+    );
 
     // Both channels should be audible
-    assert!(left_energy > 1e-6, "Left should be audible: {:.8}", left_energy);
-    assert!(right_energy > 1e-6, "Right should be audible: {:.8}", right_energy);
+    assert!(
+        left_energy > 1e-6,
+        "Left should be audible: {:.8}",
+        left_energy
+    );
+    assert!(
+        right_energy > 1e-6,
+        "Right should be audible: {:.8}",
+        right_energy
+    );
 
     // For mono-collapsed input, L and R should be similar (within 20 dB)
     if left_energy > 1e-6 && right_energy > 1e-6 {
@@ -545,9 +651,11 @@ fn test_stereo_roundtrip_mono_collapsed() {
 #[test]
 fn test_stereo_output_is_finite() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
     for (frame_idx, pkt) in packets.iter().enumerate() {
@@ -571,14 +679,18 @@ fn test_stereo_output_is_finite() {
 fn test_stereo_packets_differ_from_mono_packets() {
     // Encode the same 440Hz signal as stereo (both channels) and as mono
     let mut stereo_enc = create_stereo_encoder();
-    let stereo_packets = encode_stereo_frames(&mut stereo_enc, &|frame_idx| {
-        generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let stereo_packets = encode_stereo_frames(
+        &mut stereo_enc,
+        &|frame_idx| generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut mono_enc = create_mono_encoder();
-    let mono_packets = encode_mono_frames(&mut mono_enc, &|frame_idx| {
-        generate_mono_sine(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let mono_packets = encode_mono_frames(
+        &mut mono_enc,
+        &|frame_idx| generate_mono_sine(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let stereo_last = stereo_packets.last().unwrap();
     let mono_last = mono_packets.last().unwrap();
@@ -599,7 +711,10 @@ fn test_stereo_packets_differ_from_mono_packets() {
     let stereo_ch = opus_packet_get_nb_channels(stereo_last);
     let mono_ch = opus_packet_get_nb_channels(mono_last);
 
-    println!("  Stereo TOC: 0x{:02x} (channels={})", stereo_toc, stereo_ch);
+    println!(
+        "  Stereo TOC: 0x{:02x} (channels={})",
+        stereo_toc, stereo_ch
+    );
     println!("  Mono TOC:   0x{:02x} (channels={})", mono_toc, mono_ch);
 
     assert_eq!(stereo_ch, 2, "Stereo packet should report 2 channels");
@@ -622,14 +737,18 @@ fn test_stereo_packets_differ_from_mono_packets() {
 #[test]
 fn test_stereo_vs_mono_payload_differs() {
     let mut stereo_enc = create_stereo_encoder();
-    let stereo_packets = encode_stereo_frames(&mut stereo_enc, &|frame_idx| {
-        generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let stereo_packets = encode_stereo_frames(
+        &mut stereo_enc,
+        &|frame_idx| generate_mono_collapsed(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut mono_enc = create_mono_encoder();
-    let mono_packets = encode_mono_frames(&mut mono_enc, &|frame_idx| {
-        generate_mono_sine(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let mono_packets = encode_mono_frames(
+        &mut mono_enc,
+        &|frame_idx| generate_mono_sine(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Compare multiple steady-state frames, not just the last
     for i in (NUM_WARMUP_FRAMES - 3)..NUM_WARMUP_FRAMES {
@@ -656,9 +775,11 @@ fn test_stereo_vs_mono_payload_differs() {
 #[test]
 fn test_stereo_left_only_has_left_energy() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_left_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_left_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let pcm = decode_all_stereo(&packets);
 
@@ -671,7 +792,10 @@ fn test_stereo_left_only_has_left_energy() {
     let left_energy = total_energy(&left);
     let right_energy = total_energy(&right);
 
-    println!("  Left-only: left energy = {:.6}, right energy = {:.6}", left_energy, right_energy);
+    println!(
+        "  Left-only: left energy = {:.6}, right energy = {:.6}",
+        left_energy, right_energy
+    );
 
     // Left channel should have substantial energy
     assert!(
@@ -687,7 +811,8 @@ fn test_stereo_left_only_has_left_energy() {
         assert!(
             right_energy < left_energy * 10.0,
             "Left-only: right channel energy ({:.6}) should not wildly exceed left ({:.6})",
-            right_energy, left_energy
+            right_energy,
+            left_energy
         );
     }
 }
@@ -695,9 +820,11 @@ fn test_stereo_left_only_has_left_energy() {
 #[test]
 fn test_stereo_right_only_has_right_energy() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_right_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_right_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let pcm = decode_all_stereo(&packets);
 
@@ -709,7 +836,10 @@ fn test_stereo_right_only_has_right_energy() {
     let left_energy = total_energy(&left);
     let right_energy = total_energy(&right);
 
-    println!("  Right-only: left energy = {:.6}, right energy = {:.6}", left_energy, right_energy);
+    println!(
+        "  Right-only: left energy = {:.6}, right energy = {:.6}",
+        left_energy, right_energy
+    );
 
     // Right channel should have substantial energy
     assert!(
@@ -723,7 +853,8 @@ fn test_stereo_right_only_has_right_energy() {
         assert!(
             left_energy < right_energy * 10.0,
             "Right-only: left channel energy ({:.6}) should not wildly exceed right ({:.6})",
-            left_energy, right_energy
+            left_energy,
+            right_energy
         );
     }
 }
@@ -732,14 +863,18 @@ fn test_stereo_right_only_has_right_energy() {
 fn test_stereo_left_right_packets_differ() {
     // Left-only and right-only should produce different packets
     let mut enc_l = create_stereo_encoder();
-    let packets_l = encode_stereo_frames(&mut enc_l, &|frame_idx| {
-        generate_left_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_l = encode_stereo_frames(
+        &mut enc_l,
+        &|frame_idx| generate_left_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut enc_r = create_stereo_encoder();
-    let packets_r = encode_stereo_frames(&mut enc_r, &|frame_idx| {
-        generate_right_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_r = encode_stereo_frames(
+        &mut enc_r,
+        &|frame_idx| generate_right_only(440.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let last_l = packets_l.last().unwrap();
     let last_r = packets_r.last().unwrap();
@@ -765,9 +900,11 @@ fn test_stereo_left_right_packets_differ() {
 fn test_stereo_channel_separation_asymmetry() {
     // Encode 440L+880R: different frequencies on each channel
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let pcm = decode_all_stereo(&packets);
 
@@ -780,12 +917,22 @@ fn test_stereo_channel_separation_asymmetry() {
     let left_energy = total_energy(&left);
     let right_energy = total_energy(&right);
 
-    println!("  440L+880R: left energy = {:.6}, right energy = {:.6}",
-             left_energy, right_energy);
+    println!(
+        "  440L+880R: left energy = {:.6}, right energy = {:.6}",
+        left_energy, right_energy
+    );
 
     // Both channels should have non-trivial energy
-    assert!(left_energy > 1e-6, "Left channel should be audible: {:.8}", left_energy);
-    assert!(right_energy > 1e-6, "Right channel should be audible: {:.8}", right_energy);
+    assert!(
+        left_energy > 1e-6,
+        "Left channel should be audible: {:.8}",
+        left_energy
+    );
+    assert!(
+        right_energy > 1e-6,
+        "Right channel should be audible: {:.8}",
+        right_energy
+    );
 
     // The left and right channels should differ (different frequencies).
     // Check that they are not identical sample-by-sample.
@@ -795,7 +942,10 @@ fn test_stereo_channel_separation_asymmetry() {
             differ_count += 1;
         }
     }
-    println!("  Differing L/R samples: {differ_count} out of {}", left.len());
+    println!(
+        "  Differing L/R samples: {differ_count} out of {}",
+        left.len()
+    );
     assert!(
         differ_count > 0 || left.iter().any(|&x| x.abs() > 1e-6),
         "440Hz L vs 880Hz R should produce non-trivial output, got {differ_count} differing samples out of {}",
@@ -810,9 +960,11 @@ fn test_stereo_channel_separation_asymmetry() {
 #[test]
 fn test_stereo_encoder_produces_stereo_toc() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     for (i, pkt) in packets.iter().enumerate() {
         let channels = opus_packet_get_nb_channels(pkt);
@@ -856,15 +1008,14 @@ fn test_stereo_multiframe_roundtrip() {
             FRAME_SIZE as i32,
             false,
         );
-        assert!(
-            result.is_ok(),
-            "Frame {frame}: decode failed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Frame {frame}: decode failed: {:?}", result);
 
         // All samples must be finite
         for &s in &output {
-            assert!(s.is_finite(), "Frame {frame}: non-finite sample in decode output");
+            assert!(
+                s.is_finite(),
+                "Frame {frame}: non-finite sample in decode output"
+            );
         }
     }
 }
@@ -872,9 +1023,11 @@ fn test_stereo_multiframe_roundtrip() {
 #[test]
 fn test_stereo_packet_sizes_stable() {
     let mut enc = create_stereo_encoder();
-    let packets = encode_stereo_frames(&mut enc, &|frame_idx| {
-        generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, 15);
+    let packets = encode_stereo_frames(
+        &mut enc,
+        &|frame_idx| generate_stereo_sine(440.0, 880.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        15,
+    );
 
     // After warmup (first 5 frames), packet sizes should be relatively stable
     let stable_sizes: Vec<usize> = packets[5..].iter().map(|p| p.len()).collect();
@@ -887,7 +1040,8 @@ fn test_stereo_packet_sizes_stable() {
         assert!(
             sz >= 2 && sz <= 1275,
             "Frame {} stereo packet size {} is out of expected range",
-            5 + i, sz
+            5 + i,
+            sz
         );
     }
 

@@ -22,8 +22,7 @@
 //   /tmp/gen_lbrr_vectors > /tmp/lbrr_vectors.txt
 
 use opus::{
-    OpusDecoder, OpusEncoder,
-    Application, Bandwidth, Bitrate, Mode, SampleRate, Channels,
+    Application, Bandwidth, Bitrate, Channels, Mode, OpusDecoder, OpusEncoder, SampleRate,
     opus_packet_get_bandwidth, opus_packet_get_mode,
 };
 
@@ -45,8 +44,7 @@ fn generate_tone(freq: f32, amplitude: f32, num_samples: usize, sample_offset: u
     let mut buf = vec![0.0f32; num_samples];
     for i in 0..num_samples {
         buf[i] = amplitude
-            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32
-                / SAMPLE_RATE as f32)
+            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32 / SAMPLE_RATE as f32)
                 .sin();
     }
     buf
@@ -87,15 +85,27 @@ fn test_rust_encoder_fec_settings_produce_valid_packets() {
     for (i, pkt) in fec_packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "FEC packet {i} should not be empty");
         let mode = opus_packet_get_mode(pkt);
-        assert_eq!(mode, Mode::SilkOnly, "FEC packet {i} should be SILK-only (mode={mode:?})");
+        assert_eq!(
+            mode,
+            Mode::SilkOnly,
+            "FEC packet {i} should be SILK-only (mode={mode:?})"
+        );
         let bw = opus_packet_get_bandwidth(pkt);
-        assert_eq!(bw, Bandwidth::Wideband, "FEC packet {i} should be wideband (bw={bw:?})");
+        assert_eq!(
+            bw,
+            Bandwidth::Wideband,
+            "FEC packet {i} should be wideband (bw={bw:?})"
+        );
     }
 
     for (i, pkt) in nofec_packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "No-FEC packet {i} should not be empty");
         let mode = opus_packet_get_mode(pkt);
-        assert_eq!(mode, Mode::SilkOnly, "No-FEC packet {i} should be SILK-only");
+        assert_eq!(
+            mode,
+            Mode::SilkOnly,
+            "No-FEC packet {i} should be SILK-only"
+        );
     }
 }
 
@@ -117,7 +127,10 @@ fn test_decode_fec_packets_normally() {
             result
         );
         let n = result.unwrap() as usize;
-        assert_eq!(n, FRAME_SIZE, "Frame {i}: expected {FRAME_SIZE} samples, got {n}");
+        assert_eq!(
+            n, FRAME_SIZE,
+            "Frame {i}: expected {FRAME_SIZE} samples, got {n}"
+        );
     }
 }
 
@@ -146,7 +159,10 @@ fn test_fec_decode_path_no_crash() {
     // The FEC path should not panic or produce an unrecoverable error
     match fec_result {
         Ok(n) => {
-            assert_eq!(n as usize, FRAME_SIZE, "FEC decode should produce {FRAME_SIZE} samples");
+            assert_eq!(
+                n as usize, FRAME_SIZE,
+                "FEC decode should produce {FRAME_SIZE} samples"
+            );
         }
         Err(e) => {
             // FEC decode may fail gracefully if no LBRR data is present
@@ -184,7 +200,11 @@ fn test_fec_decode_with_plc_fallback() {
     // Frame 5 is "lost" - invoke PLC
     let mut plc_pcm = vec![0.0f32; FRAME_SIZE];
     let plc_result = dec.decode_float(None, &mut plc_pcm, FRAME_SIZE as i32, false);
-    assert!(plc_result.is_ok(), "PLC decode should succeed: {:?}", plc_result);
+    assert!(
+        plc_result.is_ok(),
+        "PLC decode should succeed: {:?}",
+        plc_result
+    );
 
     // Now try FEC recovery of frame 5 using frame 6's data
     // (In practice, this would be done before the PLC call, but we test both paths)
@@ -206,7 +226,10 @@ fn test_fec_decode_with_plc_fallback() {
     // Continue with normal decode of frame 6
     let mut pcm6 = vec![0.0f32; FRAME_SIZE];
     let result6 = dec2.decode_float(Some(&packets[6]), &mut pcm6, FRAME_SIZE as i32, false);
-    assert!(result6.is_ok(), "Normal decode should work after FEC attempt");
+    assert!(
+        result6.is_ok(),
+        "Normal decode should work after FEC attempt"
+    );
 }
 
 // =========================================================================
@@ -217,7 +240,8 @@ fn test_fec_decode_with_plc_fallback() {
 fn test_fec_decode_celt_mode_falls_back() {
     // When decode_fec is called on a CELT-only packet, the Opus decoder
     // should fall back to PLC since CELT has no LBRR mechanism.
-    let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc.set_bitrate(Bitrate::BitsPerSecond(64000));
 
     let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
@@ -226,9 +250,7 @@ fn test_fec_decode_celt_mode_falls_back() {
     for f in 0..3 {
         let input = generate_tone_48k(440.0, 0.3, 960, f * 960);
         let mut packet = vec![0u8; 1500];
-        let nbytes = enc
-            .encode_float(&input, 960, &mut packet, 1500)
-            .unwrap() as usize;
+        let nbytes = enc.encode_float(&input, 960, &mut packet, 1500).unwrap() as usize;
 
         let mut pcm = vec![0.0f32; 960];
         dec.decode_float(Some(&packet[..nbytes]), &mut pcm, 960, false)
@@ -238,9 +260,7 @@ fn test_fec_decode_celt_mode_falls_back() {
     // Encode one more frame
     let input = generate_tone_48k(440.0, 0.3, 960, 3 * 960);
     let mut packet = vec![0u8; 1500];
-    let nbytes = enc
-        .encode_float(&input, 960, &mut packet, 1500)
-        .unwrap() as usize;
+    let nbytes = enc.encode_float(&input, 960, &mut packet, 1500).unwrap() as usize;
 
     // Attempt FEC decode with a CELT packet - should fall back to PLC
     let mut pcm = vec![0.0f32; 960];
@@ -254,13 +274,16 @@ fn test_fec_decode_celt_mode_falls_back() {
 }
 
 /// Generate a 48kHz tone for CELT tests.
-fn generate_tone_48k(freq: f32, amplitude: f32, num_samples: usize, sample_offset: usize) -> Vec<f32> {
+fn generate_tone_48k(
+    freq: f32,
+    amplitude: f32,
+    num_samples: usize,
+    sample_offset: usize,
+) -> Vec<f32> {
     let mut buf = vec![0.0f32; num_samples];
     for i in 0..num_samples {
         buf[i] = amplitude
-            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32
-                / 48000.0)
-                .sin();
+            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32 / 48000.0).sin();
     }
     buf
 }
@@ -284,12 +307,7 @@ fn test_multi_frame_loss_simulation() {
             // Simulate packet loss at frames 3 and 7
             if i + 1 < packets.len() {
                 // Attempt FEC recovery from the next packet
-                let _ = dec.decode_float(
-                    Some(&packets[i + 1]),
-                    &mut pcm,
-                    FRAME_SIZE as i32,
-                    true,
-                );
+                let _ = dec.decode_float(Some(&packets[i + 1]), &mut pcm, FRAME_SIZE as i32, true);
             } else {
                 // Pure PLC
                 let _ = dec.decode_float(None, &mut pcm, FRAME_SIZE as i32, false);
@@ -347,11 +365,7 @@ fn test_rust_encoder_fec_roundtrip() {
             FRAME_SIZE as i32,
             false,
         );
-        assert!(
-            result.is_ok(),
-            "Frame {frame}: decode failed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Frame {frame}: decode failed: {:?}", result);
 
         let frame_energy: f64 = output.iter().map(|&x| (x as f64) * (x as f64)).sum();
         total_energy += frame_energy;
@@ -441,7 +455,12 @@ fn test_decode_c_ref_silk_with_fec_flag() {
     // Now attempt FEC decode with the same packet type
     // Since lbrr_flag=0 in these packets, the decoder should do PLC
     let mut fec_pcm = vec![0.0f32; FRAME_SIZE];
-    let result = dec.decode_float(Some(C_SILK_200HZ_16K), &mut fec_pcm, FRAME_SIZE as i32, true);
+    let result = dec.decode_float(
+        Some(C_SILK_200HZ_16K),
+        &mut fec_pcm,
+        FRAME_SIZE as i32,
+        true,
+    );
     assert!(
         result.is_ok(),
         "FEC decode on no-LBRR packet should not crash: {:?}",
@@ -459,7 +478,12 @@ fn test_decode_c_ref_silk_narrowband_with_fec_flag() {
 
     // FEC decode attempt
     let mut fec_pcm = vec![0.0f32; FRAME_SIZE];
-    let result = dec.decode_float(Some(C_SILK_200HZ_10K), &mut fec_pcm, FRAME_SIZE as i32, true);
+    let result = dec.decode_float(
+        Some(C_SILK_200HZ_10K),
+        &mut fec_pcm,
+        FRAME_SIZE as i32,
+        true,
+    );
     assert!(
         result.is_ok(),
         "FEC decode on NB no-LBRR packet should not crash: {:?}",
@@ -602,7 +626,8 @@ fn test_fec_decode_respects_silk_mode_requirement() {
     let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
     // First prime with a CELT packet (48kHz audio mode)
-    let mut enc_celt = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc_celt =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc_celt.set_bitrate(Bitrate::BitsPerSecond(64000));
     let input = generate_tone_48k(440.0, 0.3, 960, 0);
     let mut celt_pkt = vec![0u8; 1500];

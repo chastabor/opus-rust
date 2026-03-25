@@ -44,8 +44,8 @@ pub fn bitexact_cos(x: i16) -> i16 {
     let tmp = (4096 + x * x) >> 13;
     let x2 = tmp as i16;
     let x2i = x2 as i32;
-    let result = (32767 - x2i)
-        + frac_mul16(x2i, -7651 + frac_mul16(x2i, 8277 + frac_mul16(-626, x2i)));
+    let result =
+        (32767 - x2i) + frac_mul16(x2i, -7651 + frac_mul16(x2i, 8277 + frac_mul16(-626, x2i)));
     (1 + result) as i16
 }
 
@@ -55,8 +55,7 @@ pub fn bitexact_log2tan(isin: i32, icos: i32) -> i32 {
     let ls = ec_ilog(isin as u32);
     let icos = icos << (15 - lc);
     let isin = isin << (15 - ls);
-    (ls as i32 - lc as i32) * (1 << 11)
-        + frac_mul16(isin, frac_mul16(isin, -2597) + 7932)
+    (ls as i32 - lc as i32) * (1 << 11) + frac_mul16(isin, frac_mul16(isin, -2597) + 7932)
         - frac_mul16(icos, frac_mul16(icos, -2597) + 7932)
 }
 

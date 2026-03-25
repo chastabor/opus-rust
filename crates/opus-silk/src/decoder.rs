@@ -1,8 +1,8 @@
 // Port of silk/dec_API.c, silk/decode_frame.c - SILK Decoder
 
-use opus_range_coder::EcCtx;
-use crate::*;
 use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Decoder control structure (passed from the Opus layer)
 #[derive(Clone)]
@@ -84,7 +84,8 @@ impl SilkDecoder {
             self.channel_state[1] = ChannelState::new();
         }
 
-        let _stereo_to_mono = n_ch_internal == 1 && self.n_channels_internal == 2
+        let _stereo_to_mono = n_ch_internal == 1
+            && self.n_channels_internal == 2
             && dec_control.internal_sample_rate == 1000 * self.channel_state[0].fs_khz;
 
         if self.channel_state[0].n_frames_decoded == 0 {
@@ -116,7 +117,8 @@ impl SilkDecoder {
             }
         }
 
-        if n_ch_api == 2 && n_ch_internal == 2
+        if n_ch_api == 2
+            && n_ch_internal == 2
             && (self.n_channels_api == 1 || self.n_channels_internal == 1)
         {
             self.s_stereo.pred_prev_q13 = [0; 2];
@@ -141,8 +143,7 @@ impl SilkDecoder {
                     self.channel_state[n].vad_flags[i] =
                         if ps_range_dec.dec_bit_logp(1) { 1 } else { 0 };
                 }
-                self.channel_state[n].lbrr_flag =
-                    if ps_range_dec.dec_bit_logp(1) { 1 } else { 0 };
+                self.channel_state[n].lbrr_flag = if ps_range_dec.dec_bit_logp(1) { 1 } else { 0 };
             }
 
             // Decode LBRR flags
@@ -184,14 +185,22 @@ impl SilkDecoder {
                                 CODE_INDEPENDENTLY
                             };
                             decode_indices::silk_decode_indices(
-                                &mut self.channel_state[n], ps_range_dec, i as i32, true, cond
+                                &mut self.channel_state[n],
+                                ps_range_dec,
+                                i as i32,
+                                true,
+                                cond,
                             );
                             let fl = self.channel_state[n].frame_length;
                             let sig_type = self.channel_state[n].indices.signal_type as i32;
                             let qot = self.channel_state[n].indices.quant_offset_type as i32;
                             let mut dummy_pulses = [0i16; MAX_FRAME_LENGTH];
                             decode_pulses::silk_decode_pulses(
-                                ps_range_dec, &mut dummy_pulses, sig_type, qot, fl
+                                ps_range_dec,
+                                &mut dummy_pulses,
+                                sig_type,
+                                qot,
+                                fl,
                             );
                         }
                     }
@@ -203,11 +212,14 @@ impl SilkDecoder {
         if n_ch_internal == 2 {
             let nfd = self.channel_state[0].n_frames_decoded;
             if lost_flag == FLAG_DECODE_NORMAL
-                || (lost_flag == FLAG_DECODE_LBRR && self.channel_state[0].lbrr_flags[nfd as usize] == 1)
+                || (lost_flag == FLAG_DECODE_LBRR
+                    && self.channel_state[0].lbrr_flags[nfd as usize] == 1)
             {
                 stereo::silk_stereo_decode_pred(ps_range_dec, &mut ms_pred_q13);
-                if (lost_flag == FLAG_DECODE_NORMAL && self.channel_state[1].vad_flags[nfd as usize] == 0)
-                    || (lost_flag == FLAG_DECODE_LBRR && self.channel_state[1].lbrr_flags[nfd as usize] == 0)
+                if (lost_flag == FLAG_DECODE_NORMAL
+                    && self.channel_state[1].vad_flags[nfd as usize] == 0)
+                    || (lost_flag == FLAG_DECODE_LBRR
+                        && self.channel_state[1].lbrr_flags[nfd as usize] == 0)
                 {
                     decode_only_middle = stereo::silk_stereo_decode_mid_only(ps_range_dec) != 0;
                 }
@@ -294,7 +306,8 @@ impl SilkDecoder {
         // Number of output samples
         let internal_rate = self.channel_state[0].fs_khz * 1000;
         *n_samples_out = if internal_rate > 0 {
-            (n_samples_out_dec as i64 * dec_control.api_sample_rate as i64 / internal_rate as i64) as i32
+            (n_samples_out_dec as i64 * dec_control.api_sample_rate as i64 / internal_rate as i64)
+                as i32
         } else {
             n_samples_out_dec
         };
@@ -374,7 +387,11 @@ fn silk_decode_frame(
     {
         // Decode indices
         decode_indices::silk_decode_indices(
-            ps_dec, ps_range_dec, ps_dec.n_frames_decoded, lost_flag != 0, cond_coding
+            ps_dec,
+            ps_range_dec,
+            ps_dec.n_frames_decoded,
+            lost_flag != 0,
+            cond_coding,
         );
 
         // Decode pulses

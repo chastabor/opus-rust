@@ -6,8 +6,8 @@
 //
 // Ported from silk/A2NLSF.c, silk/NLSF_VQ_weights_laroia.c
 
-use crate::*;
 use crate::tables::*;
+use crate::*;
 
 // Constants from silk/define.h
 const SILK_MAX_ORDER_LPC: usize = 16;
@@ -61,11 +61,7 @@ pub fn silk_autocorrelation(
 /// Returns prediction gain in Q24.
 ///
 /// Standard Levinson-Durbin with Q24 internal precision for reflection coefficients.
-pub fn silk_levinson_durbin(
-    a_q16: &mut [i32],
-    corr: &[i32],
-    order: usize,
-) -> i32 {
+pub fn silk_levinson_durbin(a_q16: &mut [i32], corr: &[i32], order: usize) -> i32 {
     silk_levinson_durbin_constrained(a_q16, corr, order, 0)
 }
 
@@ -190,7 +186,7 @@ fn silk_a2nlsf_trans_poly(p: &mut [i32], dd: usize) {
 /// Returns the polynomial evaluation in Q16.
 fn silk_a2nlsf_eval_poly(p: &[i32], x: i32, dd: usize) -> i32 {
     let mut y32 = p[dd]; // Q16
-    let x_q16 = x << 4;  // Q12 -> Q16
+    let x_q16 = x << 4; // Q12 -> Q16
 
     for n in (0..dd).rev() {
         // silk_SMLAWW(p[n], y32, x_Q16) = p[n] + ((y32 as i64 * x_Q16 as i64) >> 16)
@@ -226,11 +222,7 @@ fn silk_a2nlsf_init(a_q16: &[i32], p: &mut [i32], q: &mut [i32], dd: usize) {
 /// 2. Evaluate P and Q at frequencies along the unit circle using Chebyshev recursion
 /// 3. Find zero crossings (sign changes) -- these are the NLSF frequencies
 /// 4. Refine each root with bisection
-pub fn silk_a2nlsf(
-    nlsf_q15: &mut [i16],
-    a_q16: &mut [i32],
-    order: usize,
-) {
+pub fn silk_a2nlsf(nlsf_q15: &mut [i16], a_q16: &mut [i32], order: usize) {
     let dd = order >> 1;
     let mut p = [0i32; SILK_MAX_ORDER_LPC / 2 + 1];
     let mut q = [0i32; SILK_MAX_ORDER_LPC / 2 + 1];
@@ -361,11 +353,7 @@ pub fn silk_a2nlsf(
 /// Compute NLSF weights for quantization (Laroia method).
 ///
 /// Port of silk_NLSF_VQ_weights_laroia from silk/NLSF_VQ_weights_laroia.c.
-pub fn silk_nlsf_vq_weights_laroia(
-    p_nlsf_w_q_out: &mut [i16],
-    p_nlsf_q15: &[i16],
-    order: usize,
-) {
+pub fn silk_nlsf_vq_weights_laroia(p_nlsf_w_q_out: &mut [i16], p_nlsf_q15: &[i16], order: usize) {
     debug_assert!(order > 0);
     debug_assert!(order & 1 == 0);
 
@@ -422,14 +410,14 @@ const FIND_LPC_COND_FAC_Q32: i32 = 42949;
 /// Computes LPC coefficients and residual energy from input signal,
 /// enforcing a maximum prediction gain via `min_inv_gain_q30`.
 pub fn silk_burg_modified(
-    res_nrg: &mut i32,          // O: Residual energy
-    res_nrg_q: &mut i32,        // O: Residual energy Q value
-    a_q16: &mut [i32],          // O: LPC coefficients (length D)
-    x: &[i16],                  // I: Input signal, length nb_subfr * subfr_length
-    min_inv_gain_q30: i32,      // I: Inverse of max prediction gain
-    subfr_length: usize,        // I: Subframe length (including D preceding samples)
-    nb_subfr: usize,            // I: Number of subframes
-    d: usize,                   // I: LPC order
+    res_nrg: &mut i32,     // O: Residual energy
+    res_nrg_q: &mut i32,   // O: Residual energy Q value
+    a_q16: &mut [i32],     // O: LPC coefficients (length D)
+    x: &[i16],             // I: Input signal, length nb_subfr * subfr_length
+    min_inv_gain_q30: i32, // I: Inverse of max prediction gain
+    subfr_length: usize,   // I: Subframe length (including D preceding samples)
+    nb_subfr: usize,       // I: Number of subframes
+    d: usize,              // I: LPC order
 ) {
     let mut c_first_row = [0i32; SILK_MAX_ORDER_LPC];
     let mut c_last_row = [0i32; SILK_MAX_ORDER_LPC];
@@ -444,7 +432,11 @@ pub fn silk_burg_modified(
         c0_64 += x[i] as i64 * x[i] as i64;
     }
 
-    let lz = if c0_64 == 0 { 64 } else { c0_64.leading_zeros() as i32 };
+    let lz = if c0_64 == 0 {
+        64
+    } else {
+        c0_64.leading_zeros() as i32
+    };
     let rshifts = (32 + 1 + N_BITS_HEAD_ROOM - lz).clamp(MIN_RSHIFTS, MAX_RSHIFTS);
 
     let c0 = if rshifts > 0 {
@@ -463,7 +455,9 @@ pub fn silk_burg_modified(
         let x_ptr = &x[s * subfr_length..];
         for n in 1..=d {
             let mut acc: i64 = 0;
-            let len = subfr_length.saturating_sub(n).min(x_ptr.len().saturating_sub(n));
+            let len = subfr_length
+                .saturating_sub(n)
+                .min(x_ptr.len().saturating_sub(n));
             for i in 0..len {
                 acc += x_ptr[i] as i64 * x_ptr[i + n] as i64;
             }
@@ -491,18 +485,23 @@ pub fn silk_burg_modified(
                 let x1 = -(x_ptr[n] as i32) << (16 - rshifts).max(0).min(16);
                 let x2 = if subfr_length - n - 1 < x_ptr.len() {
                     -(x_ptr[subfr_length - n - 1] as i32) << (16 - rshifts).max(0).min(16)
-                } else { 0 };
+                } else {
+                    0
+                };
                 let mut tmp1 = (x_ptr[n] as i32) << (QA - 16).max(0).min(16);
                 let mut tmp2 = if subfr_length - n - 1 < x_ptr.len() {
                     (x_ptr[subfr_length - n - 1] as i32) << (QA - 16).max(0).min(16)
-                } else { 0 };
+                } else {
+                    0
+                };
 
                 for k in 0..n {
                     if n >= k + 1 && n - k - 1 < x_ptr.len() {
                         c_first_row[k] = silk_smlawb(c_first_row[k], x1, x_ptr[n - k - 1] as i32);
                     }
                     if subfr_length > n && subfr_length - n + k < x_ptr.len() {
-                        c_last_row[k] = silk_smlawb(c_last_row[k], x2, x_ptr[subfr_length - n + k] as i32);
+                        c_last_row[k] =
+                            silk_smlawb(c_last_row[k], x2, x_ptr[subfr_length - n + k] as i32);
                     }
                     let atmp_qa = af_qa[k];
                     if n >= k + 1 && n - k - 1 < x_ptr.len() {
@@ -518,7 +517,8 @@ pub fn silk_burg_modified(
                     if n >= k && n - k < x_ptr.len() {
                         caf[k] = silk_smlawb(caf[k], tmp1, x_ptr[n - k] as i32);
                     }
-                    if subfr_length > n && subfr_length - n + k >= 1
+                    if subfr_length > n
+                        && subfr_length - n + k >= 1
                         && subfr_length - n + k - 1 < x_ptr.len()
                     {
                         cab[k] = silk_smlawb(cab[k], tmp2, x_ptr[subfr_length - n + k - 1] as i32);
@@ -542,9 +542,7 @@ pub fn silk_burg_modified(
             tmp1 = tmp1.wrapping_add(silk_smmul(c_last_row[n - k - 1], atmp1) << shift);
             tmp2 = tmp2.wrapping_add(silk_smmul(c_first_row[n - k - 1], atmp1) << shift);
             num = num.wrapping_add(silk_smmul(cab[n - k], atmp1) << shift);
-            nrg = nrg.wrapping_add(
-                silk_smmul(cab[k + 1].wrapping_add(caf[k + 1]), atmp1) << shift
-            );
+            nrg = nrg.wrapping_add(silk_smmul(cab[k + 1].wrapping_add(caf[k + 1]), atmp1) << shift);
         }
         caf[n + 1] = tmp1;
         cab[n + 1] = tmp2;
@@ -571,7 +569,9 @@ pub fn silk_burg_modified(
             if rc_adj > 0 {
                 rc_adj = (rc_adj + tmp2_adj / rc_adj) >> 1; // Newton-Raphson
                 rc_adj <<= 16; // Q15 → Q31
-                if num < 0 { rc_adj = -rc_adj; }
+                if num < 0 {
+                    rc_adj = -rc_adj;
+                }
             }
             inv_gain_q30 = min_inv_gain_q30;
             reached_max_gain = true;
@@ -637,7 +637,7 @@ pub fn silk_burg_modified(
             a_q16[k] = -atmp1;
         }
         *res_nrg = nrg.wrapping_add(
-            ((silk_smmul(FIND_LPC_COND_FAC_Q32, c0) as i64 * (-tmp1_sum) as i64) >> 16) as i32
+            ((silk_smmul(FIND_LPC_COND_FAC_Q32, c0) as i64 * (-tmp1_sum) as i64) >> 16) as i32,
         );
         *res_nrg_q = -rshifts;
     }
@@ -654,12 +654,12 @@ const FIND_LPC_COND_FAC: f64 = 1e-5;
 /// Returns residual energy as f32. Output coefficients `a` are f32.
 /// Internally uses f64 for all accumulation (matching C's `double`).
 pub fn silk_burg_modified_flp(
-    a: &mut [f32],               // O: prediction coefficients [D]
-    x: &[f32],                   // I: input signal [nb_subfr * subfr_length]
-    min_inv_gain: f32,           // I: minimum inverse prediction gain
-    subfr_length: usize,         // I: subframe length (incl. D preceding samples)
-    nb_subfr: usize,             // I: number of subframes
-    d: usize,                    // I: LPC order
+    a: &mut [f32],       // O: prediction coefficients [D]
+    x: &[f32],           // I: input signal [nb_subfr * subfr_length]
+    min_inv_gain: f32,   // I: minimum inverse prediction gain
+    subfr_length: usize, // I: subframe length (incl. D preceding samples)
+    nb_subfr: usize,     // I: number of subframes
+    d: usize,            // I: LPC order
 ) -> f32 {
     let mut c_first_row = [0.0f64; SILK_MAX_ORDER_LPC];
     let mut c_last_row = [0.0f64; SILK_MAX_ORDER_LPC];
@@ -704,7 +704,9 @@ pub fn silk_burg_modified_flp(
                 let mut tmp1 = x_ptr[n] as f64;
                 let mut tmp2 = if subfr_length - n - 1 < x_ptr.len() {
                     x_ptr[subfr_length - n - 1] as f64
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
 
                 for k in 0..n {
                     if n >= k + 1 && n - k - 1 < x_ptr.len() {
@@ -726,7 +728,8 @@ pub fn silk_burg_modified_flp(
                     if n >= k && n - k < x_ptr.len() {
                         caf[k] -= tmp1 * (x_ptr[n - k] as f64);
                     }
-                    if subfr_length > n && subfr_length - n + k >= 1
+                    if subfr_length > n
+                        && subfr_length - n + k >= 1
                         && subfr_length - n + k - 1 < x_ptr.len()
                     {
                         cab[k] -= tmp2 * (x_ptr[subfr_length - n + k - 1] as f64);

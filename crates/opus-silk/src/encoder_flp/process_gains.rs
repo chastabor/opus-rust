@@ -1,9 +1,9 @@
 // Port of silk/float/process_gains_FLP.c: silk_process_gains_FLP
 // Floors gains using residual energy, quantizes, computes lambda.
 
-use crate::*;
 use crate::gain_quant;
 use crate::tables::SILK_QUANTIZATION_OFFSETS_Q10;
+use crate::*;
 
 // Tuning constants from silk/tuning_parameters.h
 const LAMBDA_OFFSET: f32 = 1.2;
@@ -21,8 +21,8 @@ const LAMBDA_QUANT_OFFSET: f32 = 0.8;
 /// On output, `gains` contains the quantized gains (post-floor, post-quant).
 /// Returns lambda (rate-distortion tradeoff parameter).
 pub fn silk_process_gains_flp(
-    gains: &mut [f32; MAX_NB_SUBFR],       // I/O: per-subframe gains
-    res_nrg: &[f32; MAX_NB_SUBFR],         // I: residual energy per subframe
+    gains: &mut [f32; MAX_NB_SUBFR], // I/O: per-subframe gains
+    res_nrg: &[f32; MAX_NB_SUBFR],   // I: residual energy per subframe
     indices: &mut SideInfoIndices,
     last_gain_index: &mut i8,
     snr_db_q7: i32,
@@ -90,9 +90,9 @@ pub fn silk_process_gains_flp(
     }
 
     // Compute lambda (quantizer boundary adjustment)
-    let quant_offset = SILK_QUANTIZATION_OFFSETS_Q10
-        [(signal_type >> 1) as usize]
-        [indices.quant_offset_type as usize] as f32 / 1024.0;
+    let quant_offset = SILK_QUANTIZATION_OFFSETS_Q10[(signal_type >> 1) as usize]
+        [indices.quant_offset_type as usize] as f32
+        / 1024.0;
 
     let lambda = LAMBDA_OFFSET
         + LAMBDA_DELAYED_DECISIONS * n_states_delayed_decision as f32

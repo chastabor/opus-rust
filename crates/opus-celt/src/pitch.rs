@@ -186,8 +186,7 @@ pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
     x_lp[0] = 0.25 * x[0][1] + 0.5 * x[0][0];
     if c == 2 {
         for i in 1..len {
-            x_lp[i] +=
-                0.25 * x[1][2 * i - 1] + 0.5 * x[1][2 * i] + 0.25 * x[1][2 * i + 1];
+            x_lp[i] += 0.25 * x[1][2 * i - 1] + 0.5 * x[1][2 * i] + 0.25 * x[1][2 * i + 1];
         }
         x_lp[0] += 0.25 * x[1][1] + 0.5 * x[1][0];
     }
@@ -230,13 +229,7 @@ pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
 /// Cross-correlation for pitch search.
 /// Each xcorr[i] = inner_product(x, y[i..], len).
 /// Processes 4 lags at a time for cache efficiency (matches C xcorr_kernel pattern).
-pub fn celt_pitch_xcorr(
-    x: &[f32],
-    y: &[f32],
-    xcorr: &mut [f32],
-    len: usize,
-    max_pitch: usize,
-) {
+pub fn celt_pitch_xcorr(x: &[f32], y: &[f32], xcorr: &mut [f32], len: usize, max_pitch: usize) {
     let mut i = 0;
     while i + 3 < max_pitch {
         xcorr_kernel(x, &y[i..], &mut xcorr[i..i + 4], len);
@@ -256,7 +249,7 @@ fn xcorr_kernel(x: &[f32], y: &[f32], xcorr: &mut [f32], len: usize) {
     let mut j = 0;
     while j + 3 < len {
         let (x0, x1, x2, x3) = (x[j], x[j + 1], x[j + 2], x[j + 3]);
-        s0 += x0 * y[j]     + x1 * y[j + 1] + x2 * y[j + 2] + x3 * y[j + 3];
+        s0 += x0 * y[j] + x1 * y[j + 1] + x2 * y[j + 2] + x3 * y[j + 3];
         s1 += x0 * y[j + 1] + x1 * y[j + 2] + x2 * y[j + 3] + x3 * y[j + 4];
         s2 += x0 * y[j + 2] + x1 * y[j + 3] + x2 * y[j + 4] + x3 * y[j + 5];
         s3 += x0 * y[j + 3] + x1 * y[j + 4] + x2 * y[j + 5] + x3 * y[j + 6];
@@ -320,13 +313,7 @@ fn find_best_pitch(
 
 /// Multi-resolution pitch search.
 /// Finds the best pitch period in the downsampled signal.
-pub fn pitch_search(
-    x_lp: &[f32],
-    y: &[f32],
-    len: usize,
-    max_pitch: usize,
-    pitch: &mut usize,
-) {
+pub fn pitch_search(x_lp: &[f32], y: &[f32], len: usize, max_pitch: usize, pitch: &mut usize) {
     let lag = len + max_pitch;
 
     // Downsample by 2 again to get 4x decimated signals
@@ -484,9 +471,7 @@ pub fn remove_doubling(
         let cont;
         if (t1 as isize - prev_period as isize).unsigned_abs() <= 1 {
             cont = prev_gain;
-        } else if (t1 as isize - prev_period as isize).unsigned_abs() <= 2
-            && 5 * k * k < t0_val
-        {
+        } else if (t1 as isize - prev_period as isize).unsigned_abs() <= 2 && 5 * k * k < t0_val {
             cont = 0.5 * prev_gain;
         } else {
             cont = 0.0;
@@ -518,11 +503,7 @@ pub fn remove_doubling(
     let mut xcorr = [0.0f32; 3];
     for k in 0..3usize {
         let lag = t + k - 1;
-        xcorr[k] = celt_inner_prod(
-            &x[base..base + n],
-            &x[base - lag..base - lag + n],
-            n,
-        );
+        xcorr[k] = celt_inner_prod(&x[base..base + n], &x[base - lag..base - lag + n], n);
     }
     let offset;
     if (xcorr[2] - xcorr[0]) > 0.7 * (xcorr[1] - xcorr[0]) {
@@ -543,4 +524,3 @@ pub fn remove_doubling(
     }
     pg
 }
-

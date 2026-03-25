@@ -83,10 +83,7 @@ fn init_caps_all_lm_mono() {
         rate::init_caps(m, &mut rust_cap, lm, 1);
         c_init_caps(&mut c_cap, lm as usize, 1);
 
-        assert_eq!(
-            rust_cap, c_cap,
-            "init_caps(LM={lm}, C=1) mismatch"
-        );
+        assert_eq!(rust_cap, c_cap, "init_caps(LM={lm}, C=1) mismatch");
     }
 }
 
@@ -100,9 +97,6 @@ fn init_caps_all_lm_stereo() {
         rate::init_caps(m, &mut rust_cap, lm, 2);
         c_init_caps(&mut c_cap, lm as usize, 2);
 
-        assert_eq!(
-            rust_cap, c_cap,
-            "init_caps(LM={lm}, C=2) mismatch"
-        );
+        assert_eq!(rust_cap, c_cap, "init_caps(LM={lm}, C=2) mismatch");
     }
 }

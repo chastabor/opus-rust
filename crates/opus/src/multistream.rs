@@ -4,8 +4,8 @@
 
 use crate::decoder::OpusDecoder;
 use crate::error::OpusError;
-use crate::types::*;
 use crate::packet::{opus_packet_get_nb_samples, opus_packet_parse_self_delimited};
+use crate::types::*;
 
 /// Channel layout for multistream packets.
 #[derive(Clone)]
@@ -125,7 +125,11 @@ impl OpusMSDecoder {
         // Create per-stream decoders
         let mut decoders = Vec::with_capacity(streams);
         for s in 0..streams {
-            let ch = if s < coupled_streams { Channels::Stereo } else { Channels::Mono };
+            let ch = if s < coupled_streams {
+                Channels::Stereo
+            } else {
+                Channels::Mono
+            };
             let dec = OpusDecoder::new(sample_rate, ch)?;
             decoders.push(dec);
         }
@@ -158,7 +162,8 @@ impl OpusMSDecoder {
 
             let pkt_offset = parsed.packet_offset;
             let tmp_samples = opus_packet_get_nb_samples(
-                &data[offset..offset + pkt_offset.min(remaining)], self.fs
+                &data[offset..offset + pkt_offset.min(remaining)],
+                self.fs,
             )?;
 
             if s != 0 && samples != tmp_samples {
@@ -219,7 +224,11 @@ impl OpusMSDecoder {
         for s in 0..self.layout.nb_streams {
             let dec = &mut self.decoders[s];
 
-            let stream_channels = if s < self.layout.nb_coupled_streams { 2 } else { 1 };
+            let stream_channels = if s < self.layout.nb_coupled_streams {
+                2
+            } else {
+                1
+            };
 
             let ret = if do_plc {
                 // Packet loss concealment
@@ -230,7 +239,8 @@ impl OpusMSDecoder {
                 }
                 let is_not_last = s != self.layout.nb_streams - 1;
                 // Safety: do_plc is false here, meaning data is Some (checked on line 198)
-                let stream_data = &data.expect("data guaranteed Some by do_plc check")[offset..offset + remaining];
+                let stream_data = &data.expect("data guaranteed Some by do_plc check")
+                    [offset..offset + remaining];
 
                 // Parse to get packet_offset
                 let parsed = if is_not_last {
@@ -266,10 +276,16 @@ impl OpusMSDecoder {
                 let mut prev = -1i32;
                 loop {
                     let chan = get_left_channel(&self.layout, s, prev);
-                    if chan == -1 { break; }
+                    if chan == -1 {
+                        break;
+                    }
                     copy_channel_out_float(
-                        pcm, nb_channels, chan as usize,
-                        &buf, stream_channels, 0,
+                        pcm,
+                        nb_channels,
+                        chan as usize,
+                        &buf,
+                        stream_channels,
+                        0,
                         actual_frame_size as usize,
                     );
                     prev = chan;
@@ -277,10 +293,16 @@ impl OpusMSDecoder {
                 prev = -1;
                 loop {
                     let chan = get_right_channel(&self.layout, s, prev);
-                    if chan == -1 { break; }
+                    if chan == -1 {
+                        break;
+                    }
                     copy_channel_out_float(
-                        pcm, nb_channels, chan as usize,
-                        &buf, stream_channels, 1,
+                        pcm,
+                        nb_channels,
+                        chan as usize,
+                        &buf,
+                        stream_channels,
+                        1,
                         actual_frame_size as usize,
                     );
                     prev = chan;
@@ -290,10 +312,16 @@ impl OpusMSDecoder {
                 let mut prev = -1i32;
                 loop {
                     let chan = get_mono_channel(&self.layout, s, prev);
-                    if chan == -1 { break; }
+                    if chan == -1 {
+                        break;
+                    }
                     copy_channel_out_float(
-                        pcm, nb_channels, chan as usize,
-                        &buf, 1, 0,
+                        pcm,
+                        nb_channels,
+                        chan as usize,
+                        &buf,
+                        1,
+                        0,
                         actual_frame_size as usize,
                     );
                     prev = chan;

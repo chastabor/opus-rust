@@ -1,7 +1,7 @@
-use crate::mode::CeltMode;
-use crate::tables::*;
 use crate::mathops::*;
+use crate::mode::CeltMode;
 use crate::rate::{bits2pulses, pulses2bits};
+use crate::tables::*;
 use opus_range_coder::EcCtx;
 
 // =========================================================================
@@ -255,7 +255,12 @@ fn compute_theta(
 
     // Decide on the resolution to give to the split parameter theta
     let pulse_cap = m.log_n[i] as i32 + lm * (1 << BITRES);
-    let offset = (pulse_cap >> 1) - if stereo && n == 2 { QTHETA_OFFSET_TWOPHASE } else { QTHETA_OFFSET };
+    let offset = (pulse_cap >> 1)
+        - if stereo && n == 2 {
+            QTHETA_OFFSET_TWOPHASE
+        } else {
+            QTHETA_OFFSET
+        };
     let mut qn = compute_qn(n, *b, offset, pulse_cap, stereo);
     if stereo && (i as i32) >= intensity {
         qn = 1;
@@ -279,8 +284,16 @@ fn compute_theta(
             } else {
                 x = x0 + 1 + (fs - (x0 + 1) * p0);
             }
-            let fl = if x <= x0 { p0 * x } else { (x - 1 - x0) + (x0 + 1) * p0 };
-            let fh = if x <= x0 { p0 * (x + 1) } else { (x - x0) + (x0 + 1) * p0 };
+            let fl = if x <= x0 {
+                p0 * x
+            } else {
+                (x - 1 - x0) + (x0 + 1) * p0
+            };
+            let fh = if x <= x0 {
+                p0 * (x + 1)
+            } else {
+                (x - x0) + (x0 + 1) * p0
+            };
             ec.dec_update(fl as u32, fh as u32, ft);
             itheta = x;
         } else if b0 > 1 || stereo {
@@ -485,8 +498,13 @@ struct SplitCtx {
 trait QuantMode {
     /// PVQ quantize (encode) or unquantize (decode) at the base case.
     fn alg_quant_or_unquant(
-        x: &mut [f32], n: usize, k: usize, spread: i32, b: usize,
-        ec: &mut EcCtx, gain: f32,
+        x: &mut [f32],
+        n: usize,
+        k: usize,
+        spread: i32,
+        b: usize,
+        ec: &mut EcCtx,
+        gain: f32,
     ) -> u32;
 
     /// Read (decode) or compute+write (encode) a sign bit for the N==1 case.
@@ -495,24 +513,28 @@ trait QuantMode {
 
     /// Compute/decode theta for the split inside quant_partition.
     /// Decoder reads itheta from the bitstream. Encoder computes from signal then writes.
-    fn code_split_theta(
-        ec: &mut EcCtx, x: &[f32], half_n: usize, qn: i32, b0: usize,
-    ) -> i32;
+    fn code_split_theta(ec: &mut EcCtx, x: &[f32], half_n: usize, qn: i32, b0: usize) -> i32;
 
     /// Compute/decode theta for stereo split.
     /// Decoder uses compute_theta (reads). Encoder uses compute_theta_enc (writes).
     fn compute_theta_stereo(
-        m: &CeltMode, band_idx: usize, ec: &mut EcCtx,
-        x: &[f32], y: &[f32], n: usize, b: &mut i32, b0: usize,
-        lm: i32, ctx: &mut BandCtx, stereo: bool, fill: &mut u32,
+        m: &CeltMode,
+        band_idx: usize,
+        ec: &mut EcCtx,
+        x: &[f32],
+        y: &[f32],
+        n: usize,
+        b: &mut i32,
+        b0: usize,
+        lm: i32,
+        ctx: &mut BandCtx,
+        stereo: bool,
+        fill: &mut u32,
     ) -> SplitCtx;
 
     /// Read (decode) or compute+write (encode) sign for N==2 stereo case.
     /// Returns the sign value (1 - 2*sign_bit).
-    fn code_stereo_sign(
-        ec: &mut EcCtx, x2: &[f32], y2: &[f32],
-        sbits: i32,
-    ) -> i32;
+    fn code_stereo_sign(ec: &mut EcCtx, x2: &[f32], y2: &[f32], sbits: i32) -> i32;
 
     /// Whether to also transform X during recombine/time-divide (encoder does, decoder doesn't).
     const TRANSFORM_X: bool;
@@ -526,8 +548,13 @@ struct Encode;
 
 impl QuantMode for Decode {
     fn alg_quant_or_unquant(
-        x: &mut [f32], n: usize, k: usize, spread: i32, b: usize,
-        ec: &mut EcCtx, gain: f32,
+        x: &mut [f32],
+        n: usize,
+        k: usize,
+        spread: i32,
+        b: usize,
+        ec: &mut EcCtx,
+        gain: f32,
     ) -> u32 {
         alg_unquant(x, n, k, spread, b, ec, gain)
     }
@@ -538,12 +565,14 @@ impl QuantMode for Decode {
             sign = ec.dec_bits(1);
             *remaining_bits -= 1 << BITRES;
         }
-        x[0] = if sign != 0 { -NORM_SCALING } else { NORM_SCALING };
+        x[0] = if sign != 0 {
+            -NORM_SCALING
+        } else {
+            NORM_SCALING
+        };
     }
 
-    fn code_split_theta(
-        ec: &mut EcCtx, _x: &[f32], _half_n: usize, qn: i32, b0: usize,
-    ) -> i32 {
+    fn code_split_theta(ec: &mut EcCtx, _x: &[f32], _half_n: usize, qn: i32, b0: usize) -> i32 {
         let itheta;
         if b0 > 1 {
             itheta = ec.dec_uint((qn + 1) as u32) as i32;
@@ -569,17 +598,23 @@ impl QuantMode for Decode {
     }
 
     fn compute_theta_stereo(
-        m: &CeltMode, band_idx: usize, ec: &mut EcCtx,
-        _x: &[f32], _y: &[f32], n: usize, b: &mut i32, b0: usize,
-        lm: i32, ctx: &mut BandCtx, stereo: bool, fill: &mut u32,
+        m: &CeltMode,
+        band_idx: usize,
+        ec: &mut EcCtx,
+        _x: &[f32],
+        _y: &[f32],
+        n: usize,
+        b: &mut i32,
+        b0: usize,
+        lm: i32,
+        ctx: &mut BandCtx,
+        stereo: bool,
+        fill: &mut u32,
     ) -> SplitCtx {
         compute_theta(m, band_idx, ec, n, b, b0, lm, ctx, stereo, fill)
     }
 
-    fn code_stereo_sign(
-        ec: &mut EcCtx, _x2: &[f32], _y2: &[f32],
-        sbits: i32,
-    ) -> i32 {
+    fn code_stereo_sign(ec: &mut EcCtx, _x2: &[f32], _y2: &[f32], sbits: i32) -> i32 {
         let mut sign = 0i32;
         if sbits != 0 {
             sign = ec.dec_bits(1) as i32;
@@ -593,8 +628,13 @@ impl QuantMode for Decode {
 
 impl QuantMode for Encode {
     fn alg_quant_or_unquant(
-        x: &mut [f32], n: usize, k: usize, spread: i32, b: usize,
-        ec: &mut EcCtx, gain: f32,
+        x: &mut [f32],
+        n: usize,
+        k: usize,
+        spread: i32,
+        b: usize,
+        ec: &mut EcCtx,
+        gain: f32,
     ) -> u32 {
         alg_quant(x, n, k, spread, b, ec, gain)
     }
@@ -605,12 +645,14 @@ impl QuantMode for Encode {
             ec.enc_bits(sign, 1);
             *remaining_bits -= 1 << BITRES;
         }
-        x[0] = if sign != 0 { -NORM_SCALING } else { NORM_SCALING };
+        x[0] = if sign != 0 {
+            -NORM_SCALING
+        } else {
+            NORM_SCALING
+        };
     }
 
-    fn code_split_theta(
-        ec: &mut EcCtx, x: &[f32], half_n: usize, qn: i32, b0: usize,
-    ) -> i32 {
+    fn code_split_theta(ec: &mut EcCtx, x: &[f32], half_n: usize, qn: i32, b0: usize) -> i32 {
         // Compute itheta from signal energy split
         let mut e_l = 1e-27f32;
         let mut e_r = 1e-27f32;
@@ -620,8 +662,8 @@ impl QuantMode for Encode {
         }
         let mid_val = celt_sqrt(e_l);
         let side_val = celt_sqrt(e_r);
-        let mut itheta = (0.5 + 16384.0 * side_val.atan2(mid_val)
-            / std::f32::consts::FRAC_PI_2).floor() as i32;
+        let mut itheta =
+            (0.5 + 16384.0 * side_val.atan2(mid_val) / std::f32::consts::FRAC_PI_2).floor() as i32;
         itheta = itheta.max(0).min(16384);
         itheta = (itheta * qn + 8192) / 16384;
 
@@ -644,17 +686,23 @@ impl QuantMode for Encode {
     }
 
     fn compute_theta_stereo(
-        m: &CeltMode, band_idx: usize, ec: &mut EcCtx,
-        x: &[f32], y: &[f32], n: usize, b: &mut i32, b0: usize,
-        lm: i32, ctx: &mut BandCtx, stereo: bool, fill: &mut u32,
+        m: &CeltMode,
+        band_idx: usize,
+        ec: &mut EcCtx,
+        x: &[f32],
+        y: &[f32],
+        n: usize,
+        b: &mut i32,
+        b0: usize,
+        lm: i32,
+        ctx: &mut BandCtx,
+        stereo: bool,
+        fill: &mut u32,
     ) -> SplitCtx {
         compute_theta_enc(m, band_idx, ec, x, y, n, b, b0, lm, ctx, stereo, fill)
     }
 
-    fn code_stereo_sign(
-        ec: &mut EcCtx, x2: &[f32], y2: &[f32],
-        sbits: i32,
-    ) -> i32 {
+    fn code_stereo_sign(ec: &mut EcCtx, x2: &[f32], y2: &[f32], sbits: i32) -> i32 {
         let cross = x2[0] * y2[1] - x2[1] * y2[0];
         let sign = if cross < 0.0 { 1i32 } else { 0i32 };
         if sbits != 0 {
@@ -677,7 +725,7 @@ fn quant_partition_generic<M: QuantMode>(
     x: &mut [f32],
     n: usize,
     b: i32,
-    b0: usize,  // B
+    b0: usize, // B
     lm: i32,
     ctx: &mut BandCtx,
     gain: f32,
@@ -737,7 +785,11 @@ fn quant_partition_generic<M: QuantMode>(
         ctx.remaining_bits -= qalloc;
 
         let next_lowband2 = lowband.and_then(|lb| {
-            if half_n <= lb.len() { Some(&lb[half_n..]) } else { None }
+            if half_n <= lb.len() {
+                Some(&lb[half_n..])
+            } else {
+                None
+            }
         });
 
         // Rebalancing
@@ -747,30 +799,70 @@ fn quant_partition_generic<M: QuantMode>(
 
         if mbits >= sbits {
             let cm_mid = quant_partition_generic::<M>(
-                m, band_idx, ec, &mut x[..half_n], half_n, mbits, new_b0, new_lm,
-                ctx, gain * mid, new_fill, lowband,
+                m,
+                band_idx,
+                ec,
+                &mut x[..half_n],
+                half_n,
+                mbits,
+                new_b0,
+                new_lm,
+                ctx,
+                gain * mid,
+                new_fill,
+                lowband,
             );
             let rebalance_amount = mbits - (rebalance - ctx.remaining_bits);
             if rebalance_amount > 3 << BITRES && itheta != 0 {
                 final_sbits = sbits + rebalance_amount - (3 << BITRES);
             }
             let cm_side = quant_partition_generic::<M>(
-                m, band_idx, ec, &mut x[half_n..], half_n, final_sbits, new_b0, new_lm,
-                ctx, gain * side, new_fill >> new_b as u32, next_lowband2,
+                m,
+                band_idx,
+                ec,
+                &mut x[half_n..],
+                half_n,
+                final_sbits,
+                new_b0,
+                new_lm,
+                ctx,
+                gain * side,
+                new_fill >> new_b as u32,
+                next_lowband2,
             );
             cm_mid | (cm_side << (b0 >> 1) as u32)
         } else {
             let cm_side = quant_partition_generic::<M>(
-                m, band_idx, ec, &mut x[half_n..], half_n, sbits, new_b0, new_lm,
-                ctx, gain * side, new_fill >> new_b as u32, next_lowband2,
+                m,
+                band_idx,
+                ec,
+                &mut x[half_n..],
+                half_n,
+                sbits,
+                new_b0,
+                new_lm,
+                ctx,
+                gain * side,
+                new_fill >> new_b as u32,
+                next_lowband2,
             );
             let rebalance_amount = sbits - (rebalance - ctx.remaining_bits);
             if rebalance_amount > 3 << BITRES && itheta != 16384 {
                 final_mbits = mbits + rebalance_amount - (3 << BITRES);
             }
             let cm_mid = quant_partition_generic::<M>(
-                m, band_idx, ec, &mut x[..half_n], half_n, final_mbits, new_b0, new_lm,
-                ctx, gain * mid, new_fill, lowband,
+                m,
+                band_idx,
+                ec,
+                &mut x[..half_n],
+                half_n,
+                final_mbits,
+                new_b0,
+                new_lm,
+                ctx,
+                gain * mid,
+                new_fill,
+                lowband,
             );
             cm_mid | (cm_side << (b0 >> 1) as u32)
         }
@@ -795,7 +887,11 @@ fn quant_partition_generic<M: QuantMode>(
             M::alg_quant_or_unquant(x, n, k, ctx.spread, b0, ec, gain)
         } else {
             // No pulses: fill with noise or folding
-            let cm_mask = if b0 < 32 { (1u32 << b0) - 1 } else { 0xFFFFFFFF };
+            let cm_mask = if b0 < 32 {
+                (1u32 << b0) - 1
+            } else {
+                0xFFFFFFFF
+            };
             let fill = fill & cm_mask;
             if fill == 0 {
                 for j in 0..n {
@@ -835,7 +931,7 @@ fn quant_band_generic<M: QuantMode>(
     x: &mut [f32],
     n: usize,
     b: i32,
-    b_blocks: usize,  // B
+    b_blocks: usize, // B
     lm: i32,
     ctx: &mut BandCtx,
     gain: f32,
@@ -1037,12 +1133,7 @@ fn quant_band_stereo_generic<M: QuantMode>(
 
         // Quantize/dequantize x2 with quant_band using orig_fill
         cm = quant_band_generic::<M>(
-            m, band_idx, ec,
-            &mut x2, n, mbits, b_blocks, lm,
-            ctx, Q31ONE,
-            lowband,
-            None,
-            orig_fill,
+            m, band_idx, ec, &mut x2, n, mbits, b_blocks, lm, ctx, Q31ONE, lowband, None, orig_fill,
         );
 
         // Compute sign (encoder computes from signal, decoder reads from bitstream)
@@ -1054,11 +1145,15 @@ fn quant_band_stereo_generic<M: QuantMode>(
 
         // Write back, undoing the swap
         if c {
-            y[0] = x2[0]; y[1] = x2[1];
-            x[0] = y2[0]; x[1] = y2[1];
+            y[0] = x2[0];
+            y[1] = x2[1];
+            x[0] = y2[0];
+            x[1] = y2[1];
         } else {
-            x[0] = x2[0]; x[1] = x2[1];
-            y[0] = y2[0]; y[1] = y2[1];
+            x[0] = x2[0];
+            x[1] = x2[1];
+            y[0] = y2[0];
+            y[1] = y2[1];
         }
 
         // Apply mid/side scaling and reconstruct L/R
@@ -1078,11 +1173,19 @@ fn quant_band_stereo_generic<M: QuantMode>(
 
         let rebalance = ctx.remaining_bits;
         if mbits >= sbits {
-            let mut lowband_out_tmp: Option<Vec<f32>> = lowband_out.as_ref().map(|_| vec![0.0f32; n]);
+            let mut lowband_out_tmp: Option<Vec<f32>> =
+                lowband_out.as_ref().map(|_| vec![0.0f32; n]);
             cm = quant_band_generic::<M>(
-                m, band_idx, ec,
-                x, n, mbits, b_blocks, lm,
-                ctx, Q31ONE,
+                m,
+                band_idx,
+                ec,
+                x,
+                n,
+                mbits,
+                b_blocks,
+                lm,
+                ctx,
+                Q31ONE,
                 lowband,
                 lowband_out_tmp.as_deref_mut(),
                 fill,
@@ -1098,18 +1201,32 @@ fn quant_band_stereo_generic<M: QuantMode>(
                 sbits += rebalance_amount - (3 << BITRES);
             }
             cm |= quant_band_generic::<M>(
-                m, band_idx, ec,
-                y, n, sbits, b_blocks, lm,
-                ctx, side,
+                m,
+                band_idx,
+                ec,
+                y,
+                n,
+                sbits,
+                b_blocks,
+                lm,
+                ctx,
+                side,
                 None,
                 None,
                 fill >> b_blocks,
             );
         } else {
             cm = quant_band_generic::<M>(
-                m, band_idx, ec,
-                y, n, sbits, b_blocks, lm,
-                ctx, side,
+                m,
+                band_idx,
+                ec,
+                y,
+                n,
+                sbits,
+                b_blocks,
+                lm,
+                ctx,
+                side,
                 None,
                 None,
                 fill >> b_blocks,
@@ -1119,11 +1236,19 @@ fn quant_band_stereo_generic<M: QuantMode>(
             if rebalance_amount > 3 << BITRES && itheta != 16384 {
                 final_mbits = mbits + rebalance_amount - (3 << BITRES);
             }
-            let mut lowband_out_tmp: Option<Vec<f32>> = lowband_out.as_ref().map(|_| vec![0.0f32; n]);
+            let mut lowband_out_tmp: Option<Vec<f32>> =
+                lowband_out.as_ref().map(|_| vec![0.0f32; n]);
             cm |= quant_band_generic::<M>(
-                m, band_idx, ec,
-                x, n, final_mbits, b_blocks, lm,
-                ctx, Q31ONE,
+                m,
+                band_idx,
+                ec,
+                x,
+                n,
+                final_mbits,
+                b_blocks,
+                lm,
+                ctx,
+                Q31ONE,
                 lowband,
                 lowband_out_tmp.as_deref_mut(),
                 fill,
@@ -1322,11 +1447,12 @@ fn quant_all_bands_generic<M: QuantMode>(
             None
         };
 
-        let lowband2_slice_start = if effective_lowband >= 0 && (effective_lowband as usize) < norm_size {
-            Some(norm2_offset + effective_lowband as usize)
-        } else {
-            None
-        };
+        let lowband2_slice_start =
+            if effective_lowband >= 0 && (effective_lowband as usize) < norm_size {
+                Some(norm2_offset + effective_lowband as usize)
+            } else {
+                None
+            };
 
         let norm_off_band = (mm * m.ebands[i] as usize).saturating_sub(norm_offset);
         let lowband_out_valid = !last && norm_off_band + n <= norm_size;
@@ -1336,18 +1462,30 @@ fn quant_all_bands_generic<M: QuantMode>(
             let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
 
             x_cm = quant_band_generic::<M>(
-                m, i, ec,
-                &mut x[x_off..x_off + n], n, b / 2, b_short, lm,
-                &mut ctx, Q31ONE,
+                m,
+                i,
+                ec,
+                &mut x[x_off..x_off + n],
+                n,
+                b / 2,
+                b_short,
+                lm,
+                &mut ctx,
+                Q31ONE,
                 lowband_slice,
-                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                if lowband_out_valid {
+                    Some(&mut lowband_out_tmp)
+                } else {
+                    None
+                },
                 x_cm,
             );
 
             // Copy lowband_out to norm
             if lowband_out_valid && norm_off_band + n <= norm_size {
                 let copy_n = n.min(lowband_out_tmp.len());
-                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+                norm[norm_off_band..norm_off_band + copy_n]
+                    .copy_from_slice(&lowband_out_tmp[..copy_n]);
             }
 
             // For Y: use norm2 for folding
@@ -1365,11 +1503,22 @@ fn quant_all_bands_generic<M: QuantMode>(
             let mut lowband_out_tmp2 = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
 
             y_cm = quant_band_generic::<M>(
-                m, i, ec,
-                &mut y_storage[x_off..x_off + n], n, b / 2, b_short, lm,
-                &mut ctx, Q31ONE,
+                m,
+                i,
+                ec,
+                &mut y_storage[x_off..x_off + n],
+                n,
+                b / 2,
+                b_short,
+                lm,
+                &mut ctx,
+                Q31ONE,
                 lowband2_slice.as_deref(),
-                if lowband_out_valid { Some(&mut lowband_out_tmp2) } else { None },
+                if lowband_out_valid {
+                    Some(&mut lowband_out_tmp2)
+                } else {
+                    None
+                },
                 y_cm,
             );
 
@@ -1384,13 +1533,22 @@ fn quant_all_bands_generic<M: QuantMode>(
             let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
 
             x_cm = quant_band_stereo_generic::<M>(
-                m, i, ec,
+                m,
+                i,
+                ec,
                 &mut x[x_off..x_off + n],
                 &mut y_storage[x_off..x_off + n],
-                n, b, b_short, lm,
+                n,
+                b,
+                b_short,
+                lm,
                 &mut ctx,
                 lowband_slice,
-                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                if lowband_out_valid {
+                    Some(&mut lowband_out_tmp)
+                } else {
+                    None
+                },
                 x_cm | y_cm,
             );
             y_cm = x_cm;
@@ -1398,18 +1556,30 @@ fn quant_all_bands_generic<M: QuantMode>(
             // Copy lowband_out to norm
             if lowband_out_valid && norm_off_band + n <= norm_size {
                 let copy_n = n.min(lowband_out_tmp.len());
-                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+                norm[norm_off_band..norm_off_band + copy_n]
+                    .copy_from_slice(&lowband_out_tmp[..copy_n]);
             }
         } else {
             // Mono path
             let mut lowband_out_tmp = vec![0.0f32; if lowband_out_valid { n } else { 0 }];
 
             x_cm = quant_band_generic::<M>(
-                m, i, ec,
-                &mut x[x_off..x_off + n], n, b, b_short, lm,
-                &mut ctx, Q31ONE,
+                m,
+                i,
+                ec,
+                &mut x[x_off..x_off + n],
+                n,
+                b,
+                b_short,
+                lm,
+                &mut ctx,
+                Q31ONE,
                 lowband_slice,
-                if lowband_out_valid { Some(&mut lowband_out_tmp) } else { None },
+                if lowband_out_valid {
+                    Some(&mut lowband_out_tmp)
+                } else {
+                    None
+                },
                 x_cm | y_cm,
             );
             y_cm = x_cm;
@@ -1417,7 +1587,8 @@ fn quant_all_bands_generic<M: QuantMode>(
             // Copy lowband_out back to norm
             if lowband_out_valid && norm_off_band + n <= norm_size {
                 let copy_n = n.min(lowband_out_tmp.len());
-                norm[norm_off_band..norm_off_band + copy_n].copy_from_slice(&lowband_out_tmp[..copy_n]);
+                norm[norm_off_band..norm_off_band + copy_n]
+                    .copy_from_slice(&lowband_out_tmp[..copy_n]);
             }
         }
 
@@ -1457,9 +1628,25 @@ pub fn quant_all_bands(
     disable_inv: bool,
 ) {
     quant_all_bands_generic::<Decode>(
-        m, start, end, x, y, collapse_masks, pulses,
-        short_blocks, spread, dual_stereo, intensity, tf_res,
-        total_bits, balance, ec, lm, coded_bands, seed, disable_inv,
+        m,
+        start,
+        end,
+        x,
+        y,
+        collapse_masks,
+        pulses,
+        short_blocks,
+        spread,
+        dual_stereo,
+        intensity,
+        tf_res,
+        total_bits,
+        balance,
+        ec,
+        lm,
+        coded_bands,
+        seed,
+        disable_inv,
     );
 }
 
@@ -1608,8 +1795,7 @@ fn op_pvq_search(x: &[f32], iy: &mut [i32], n: usize, k: usize) -> f32 {
             let curr = iy[j] as f32;
             // Maximize correlation gain: (xy + x_abs) / sqrt(yy + 2*curr + 1) vs xy / sqrt(yy)
             // Simplified: check (xy + x_abs)^2 * yy vs xy^2 * (yy + 2*curr + 1)
-            let gain = (2.0 * xy * x_abs + x_abs * x_abs) * yy
-                - (2.0 * curr + 1.0) * xy * xy;
+            let gain = (2.0 * xy * x_abs + x_abs * x_abs) * yy - (2.0 * curr + 1.0) * xy * xy;
             if gain > best_gain || (gain == best_gain && j == 0) {
                 best_gain = gain;
                 best_idx = j;
@@ -1697,7 +1883,12 @@ fn compute_theta_enc(
     let intensity = ctx.intensity;
 
     let pulse_cap = m.log_n[i] as i32 + lm * (1 << BITRES);
-    let offset = (pulse_cap >> 1) - if stereo && n == 2 { QTHETA_OFFSET_TWOPHASE } else { QTHETA_OFFSET };
+    let offset = (pulse_cap >> 1)
+        - if stereo && n == 2 {
+            QTHETA_OFFSET_TWOPHASE
+        } else {
+            QTHETA_OFFSET
+        };
     let mut qn = compute_qn(n, *b, offset, pulse_cap, stereo);
     if stereo && (i as i32) >= intensity {
         qn = 1;
@@ -1725,7 +1916,11 @@ fn compute_theta_enc(
             } else {
                 fl = (itheta - 1 - x0) + (x0 + 1) * p0;
             }
-            let fh = if itheta <= x0 { p0 * (itheta + 1) } else { (itheta - x0) + (x0 + 1) * p0 };
+            let fh = if itheta <= x0 {
+                p0 * (itheta + 1)
+            } else {
+                (itheta - x0) + (x0 + 1) * p0
+            };
             ec.encode(fl as u32, fh as u32, ft);
         } else if b0 > 1 || stereo {
             ec.enc_uint(itheta as u32, (qn + 1) as u32);
@@ -1803,8 +1998,24 @@ pub fn quant_all_bands_enc(
     disable_inv: bool,
 ) {
     quant_all_bands_generic::<Encode>(
-        m, start, end, x, y, collapse_masks, pulses,
-        short_blocks, spread, dual_stereo, intensity, tf_res,
-        total_bits, balance, ec, lm, coded_bands, seed, disable_inv,
+        m,
+        start,
+        end,
+        x,
+        y,
+        collapse_masks,
+        pulses,
+        short_blocks,
+        spread,
+        dual_stereo,
+        intensity,
+        tf_res,
+        total_bits,
+        balance,
+        ec,
+        lm,
+        coded_bands,
+        seed,
+        disable_inv,
     );
 }

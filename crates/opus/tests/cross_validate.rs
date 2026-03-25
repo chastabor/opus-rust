@@ -1,7 +1,7 @@
 //! Cross-validation tests: decode the same packets with both C reference
 //! and our Rust decoder, compare PCM output sample-by-sample.
 
-use opus::{OpusDecoder, OpusMSDecoder, SampleRate, Channels};
+use opus::{Channels, OpusDecoder, OpusMSDecoder, SampleRate};
 use std::path::Path;
 
 const VECTORS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors");
@@ -45,7 +45,15 @@ fn read_pcm_f32(path: &Path) -> Vec<f32> {
 
 /// Decode all packets with the Rust decoder, return all decoded PCM frames concatenated.
 fn rust_decode_all(packets: &[Vec<u8>], channels: usize) -> Vec<f32> {
-    let mut dec = OpusDecoder::new(SampleRate::Hz48000, if channels == 1 { Channels::Mono } else { Channels::Stereo }).expect("Failed to create decoder");
+    let mut dec = OpusDecoder::new(
+        SampleRate::Hz48000,
+        if channels == 1 {
+            Channels::Mono
+        } else {
+            Channels::Stereo
+        },
+    )
+    .expect("Failed to create decoder");
     let mut all_pcm = Vec::new();
     for pkt in packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE * channels];
@@ -75,7 +83,11 @@ fn compare_pcm(ref_pcm: &[f32], rust_pcm: &[f32]) -> (f64, f64, usize) {
         }
         sum_sq += err * err;
     }
-    let rms = if n > 0 { (sum_sq / n as f64).sqrt() } else { 0.0 };
+    let rms = if n > 0 {
+        (sum_sq / n as f64).sqrt()
+    } else {
+        0.0
+    };
     (max_err, rms, n)
 }
 
@@ -122,7 +134,12 @@ fn run_test_case(name: &str, max_allowed_error: f64) {
     );
 }
 
-fn first_divergence_detail(ref_pcm: &[f32], rust_pcm: &[f32], threshold: f64, channels: usize) -> String {
+fn first_divergence_detail(
+    ref_pcm: &[f32],
+    rust_pcm: &[f32],
+    threshold: f64,
+    channels: usize,
+) -> String {
     let n = ref_pcm.len().min(rust_pcm.len());
     for i in 0..n {
         let err = (ref_pcm[i] as f64 - rust_pcm[i] as f64).abs();
@@ -273,7 +290,9 @@ fn read_ms_info(info_path: &Path) -> (usize, usize, usize, Vec<u8>) {
         } else if let Some(val) = line.strip_prefix("coupled_streams=") {
             coupled_streams = val.trim().parse().unwrap();
         } else if let Some(val) = line.strip_prefix("mapping=") {
-            mapping = val.trim().split(',')
+            mapping = val
+                .trim()
+                .split(',')
                 .map(|s| s.trim().parse::<u8>().unwrap())
                 .collect();
         }
@@ -289,8 +308,14 @@ fn rust_ms_decode_all(
     coupled_streams: usize,
     mapping: &[u8],
 ) -> Vec<f32> {
-    let mut dec = OpusMSDecoder::new(SampleRate::Hz48000, channels, streams, coupled_streams, mapping)
-        .expect("Failed to create MS decoder");
+    let mut dec = OpusMSDecoder::new(
+        SampleRate::Hz48000,
+        channels,
+        streams,
+        coupled_streams,
+        mapping,
+    )
+    .expect("Failed to create MS decoder");
     let mut all_pcm = Vec::new();
     for pkt in packets {
         let mut pcm = vec![0.0f32; FRAME_SIZE * channels];
@@ -334,9 +359,11 @@ fn run_ms_test_case(name: &str, max_allowed_error: f64) {
     );
 
     assert_eq!(
-        ref_pcm.len(), rust_pcm.len(),
+        ref_pcm.len(),
+        rust_pcm.len(),
         "{name}: sample count mismatch: C={}, Rust={}",
-        ref_pcm.len(), rust_pcm.len()
+        ref_pcm.len(),
+        rust_pcm.len()
     );
 
     assert!(

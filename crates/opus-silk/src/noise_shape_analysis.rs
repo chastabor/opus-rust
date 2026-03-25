@@ -5,15 +5,13 @@
 // Computes per-subframe spectral shaping filter parameters that the NSQ
 // uses to shape quantization noise under the speech spectral envelope.
 
-use crate::*;
+use crate::nlsf::silk_bwexpander_32 as bwexpander_32_nlsf;
 use crate::nsq::MAX_SHAPE_LPC_ORDER;
 use crate::signal_processing::{
+    silk_apply_sine_window, silk_k2a_q16 as k2a_q16_sp, silk_schur64 as schur64_sp,
     silk_sigm_q15 as sigm_q15,
-    silk_apply_sine_window,
-    silk_schur64 as schur64_sp,
-    silk_k2a_q16 as k2a_q16_sp,
 };
-use crate::nlsf::silk_bwexpander_32 as bwexpander_32_nlsf;
+use crate::*;
 
 // ---- Tuning parameters (from silk/tuning_parameters.h) ----
 
@@ -278,15 +276,11 @@ pub fn silk_noise_shape_analysis(
     } else {
         // For unvoiced: adjust quality slower than SNR
         let adj = silk_smlawb(
-            6i32 << 9,                      // 6.0 in Q9
-            -(26214),                        // -0.4 in Q18 ~ -26214
+            6i32 << 9, // 6.0 in Q9
+            -(26214),  // -0.4 in Q18 ~ -26214
             snr_db_q7,
         );
-        snr_adj_db_q7 = silk_smlawb(
-            snr_adj_db_q7,
-            adj,
-            (1i32 << 14) - input_quality_q14,
-        );
+        snr_adj_db_q7 = silk_smlawb(snr_adj_db_q7, adj, (1i32 << 14) - input_quality_q14);
     }
 
     // ========================================================================
@@ -323,8 +317,7 @@ pub fn silk_noise_shape_analysis(
         }
 
         if n_segs > 1
-            && energy_variation_q7
-                > ENERGY_VARIATION_THRESHOLD_QNT_OFFSET_Q7 * (n_segs as i32 - 1)
+            && energy_variation_q7 > ENERGY_VARIATION_THRESHOLD_QNT_OFFSET_Q7 * (n_segs as i32 - 1)
         {
             quant_offset_type = 0;
         } else {
@@ -419,7 +412,9 @@ pub fn silk_noise_shape_analysis(
         let falling_start = flat_end;
         let falling_len_raw = actual_win_len.saturating_sub(falling_start);
         let falling_len = (falling_len_raw / 4) * 4;
-        let falling_len = falling_len.min(120).max(if falling_len_raw >= 16 { 16 } else { 0 });
+        let falling_len = falling_len
+            .min(120)
+            .max(if falling_len_raw >= 16 { 16 } else { 0 });
         if falling_len >= 16 {
             apply_sine_window(
                 &mut x_windowed[falling_start..falling_start + falling_len],
@@ -470,8 +465,7 @@ pub fn silk_noise_shape_analysis(
         q_nrg >>= 1;
 
         gains_q16[k] = silk_lshift_sat32(tmp32, 16 - q_nrg);
-        if k == 0 {
-        }
+        if k == 0 {}
 
         // Bandwidth expansion
         bwexpander_32(&mut ar_q24, shaping_order, bw_exp_q16);
@@ -489,13 +483,13 @@ pub fn silk_noise_shape_analysis(
     // ========================================================================
     // gain_mult_Q16 = silk_log2lin(-silk_SMLAWB(-16.0_Q7, SNR_adj_dB_Q7, 0.16_Q16))
     let gain_mult_q16 = silk_log2lin(-silk_smlawb(
-        -(16 * 128),   // -16.0 in Q7
+        -(16 * 128), // -16.0 in Q7
         snr_adj_db_q7,
-        10486,         // 0.16 in Q16
+        10486, // 0.16 in Q16
     ));
     // gain_add_Q16 = silk_log2lin(silk_SMLAWB(16.0_Q7, MIN_QGAIN_DB_Q7, 0.16_Q16))
     let gain_add_q16 = silk_log2lin(silk_smlawb(
-        16 * 128,      // 16.0 in Q7
+        16 * 128,           // 16.0 in Q7
         MIN_QGAIN_DB * 128, // MIN_QGAIN_DB in Q7
         10486,
     ));
@@ -586,10 +580,7 @@ pub fn silk_noise_shape_analysis(
         // Less harmonic shaping for less periodic signals
         // Approximate LTPCorr_Q15 ~ 0.5 = 16384
         let ltp_corr_q15: i32 = 16384;
-        hsg = silk_smulwb(
-            hsg << 1,
-            silk_sqrt_approx(ltp_corr_q15 << 15),
-        );
+        hsg = silk_smulwb(hsg << 1, silk_sqrt_approx(ltp_corr_q15 << 15));
 
         harm_shape_gain_q16 = hsg;
     } else {
@@ -738,11 +729,11 @@ mod tests {
             nb_subfr,
             subfr_length,
             frame_length,
-            16,  // lpc_order
-            16,  // shaping_lpc_order
-            0,   // warping_q16
-            128, // speech_activity_q8 (0.5)
-            8192, // coding_quality_q14 (0.5)
+            16,       // lpc_order
+            16,       // shaping_lpc_order
+            0,        // warping_q16
+            128,      // speech_activity_q8 (0.5)
+            8192,     // coding_quality_q14 (0.5)
             20 * 128, // snr_db_q7 (20 dB)
         );
 
@@ -762,9 +753,8 @@ mod tests {
         // Generate a 200Hz tone
         let mut input = vec![0i16; total_len];
         for i in 0..total_len {
-            input[i] = (8000.0
-                * (2.0 * std::f64::consts::PI * 200.0 * i as f64 / 16000.0).sin())
-                as i16;
+            input[i] =
+                (8000.0 * (2.0 * std::f64::consts::PI * 200.0 * i as f64 / 16000.0).sin()) as i16;
         }
 
         let pitch_lags = [80i32; MAX_NB_SUBFR]; // 200Hz at 16kHz
@@ -784,8 +774,8 @@ mod tests {
             16,
             16,
             0,
-            200, // speech_activity_q8 (~0.78)
-            12000, // coding_quality_q14 (~0.73)
+            200,      // speech_activity_q8 (~0.78)
+            12000,    // coding_quality_q14 (~0.73)
             25 * 128, // snr_db_q7 (25 dB)
         );
 
@@ -797,7 +787,10 @@ mod tests {
         assert!(result.gains_q16.iter().all(|&x| x > 0));
         // AR coefficients should have some nonzero values (the tone has spectral structure)
         let has_nonzero_ar = result.ar_q13.iter().any(|&x| x != 0);
-        assert!(has_nonzero_ar, "AR coefficients should be nonzero for a tonal signal");
+        assert!(
+            has_nonzero_ar,
+            "AR coefficients should be nonzero for a tonal signal"
+        );
         // Quant offset type should be 0 for voiced
         assert_eq!(result.quant_offset_type, 0);
     }
@@ -813,9 +806,8 @@ mod tests {
 
         let mut input = vec![0i16; total_len];
         for i in 0..total_len {
-            input[i] = (5000.0
-                * (2.0 * std::f64::consts::PI * 150.0 * i as f64 / 16000.0).sin())
-                as i16;
+            input[i] =
+                (5000.0 * (2.0 * std::f64::consts::PI * 150.0 * i as f64 / 16000.0).sin()) as i16;
         }
 
         let pitch_lags = [107i32; MAX_NB_SUBFR]; // ~150Hz
@@ -842,7 +834,11 @@ mod tests {
 
         // LF shaping should be packed nonzero values for voiced
         for k in 0..nb_subfr as usize {
-            assert_ne!(result.lf_shp_q14[k], 0, "LF shaping should be nonzero for voiced subframe {}", k);
+            assert_ne!(
+                result.lf_shp_q14[k], 0,
+                "LF shaping should be nonzero for voiced subframe {}",
+                k
+            );
         }
     }
 }

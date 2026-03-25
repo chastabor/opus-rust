@@ -16,12 +16,7 @@ pub fn cng_reset(ps_dec: &mut ChannelState) {
 }
 
 /// CNG excitation generator
-fn silk_cng_exc(
-    exc_q14: &mut [i32],
-    exc_buf_q14: &[i32],
-    length: usize,
-    rand_seed: &mut i32,
-) {
+fn silk_cng_exc(exc_q14: &mut [i32], exc_buf_q14: &[i32], length: usize, rand_seed: &mut i32) {
     let mut exc_mask = CNG_BUF_MASK_MAX;
     while exc_mask > length {
         exc_mask >>= 1;
@@ -80,7 +75,10 @@ pub fn silk_cng(
         let move_len = (nb - 1) * subfr_len;
         let buf_len = ps_dec.s_cng.cng_exc_buf_q14.len();
         if subfr_len + move_len <= buf_len {
-            ps_dec.s_cng.cng_exc_buf_q14.copy_within(0..move_len, subfr_len);
+            ps_dec
+                .s_cng
+                .cng_exc_buf_q14
+                .copy_within(0..move_len, subfr_len);
         }
         // Copy new subframe excitation
         let src_offset = subfr * subfr_len;
@@ -96,7 +94,9 @@ pub fn silk_cng(
                 ps_dec_ctrl.gains_q16[i] - ps_dec.s_cng.cng_smth_gain_q16,
                 CNG_GAIN_SMTH_Q16,
             );
-            if silk_smulww_correct(ps_dec.s_cng.cng_smth_gain_q16, CNG_GAIN_SMTH_THRESHOLD_Q16) > ps_dec_ctrl.gains_q16[i] {
+            if silk_smulww_correct(ps_dec.s_cng.cng_smth_gain_q16, CNG_GAIN_SMTH_THRESHOLD_Q16)
+                > ps_dec_ctrl.gains_q16[i]
+            {
                 ps_dec.s_cng.cng_smth_gain_q16 = ps_dec_ctrl.gains_q16[i];
             }
         }
@@ -107,14 +107,25 @@ pub fn silk_cng(
         let mut cng_sig_q14 = vec![0i32; length + MAX_LPC_ORDER];
 
         // Generate CNG excitation
-        let mut gain_q16 = silk_smulww_correct(ps_dec.s_plc.rand_scale_q14 as i32, ps_dec.s_plc.prev_gain_q16[1]);
+        let mut gain_q16 = silk_smulww_correct(
+            ps_dec.s_plc.rand_scale_q14 as i32,
+            ps_dec.s_plc.prev_gain_q16[1],
+        );
         gain_q16 = silk_smulww_correct(gain_q16, gain_q16);
-        let smth_sq = silk_smulww_correct(ps_dec.s_cng.cng_smth_gain_q16, ps_dec.s_cng.cng_smth_gain_q16);
+        let smth_sq = silk_smulww_correct(
+            ps_dec.s_cng.cng_smth_gain_q16,
+            ps_dec.s_cng.cng_smth_gain_q16,
+        );
         gain_q16 = silk_sub_lshift32(smth_sq, gain_q16, 5).max(0);
         let gain_q16 = silk_sqrt_approx(gain_q16) << 8;
         let gain_q10 = gain_q16 >> 6;
 
-        silk_cng_exc(&mut cng_sig_q14[MAX_LPC_ORDER..], &ps_dec.s_cng.cng_exc_buf_q14, length, &mut ps_dec.s_cng.rand_seed);
+        silk_cng_exc(
+            &mut cng_sig_q14[MAX_LPC_ORDER..],
+            &ps_dec.s_cng.cng_exc_buf_q14,
+            length,
+            &mut ps_dec.s_cng.rand_seed,
+        );
 
         // Convert CNG NLSF to filter
         let mut a_q12 = [0i16; MAX_LPC_ORDER];
@@ -148,12 +159,18 @@ pub fn silk_cng(
             );
 
             let cng_sample = silk_sat16(silk_rshift_round(
-                silk_smulww_correct(cng_sig_q14[MAX_LPC_ORDER + i], gain_q10), 8
+                silk_smulww_correct(cng_sig_q14[MAX_LPC_ORDER + i], gain_q10),
+                8,
             ));
-            frame[i] = (frame[i] as i32).saturating_add(cng_sample as i32).clamp(-32768, 32767) as i16;
+            frame[i] = (frame[i] as i32)
+                .saturating_add(cng_sample as i32)
+                .clamp(-32768, 32767) as i16;
         }
 
-        ps_dec.s_cng.cng_synth_state.copy_from_slice(&cng_sig_q14[length..length + MAX_LPC_ORDER]);
+        ps_dec
+            .s_cng
+            .cng_synth_state
+            .copy_from_slice(&cng_sig_q14[length..length + MAX_LPC_ORDER]);
     } else {
         ps_dec.s_cng.cng_synth_state[..lpc_order].fill(0);
     }

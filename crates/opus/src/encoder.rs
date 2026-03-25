@@ -1,5 +1,5 @@
-use opus_range_coder::EcCtx;
 use opus_celt::CeltEncoder;
+use opus_range_coder::EcCtx;
 use opus_silk::{SilkEncoder, encoder::SilkEncControl};
 
 use crate::error::OpusError;
@@ -96,7 +96,11 @@ pub struct OpusEncoder {
 
 impl OpusEncoder {
     /// Create a new Opus encoder.
-    pub fn new(sample_rate: SampleRate, channels: Channels, application: Application) -> Result<Self, OpusError> {
+    pub fn new(
+        sample_rate: SampleRate,
+        channels: Channels,
+        application: Application,
+    ) -> Result<Self, OpusError> {
         let fs = i32::from(sample_rate);
         let channels = i32::from(channels);
         let application = i32::from(application);
@@ -149,7 +153,7 @@ impl OpusEncoder {
     /// Uses Direct Form II Transposed with split A coefficients for precision.
     /// State S[0], S[1] are in Q12.
     fn hp_filter_i16(&mut self, samples: &mut [i16], cutoff_hz: i32) {
-        use opus_silk::{silk_smlawb, silk_smulwb, silk_rshift_round};
+        use opus_silk::{silk_rshift_round, silk_smlawb, silk_smulwb};
 
         // Design HP biquad: b = r*[1, -2, 1], a = [1, -2r(1-0.5*Fc^2), r^2]
         // C: Fc_Q19 = silk_DIV32_16(silk_SMULBB(SILK_FIX_CONST(1.5*pi/1000, 19), cutoff_Hz), Fs/1000)
@@ -159,8 +163,9 @@ impl OpusEncoder {
         let b_q28 = [r_q28, r_q28.wrapping_neg() << 1, r_q28];
         let r_q22 = r_q28 >> 6;
         // a[0] = -r * (2 - Fc^2): C uses silk_SMULWW
-        let a0_q28 = ((r_q22 as i64 * (((fc_q19 as i64 * fc_q19 as i64) >> 16) as i64
-            - ((2i64) << 22))) >> 16) as i32;
+        let a0_q28 = ((r_q22 as i64
+            * (((fc_q19 as i64 * fc_q19 as i64) >> 16) as i64 - ((2i64) << 22)))
+            >> 16) as i32;
         let a1_q28 = ((r_q22 as i64 * r_q22 as i64) >> 16) as i32;
 
         // Split negated A coefficients (C: biquad_alt.c lines 56-59)
@@ -355,11 +360,11 @@ impl OpusEncoder {
 
         // Validate frame_size: must be 2.5, 5, 10, 20, 40, or 60ms
         let valid_frame_sizes = [
-            self.fs / 400,      // 2.5ms
-            self.fs / 200,      // 5ms
-            self.fs / 100,      // 10ms
-            self.fs / 50,       // 20ms
-            self.fs / 25,       // 40ms
+            self.fs / 400,       // 2.5ms
+            self.fs / 200,       // 5ms
+            self.fs / 100,       // 10ms
+            self.fs / 50,        // 20ms
+            self.fs / 25,        // 40ms
             self.fs * 60 / 1000, // 60ms
         ];
         if !valid_frame_sizes.contains(&frame_size) {
@@ -434,7 +439,8 @@ impl OpusEncoder {
             let copy_len = total_buffer * nch;
             if copy_len > 0 && db_offset * nch + copy_len <= self.delay_buffer.len() {
                 pcm_buf[..copy_len].copy_from_slice(
-                    &self.delay_buffer[db_offset * nch..db_offset * nch + copy_len]);
+                    &self.delay_buffer[db_offset * nch..db_offset * nch + copy_len],
+                );
             }
 
             // Convert and place current frame at pcm_buf[total_buffer..]
@@ -478,18 +484,17 @@ impl OpusEncoder {
                     // Shift old data left, append pcm_buf
                     let keep = (db_samples - pcm_buf_samples) * nch;
                     self.delay_buffer.copy_within(buf_len..buf_len + keep, 0);
-                    self.delay_buffer[keep..keep + buf_len]
-                        .copy_from_slice(&pcm_buf[..buf_len]);
+                    self.delay_buffer[keep..keep + buf_len].copy_from_slice(&pcm_buf[..buf_len]);
                 } else {
                     // pcm_buf has enough — take last db_samples
                     let offset = buf_len - db_len;
-                    self.delay_buffer[..db_len]
-                        .copy_from_slice(&pcm_buf[offset..offset + db_len]);
+                    self.delay_buffer[..db_len].copy_from_slice(&pcm_buf[offset..offset + db_len]);
                 }
             }
 
             // pcm_i16 is the HP-filtered frame (at the total_buffer offset)
-            let mut pcm_i16 = pcm_buf[total_buffer * nch..(total_buffer + silk_samples) * nch].to_vec();
+            let mut pcm_i16 =
+                pcm_buf[total_buffer * nch..(total_buffer + silk_samples) * nch].to_vec();
 
             let silk_bitrate = if mode == Mode::Hybrid as i32 {
                 self.bitrate_bps / 2
@@ -534,13 +539,19 @@ impl OpusEncoder {
                 enc.enc_bit_logp(false, 1); // VAD (side) placeholder
                 enc.enc_bit_logp(false, 1); // LBRR (side) placeholder
 
-                let ret = self.silk_enc.encode_stereo(&control, &mut enc, &left, &right);
+                let ret = self
+                    .silk_enc
+                    .encode_stereo(&control, &mut enc, &left, &right);
 
                 // Patch VAD + LBRR flags: mid VAD=1, mid LBRR=0
                 // Side VAD = 0 when mid_only (so decoder reads mid_only flag), 1 otherwise
                 let mid_vad = 1u32;
                 let mid_lbrr = 0u32;
-                let side_active = if self.silk_enc.prev_decode_only_middle { 0u32 } else { 1u32 };
+                let side_active = if self.silk_enc.prev_decode_only_middle {
+                    0u32
+                } else {
+                    1u32
+                };
                 let side_lbrr = 0u32;
                 // Pack: bit 3=mid_vad, bit 2=mid_lbrr, bit 1=side_vad, bit 0=side_lbrr
                 let flags = (mid_vad << 3) | (mid_lbrr << 2) | (side_active << 1) | side_lbrr;
@@ -569,7 +580,9 @@ impl OpusEncoder {
 
                 // Compute SNR from target bitrate
                 let snr_db_q7 = opus_silk::encoder::silk_control_snr(
-                    fs_khz, self.silk_flp.nb_subfr, silk_bitrate,
+                    fs_khz,
+                    self.silk_flp.nb_subfr,
+                    silk_bitrate,
                 );
 
                 // Apply HP filter in-place (VOIP mode) — pcm_i16 is already a clone
@@ -818,7 +831,11 @@ mod tests {
         let enc = enc.unwrap();
         assert_eq!(enc.channels(), 1);
 
-        let enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::RestrictedLowDelay);
+        let enc = OpusEncoder::new(
+            SampleRate::Hz16000,
+            Channels::Mono,
+            Application::RestrictedLowDelay,
+        );
         assert!(enc.is_ok());
 
         let enc = OpusEncoder::new(SampleRate::Hz8000, Channels::Mono, Application::Voip);
@@ -827,7 +844,8 @@ mod tests {
 
     #[test]
     fn test_encode_silence() {
-        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+        let mut enc =
+            OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
         enc.set_bitrate(Bitrate::BitsPerSecond(64000));
 
         let frame_size = 960; // 20ms at 48kHz
@@ -835,7 +853,11 @@ mod tests {
         let mut data = vec![0u8; 1275];
 
         let result = enc.encode_float(&pcm, frame_size as i32, &mut data, 1275);
-        assert!(result.is_ok(), "Encoding silence should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Encoding silence should succeed: {:?}",
+            result.err()
+        );
 
         let nbytes = result.unwrap();
         assert!(nbytes >= 1, "Should produce at least the TOC byte");
@@ -851,13 +873,18 @@ mod tests {
 
     #[test]
     fn test_encode_silence_i16() {
-        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+        let mut enc =
+            OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
         let frame_size = 960;
         let pcm = vec![0i16; frame_size];
         let mut data = vec![0u8; 1275];
 
         let result = enc.encode(&pcm, frame_size as i32, &mut data, 1275);
-        assert!(result.is_ok(), "i16 encoding should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "i16 encoding should succeed: {:?}",
+            result.err()
+        );
         assert!(result.unwrap() >= 1);
     }
 
@@ -923,7 +950,12 @@ mod tests {
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 1920);
 
         // SILK 60ms
-        let toc = gen_toc(Mode::SilkOnly as i32, 400 / 24, Bandwidth::Narrowband as i32, 1);
+        let toc = gen_toc(
+            Mode::SilkOnly as i32,
+            400 / 24,
+            Bandwidth::Narrowband as i32,
+            1,
+        );
         assert_eq!(opus_packet_get_samples_per_frame(&[toc], 48000), 2880);
     }
 
@@ -943,8 +975,7 @@ mod tests {
         // Generate a simple 440Hz sine tone
         let mut pcm_in = vec![0.0f32; frame_size];
         for i in 0..frame_size {
-            pcm_in[i] =
-                0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / fs as f32).sin();
+            pcm_in[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / fs as f32).sin();
         }
 
         // Encode
@@ -952,7 +983,10 @@ mod tests {
         let nbytes = encoder
             .encode_float(&pcm_in, frame_size as i32, &mut packet, 1275)
             .expect("Encoding should succeed");
-        assert!(nbytes >= 2, "Should produce a non-trivial packet, got {nbytes} bytes");
+        assert!(
+            nbytes >= 2,
+            "Should produce a non-trivial packet, got {nbytes} bytes"
+        );
 
         // Verify the packet is parseable
         let parsed = opus_packet_parse(&packet[..nbytes as usize]);
@@ -979,10 +1013,7 @@ mod tests {
 
         // Verify the decoded signal has energy (not silent)
         let energy: f64 = pcm_out.iter().map(|&x| x as f64 * x as f64).sum();
-        assert!(
-            energy > 0.0,
-            "Decoded signal should have non-zero energy"
-        );
+        assert!(energy > 0.0, "Decoded signal should have non-zero energy");
 
         // The codec introduces algorithmic latency, so the first decoded frame may
         // have reduced amplitude. We just verify the output is not all zeros, which
@@ -1009,9 +1040,8 @@ mod tests {
         // Generate stereo sine
         let mut pcm_in = vec![0.0f32; frame_size * channels as usize];
         for i in 0..frame_size {
-            let s =
-                0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / fs as f32).sin();
-            pcm_in[i * 2] = s;     // left
+            let s = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / fs as f32).sin();
+            pcm_in[i * 2] = s; // left
             pcm_in[i * 2 + 1] = s; // right
         }
 
@@ -1038,7 +1068,8 @@ mod tests {
 
     #[test]
     fn test_encoder_setters() {
-        let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+        let mut enc =
+            OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
 
         enc.set_bitrate(Bitrate::BitsPerSecond(32000));
         assert_eq!(enc.bitrate_bps, 32000);

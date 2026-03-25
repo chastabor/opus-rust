@@ -1,6 +1,6 @@
-use opus_range_coder::EcCtx;
 use opus_celt::CeltDecoder;
-use opus_silk::decoder::{SilkDecoder, SilkDecControl};
+use opus_range_coder::EcCtx;
+use opus_silk::decoder::{SilkDecControl, SilkDecoder};
 
 use crate::error::OpusError;
 use crate::packet::*;
@@ -94,8 +94,8 @@ impl OpusDecoder {
         self.softclip_mem = [0.0; 2];
         self.range_final = 0;
         self.silk_dec.reset();
-        self.celt_dec =
-            CeltDecoder::new(self.fs, self.channels as usize).map_err(|_| OpusError::InternalError)?;
+        self.celt_dec = CeltDecoder::new(self.fs, self.channels as usize)
+            .map_err(|_| OpusError::InternalError)?;
         self.celt_dec.signalling = false;
         Ok(())
     }
@@ -229,7 +229,11 @@ impl OpusDecoder {
             self.silk_control.internal_sample_rate = silk_internal_rate;
             self.silk_control.payload_size_ms = (1000 * audiosize / self.fs).max(10);
 
-            let lost_flag = if !has_data { 1 } else { if decode_fec { 2 } else { 0 } };
+            let lost_flag = if !has_data {
+                1
+            } else {
+                if decode_fec { 2 } else { 0 }
+            };
             let first_frame = true; // simplified
 
             let silk_samples = frame_size * self.channels;
@@ -404,8 +408,7 @@ impl OpusDecoder {
         }
 
         // PLC/DTX
-        let is_plc = data.is_none()
-            || data.map(|d| d.is_empty()).unwrap_or(true);
+        let is_plc = data.is_none() || data.map(|d| d.is_empty()).unwrap_or(true);
 
         if is_plc {
             let mut pcm_count = 0i32;
@@ -442,21 +445,18 @@ impl OpusDecoder {
                 return self.decode_float(None, pcm, frame_size, false);
             }
             if frame_size - packet_frame_size != 0 {
-                self.decode_float(
-                    None,
-                    pcm,
-                    frame_size - packet_frame_size,
-                    false,
-                )?;
+                self.decode_float(None, pcm, frame_size - packet_frame_size, false)?;
             }
             self.mode = packet_mode;
             self.bandwidth = packet_bandwidth;
             self.frame_size = packet_frame_size;
             self.stream_channels = packet_stream_channels;
-            let offset =
-                (frame_size - packet_frame_size) as usize * self.channels as usize;
+            let offset = (frame_size - packet_frame_size) as usize * self.channels as usize;
             self.decode_frame(
-                Some(&data[parsed.payload_offset..parsed.payload_offset + parsed.frame_sizes[0] as usize]),
+                Some(
+                    &data[parsed.payload_offset
+                        ..parsed.payload_offset + parsed.frame_sizes[0] as usize],
+                ),
                 &mut pcm[offset..],
                 packet_frame_size,
                 true,

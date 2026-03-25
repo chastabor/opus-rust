@@ -110,8 +110,8 @@ impl MappingMatrix {
             for out_ch in 0..output_channels {
                 let mut sum = 0.0f64;
                 for in_ch in 0..input_channels {
-                    let coeff = self.data[out_ch as usize + in_ch * output_channels] as f64
-                        * q15_scale;
+                    let coeff =
+                        self.data[out_ch as usize + in_ch * output_channels] as f64 * q15_scale;
                     sum += coeff * input[i * input_channels + in_ch] as f64;
                 }
                 output[i * output_channels + out_ch] = (sum * gain_lin) as f32;
@@ -274,8 +274,7 @@ impl OpusProjectionEncoder {
         let encoder_channels = self.mixing_matrix.rows as usize;
 
         // Apply mixing matrix to transform input channels to encoder channels
-        let mut mixed =
-            vec![0.0f32; frame_size as usize * encoder_channels];
+        let mut mixed = vec![0.0f32; frame_size as usize * encoder_channels];
 
         self.mixing_matrix.apply(
             pcm,
@@ -406,7 +405,11 @@ mod tests {
             &[0, 1],
             Application::Audio,
         );
-        assert!(enc.is_ok(), "Projection encoder creation failed: {:?}", enc.err());
+        assert!(
+            enc.is_ok(),
+            "Projection encoder creation failed: {:?}",
+            enc.err()
+        );
         let enc = enc.unwrap();
         assert_eq!(enc.input_channels(), 2);
         assert_eq!(enc.streams(), 1);
@@ -476,12 +479,12 @@ mod tests {
 
         let mut enc = OpusProjectionEncoder::new(
             SampleRate::Hz48000,
-            2,      // input channels
+            2, // input channels
             mixing,
             demixing,
-            1,      // streams
-            0,      // coupled streams (mono)
-            &[0],   // mapping for the 1 encoder channel
+            1,    // streams
+            0,    // coupled streams (mono)
+            &[0], // mapping for the 1 encoder channel
             Application::Audio,
         )
         .unwrap();

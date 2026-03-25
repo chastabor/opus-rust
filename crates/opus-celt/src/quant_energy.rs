@@ -3,7 +3,14 @@ use crate::tables::*;
 use opus_range_coder::EcCtx;
 
 /// Compute loss distortion between current and old band energies.
-fn loss_distortion(e_bands: &[f32], old_e_bands: &[f32], start: usize, end: usize, len: usize, c: usize) -> f32 {
+fn loss_distortion(
+    e_bands: &[f32],
+    old_e_bands: &[f32],
+    start: usize,
+    end: usize,
+    len: usize,
+    c: usize,
+) -> f32 {
     let mut dist = 0.0f32;
     for ch in 0..c {
         for i in start..end {
@@ -131,9 +138,11 @@ pub fn quant_coarse_energy(
     let tell = enc.tell();
 
     let mut intra = force_intra
-        || (!two_pass && *delayed_intra > 2.0 * c as f32 * (end - start) as f32
+        || (!two_pass
+            && *delayed_intra > 2.0 * c as f32 * (end - start) as f32
             && nb_available_bytes > (end - start) as i32 * c as i32);
-    let intra_bias = ((budget as f32 * *delayed_intra * loss_rate as f32) / (c as f32 * 512.0)) as i32;
+    let intra_bias =
+        ((budget as f32 * *delayed_intra * loss_rate as f32) / (c as f32 * 512.0)) as i32;
     let new_distortion = loss_distortion(e_bands, old_band_e, start, eff_end, m.nb_ebands, c);
 
     if tell + 3 > budget {
@@ -157,9 +166,21 @@ pub fn quant_coarse_energy(
 
     if two_pass || intra {
         badness1 = quant_coarse_energy_impl(
-            m, start, end, e_bands, &mut old_band_e_intra, budget,
-            tell, &E_PROB_MODEL[lm][1], &mut error_intra, enc,
-            c, lm, true, max_decay, lfe,
+            m,
+            start,
+            end,
+            e_bands,
+            &mut old_band_e_intra,
+            budget,
+            tell,
+            &E_PROB_MODEL[lm][1],
+            &mut error_intra,
+            enc,
+            c,
+            lm,
+            true,
+            max_decay,
+            lfe,
         );
     }
 
@@ -170,12 +191,27 @@ pub fn quant_coarse_energy(
         enc.restore_state(&enc_start_state);
 
         let badness2 = quant_coarse_energy_impl(
-            m, start, end, e_bands, old_band_e, budget,
-            tell, &E_PROB_MODEL[lm][if intra { 1 } else { 0 }], error, enc,
-            c, lm, false, max_decay, lfe,
+            m,
+            start,
+            end,
+            e_bands,
+            old_band_e,
+            budget,
+            tell,
+            &E_PROB_MODEL[lm][if intra { 1 } else { 0 }],
+            error,
+            enc,
+            c,
+            lm,
+            false,
+            max_decay,
+            lfe,
         );
 
-        if two_pass && (badness1 < badness2 || (badness1 == badness2 && enc.tell_frac() as i32 + intra_bias > tell_intra)) {
+        if two_pass
+            && (badness1 < badness2
+                || (badness1 == badness2 && enc.tell_frac() as i32 + intra_bias > tell_intra))
+        {
             enc.restore_state(&enc_intra_state);
             old_band_e[..c * m.nb_ebands].copy_from_slice(&old_band_e_intra);
             error[..c * m.nb_ebands].copy_from_slice(&error_intra);
@@ -221,7 +257,8 @@ pub fn quant_fine_energy(
                 q2 = 0;
             }
             enc.enc_bits(q2 as u32, fine_quant[i] as u32);
-            let offset = (q2 as f32 + 0.5) * ((1 << (14 - fine_quant[i])) as f32) * (1.0 / 16384.0) - 0.5;
+            let offset =
+                (q2 as f32 + 0.5) * ((1 << (14 - fine_quant[i])) as f32) * (1.0 / 16384.0) - 0.5;
             old_band_e[i + ch * m.nb_ebands] += offset;
             error[i + ch * m.nb_ebands] -= offset;
         }
@@ -250,9 +287,14 @@ pub fn quant_energy_finalise_enc(
                 continue;
             }
             for ch in 0..c {
-                let q2 = if error[i + ch * m.nb_ebands] < 0.0 { 0i32 } else { 1i32 };
+                let q2 = if error[i + ch * m.nb_ebands] < 0.0 {
+                    0i32
+                } else {
+                    1i32
+                };
                 enc.enc_bits(q2 as u32, 1);
-                let offset = (q2 as f32 - 0.5) * ((1 << (14 - fine_quant[i] - 1)) as f32) * (1.0 / 16384.0);
+                let offset =
+                    (q2 as f32 - 0.5) * ((1 << (14 - fine_quant[i] - 1)) as f32) * (1.0 / 16384.0);
                 if let Some(ref mut obe) = old_band_e {
                     obe[i + ch * m.nb_ebands] += offset;
                 }
@@ -309,8 +351,7 @@ pub fn unquant_coarse_energy(
             }
             let q = qi as f32;
 
-            old_band_e[i + ch * m.nb_ebands] =
-                old_band_e[i + ch * m.nb_ebands].max(-9.0);
+            old_band_e[i + ch * m.nb_ebands] = old_band_e[i + ch * m.nb_ebands].max(-9.0);
             let tmp = coef * old_band_e[i + ch * m.nb_ebands] + prev[ch] as f32 + q;
             old_band_e[i + ch * m.nb_ebands] = tmp;
             prev[ch] = prev[ch] + q as f64 - (beta * q) as f64;
@@ -338,8 +379,7 @@ pub fn unquant_fine_energy(
         for ch in 0..c {
             let q2 = dec.dec_bits(fine_quant[i] as u32) as i32;
             let offset =
-                (q2 as f32 + 0.5) * ((1 << (14 - fine_quant[i])) as f32) * (1.0 / 16384.0)
-                    - 0.5;
+                (q2 as f32 + 0.5) * ((1 << (14 - fine_quant[i])) as f32) * (1.0 / 16384.0) - 0.5;
             old_band_e[i + ch * m.nb_ebands] += offset;
         }
     }
@@ -371,9 +411,8 @@ pub fn unquant_energy_finalise(
             }
             for ch in 0..c {
                 let q2 = dec.dec_bits(1) as i32;
-                let offset = (q2 as f32 - 0.5)
-                    * ((1 << (14 - fine_quant[i] - 1)) as f32)
-                    * (1.0 / 16384.0);
+                let offset =
+                    (q2 as f32 - 0.5) * ((1 << (14 - fine_quant[i] - 1)) as f32) * (1.0 / 16384.0);
                 old_band_e[i + ch * m.nb_ebands] += offset;
                 bits_left -= 1;
             }

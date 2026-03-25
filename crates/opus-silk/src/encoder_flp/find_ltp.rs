@@ -13,10 +13,10 @@ const LTP_CORR_INV_MAX: f32 = 0.03;
 /// `t` points to the target vector of length L (the residual for LTP).
 /// Result: Xt[lag] = sum_i x[order-1-lag+i] * t[i], for i=0..L-1.
 pub fn silk_corr_vector_flp(
-    x: &[f32],     // [order-1+L] — lag_ptr from find_LTP
-    t: &[f32],     // [L] — r_ptr (residual at subframe start)
-    l: usize,      // subframe length
-    order: usize,  // LTP_ORDER (5)
+    x: &[f32],      // [order-1+L] — lag_ptr from find_LTP
+    t: &[f32],      // [L] — r_ptr (residual at subframe start)
+    l: usize,       // subframe length
+    order: usize,   // LTP_ORDER (5)
     xt: &mut [f32], // [order] output
 ) {
     for lag in 0..order {
@@ -30,9 +30,9 @@ pub fn silk_corr_vector_flp(
 ///
 /// `x` points to x[0..order+L-1]. XX is order×order output (row-major).
 pub fn silk_corr_matrix_flp(
-    x: &[f32],     // [order-1+L]
-    l: usize,      // subframe length
-    order: usize,  // LTP_ORDER (5)
+    x: &[f32],      // [order-1+L]
+    l: usize,       // subframe length
+    order: usize,   // LTP_ORDER (5)
     xx: &mut [f32], // [order*order] output, row-major
 ) {
     // ptr1 = x + (order-1), i.e., column 0 starts at index (order-1)
@@ -80,7 +80,7 @@ pub fn silk_corr_matrix_flp(
 pub fn silk_find_ltp_flp(
     xx_out: &mut [f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER],
     x_x_out: &mut [f32; MAX_NB_SUBFR * LTP_ORDER],
-    res: &[f32],           // residual buffer (with history before frame start)
+    res: &[f32],             // residual buffer (with history before frame start)
     res_frame_offset: usize, // offset where frame starts in res buffer
     lag: &[i32; MAX_NB_SUBFR],
     subfr_length: usize,
@@ -119,7 +119,10 @@ pub fn silk_find_ltp_flp(
         // Normalize by energy
         let xx = silk_energy_flp(&res[r_start..r_start + subfr_length + order]) as f32;
         let temp = 1.0f32
-            / xx.max(LTP_CORR_INV_MAX * 0.5 * (xx_out[xx_start] + xx_out[xx_start + order * order - 1]) + 1.0);
+            / xx.max(
+                LTP_CORR_INV_MAX * 0.5 * (xx_out[xx_start] + xx_out[xx_start + order * order - 1])
+                    + 1.0,
+            );
 
         // Scale XX and xX
         for i in 0..(order * order) {
@@ -144,9 +147,9 @@ pub fn silk_find_ltp_flp(
 /// Output: `ltp_res` has nb_subfr * (pre_length + subfr_length) samples.
 pub fn silk_ltp_analysis_filter_flp(
     ltp_res: &mut [f32],
-    x_buf: &[f32],                        // full signal buffer
-    x_offset: usize,                      // offset where x - pre_length starts
-    b: &[f32; MAX_NB_SUBFR * LTP_ORDER],  // LTP coefficients per subframe
+    x_buf: &[f32],                       // full signal buffer
+    x_offset: usize,                     // offset where x - pre_length starts
+    b: &[f32; MAX_NB_SUBFR * LTP_ORDER], // LTP coefficients per subframe
     pitch_l: &[i32; MAX_NB_SUBFR],
     inv_gains: &[f32; MAX_NB_SUBFR],
     subfr_length: usize,

@@ -3,13 +3,13 @@
 //! and process_gains against the C reference.
 
 use opus_ffi::*;
-use opus_silk::encoder_flp::dsp::*;
-use opus_silk::encoder_flp::wrappers::*;
-use opus_silk::encoder_flp::residual_energy::silk_residual_energy_flp;
-use opus_silk::encoder_flp::find_lpc::silk_find_lpc_flp;
-use opus_silk::lpc_analysis::silk_burg_modified_flp;
 use opus_silk::MAX_LPC_ORDER;
 use opus_silk::MAX_NB_SUBFR;
+use opus_silk::encoder_flp::dsp::*;
+use opus_silk::encoder_flp::find_lpc::silk_find_lpc_flp;
+use opus_silk::encoder_flp::residual_energy::silk_residual_energy_flp;
+use opus_silk::encoder_flp::wrappers::*;
+use opus_silk::lpc_analysis::silk_burg_modified_flp;
 
 const ORDER: usize = 16;
 const SUBFR_LEN: usize = 80;
@@ -27,7 +27,11 @@ fn make_lpc_in_pre(signal: &[f32], gains: &[f32]) -> Vec<f32> {
     let mut lpc_in_pre = vec![0.0f32; NB_SUBFR * BURG_SUBFR];
     for k in 0..NB_SUBFR {
         let inv_gain = 1.0 / gains[k].max(1e-12);
-        let src_start = if k * SUBFR_LEN >= ORDER { k * SUBFR_LEN - ORDER } else { 0 };
+        let src_start = if k * SUBFR_LEN >= ORDER {
+            k * SUBFR_LEN - ORDER
+        } else {
+            0
+        };
         let dst_start = k * BURG_SUBFR;
         let copy_len = BURG_SUBFR.min(signal.len().saturating_sub(src_start));
         silk_scale_copy_vector_flp(
@@ -50,7 +54,14 @@ fn residual_energy_flp_matches_c() {
     // Get LPC via C Burg + A2NLSF + NLSF2A roundtrip
     let lpc_in_pre = make_lpc_in_pre(&signal, &gains);
     let mut a_flp = [0.0f32; ORDER];
-    c_silk_burg_modified_flp(&mut a_flp, &lpc_in_pre, 1.0 / 10000.0, BURG_SUBFR as i32, NB_SUBFR as i32, ORDER as i32);
+    c_silk_burg_modified_flp(
+        &mut a_flp,
+        &lpc_in_pre,
+        1.0 / 10000.0,
+        BURG_SUBFR as i32,
+        NB_SUBFR as i32,
+        ORDER as i32,
+    );
     let mut nlsf = [0i16; ORDER];
     c_silk_a2nlsf_flp(&mut nlsf, &a_flp, ORDER);
     let mut a_q = [[0.0f32; MAX_LPC_ORDER]; 2];
@@ -59,11 +70,27 @@ fn residual_energy_flp_matches_c() {
 
     // Rust residual energy
     let mut rust_nrgs = [0.0f32; MAX_NB_SUBFR];
-    silk_residual_energy_flp(&mut rust_nrgs, &lpc_in_pre, &a_q, &gains, SUBFR_LEN, NB_SUBFR, ORDER);
+    silk_residual_energy_flp(
+        &mut rust_nrgs,
+        &lpc_in_pre,
+        &a_q,
+        &gains,
+        SUBFR_LEN,
+        NB_SUBFR,
+        ORDER,
+    );
 
     // C residual energy
     let mut c_nrgs = [0.0f32; MAX_NB_SUBFR];
-    c_silk_residual_energy_flp(&mut c_nrgs, &lpc_in_pre, &a_q, &gains, SUBFR_LEN as i32, NB_SUBFR as i32, ORDER as i32);
+    c_silk_residual_energy_flp(
+        &mut c_nrgs,
+        &lpc_in_pre,
+        &a_q,
+        &gains,
+        SUBFR_LEN as i32,
+        NB_SUBFR as i32,
+        ORDER as i32,
+    );
 
     eprintln!("ResNrg Rust: {:?}", &rust_nrgs[..NB_SUBFR]);
     eprintln!("ResNrg C   : {:?}", &c_nrgs[..NB_SUBFR]);
@@ -71,7 +98,14 @@ fn residual_energy_flp_matches_c() {
     for k in 0..NB_SUBFR {
         let diff = (rust_nrgs[k] - c_nrgs[k]).abs();
         let rel = diff / c_nrgs[k].abs().max(1e-10);
-        assert!(rel < 1e-4, "ResNrg[{}]: Rust={} C={} rel_diff={}", k, rust_nrgs[k], c_nrgs[k], rel);
+        assert!(
+            rel < 1e-4,
+            "ResNrg[{}]: Rust={} C={} rel_diff={}",
+            k,
+            rust_nrgs[k],
+            c_nrgs[k],
+            rel
+        );
     }
 }
 
@@ -88,9 +122,13 @@ fn find_lpc_flp_no_interpolation() {
     let mut rust_nlsf = [0i16; ORDER];
     let mut rust_interp = 0i8;
     silk_find_lpc_flp(
-        &mut rust_nlsf, &mut rust_interp, &lpc_in_pre,
+        &mut rust_nlsf,
+        &mut rust_interp,
+        &lpc_in_pre,
         1.0 / 100.0, // first_frame_after_reset minInvGain
-        ORDER, NB_SUBFR, BURG_SUBFR,
+        ORDER,
+        NB_SUBFR,
+        BURG_SUBFR,
         false, // use_interpolated_nlsfs: false for first frame
         true,  // first_frame_after_reset
         &prev_nlsf,
@@ -98,7 +136,14 @@ fn find_lpc_flp_no_interpolation() {
 
     // C reference: run Burg + A2NLSF directly (equivalent when no interpolation)
     let mut c_a = [0.0f32; ORDER];
-    c_silk_burg_modified_flp(&mut c_a, &lpc_in_pre, 1.0 / 100.0, BURG_SUBFR as i32, NB_SUBFR as i32, ORDER as i32);
+    c_silk_burg_modified_flp(
+        &mut c_a,
+        &lpc_in_pre,
+        1.0 / 100.0,
+        BURG_SUBFR as i32,
+        NB_SUBFR as i32,
+        ORDER as i32,
+    );
     let mut c_nlsf = [0i16; ORDER];
     c_silk_a2nlsf_flp(&mut c_nlsf, &c_a, ORDER);
 
@@ -126,9 +171,13 @@ fn find_lpc_flp_with_interpolation() {
     let mut rust_nlsf = [0i16; ORDER];
     let mut rust_interp = 0i8;
     silk_find_lpc_flp(
-        &mut rust_nlsf, &mut rust_interp, &lpc_in_pre,
+        &mut rust_nlsf,
+        &mut rust_interp,
+        &lpc_in_pre,
         1.0 / 10000.0, // normal frame minInvGain
-        ORDER, NB_SUBFR, BURG_SUBFR,
+        ORDER,
+        NB_SUBFR,
+        BURG_SUBFR,
         true,  // use_interpolated_nlsfs
         false, // not first frame
         &prev_nlsf,
@@ -142,7 +191,11 @@ fn find_lpc_flp_with_interpolation() {
     assert!(rust_interp <= 4, "Invalid interp coef");
     // NLSFs should be valid (monotonically increasing)
     for i in 1..ORDER {
-        assert!(rust_nlsf[i] > rust_nlsf[i-1], "NLSFs not monotonic at {}", i);
+        assert!(
+            rust_nlsf[i] > rust_nlsf[i - 1],
+            "NLSFs not monotonic at {}",
+            i
+        );
     }
 }
 
@@ -158,25 +211,55 @@ fn full_pred_coefs_pipeline_sine() {
 
     // Rust path: Burg → A2NLSF → NLSF2A → residual_energy
     let mut a_flp = [0.0f32; ORDER];
-    silk_burg_modified_flp(&mut a_flp, &lpc_in_pre, 1.0 / 10000.0, BURG_SUBFR, NB_SUBFR, ORDER);
+    silk_burg_modified_flp(
+        &mut a_flp,
+        &lpc_in_pre,
+        1.0 / 10000.0,
+        BURG_SUBFR,
+        NB_SUBFR,
+        ORDER,
+    );
     let mut nlsf = [0i16; ORDER];
     silk_a2nlsf_flp(&mut nlsf, &a_flp, ORDER);
     let mut pred_coef = [[0.0f32; MAX_LPC_ORDER]; 2];
     silk_nlsf2a_flp(&mut pred_coef[0], &nlsf, ORDER);
     pred_coef[1] = pred_coef[0];
     let mut rust_nrgs = [0.0f32; MAX_NB_SUBFR];
-    silk_residual_energy_flp(&mut rust_nrgs, &lpc_in_pre, &pred_coef, &gains, SUBFR_LEN, NB_SUBFR, ORDER);
+    silk_residual_energy_flp(
+        &mut rust_nrgs,
+        &lpc_in_pre,
+        &pred_coef,
+        &gains,
+        SUBFR_LEN,
+        NB_SUBFR,
+        ORDER,
+    );
 
     // C path: same chain
     let mut c_a = [0.0f32; ORDER];
-    c_silk_burg_modified_flp(&mut c_a, &lpc_in_pre, 1.0 / 10000.0, BURG_SUBFR as i32, NB_SUBFR as i32, ORDER as i32);
+    c_silk_burg_modified_flp(
+        &mut c_a,
+        &lpc_in_pre,
+        1.0 / 10000.0,
+        BURG_SUBFR as i32,
+        NB_SUBFR as i32,
+        ORDER as i32,
+    );
     let mut c_nlsf = [0i16; ORDER];
     c_silk_a2nlsf_flp(&mut c_nlsf, &c_a, ORDER);
     let mut c_pred = [[0.0f32; MAX_LPC_ORDER]; 2];
     c_silk_nlsf2a_flp(&mut c_pred[0], &c_nlsf, ORDER);
     c_pred[1] = c_pred[0];
     let mut c_nrgs = [0.0f32; MAX_NB_SUBFR];
-    c_silk_residual_energy_flp(&mut c_nrgs, &lpc_in_pre, &c_pred, &gains, SUBFR_LEN as i32, NB_SUBFR as i32, ORDER as i32);
+    c_silk_residual_energy_flp(
+        &mut c_nrgs,
+        &lpc_in_pre,
+        &c_pred,
+        &gains,
+        SUBFR_LEN as i32,
+        NB_SUBFR as i32,
+        ORDER as i32,
+    );
 
     eprintln!("Full pipeline ResNrg:");
     eprintln!("  Rust: {:?}", &rust_nrgs[..NB_SUBFR]);
@@ -186,6 +269,13 @@ fn full_pred_coefs_pipeline_sine() {
     for k in 0..NB_SUBFR {
         let diff = (rust_nrgs[k] - c_nrgs[k]).abs();
         let rel = diff / c_nrgs[k].abs().max(1e-10);
-        assert!(rel < 1e-3, "Pipeline ResNrg[{}]: Rust={} C={} rel={}", k, rust_nrgs[k], c_nrgs[k], rel);
+        assert!(
+            rel < 1e-3,
+            "Pipeline ResNrg[{}]: Rust={} C={} rel={}",
+            k,
+            rust_nrgs[k],
+            c_nrgs[k],
+            rel
+        );
     }
 }

@@ -4,7 +4,7 @@
 mod common;
 
 use common::rms;
-use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
+use opus::{Application, Bitrate, Channels, OpusDecoder, OpusEncoder, SampleRate};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const FRAME_SIZE: i32 = 320; // 20ms at 16kHz
@@ -18,7 +18,8 @@ fn silk_16k_gain_analysis() {
     let mut c_enc = COpusEncoder::new(fs, 1, opus_ffi::OPUS_APPLICATION_VOIP).unwrap();
     c_enc.set_bitrate(bitrate).unwrap();
 
-    let mut rust_enc = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
+    let mut rust_enc =
+        OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip).unwrap();
     rust_enc.set_bitrate(Bitrate::BitsPerSecond(bitrate));
 
     let mut c_dec = COpusDecoder::new(fs, 1).unwrap();
@@ -47,7 +48,12 @@ fn silk_16k_gain_analysis() {
             .unwrap();
 
         c_dec
-            .decode_float(Some(&c_pkt[..c_len as usize]), &mut c_c_out, FRAME_SIZE, false)
+            .decode_float(
+                Some(&c_pkt[..c_len as usize]),
+                &mut c_c_out,
+                FRAME_SIZE,
+                false,
+            )
             .unwrap();
         rust_dec
             .decode_float(
@@ -86,10 +92,22 @@ fn silk_16k_gain_analysis() {
 
             eprintln!("=== SILK 16kbps gain analysis (frame {frame}) ===");
             eprintln!("  Input RMS:                {in_rms:.6}");
-            eprintln!("  C enc → C dec:            {cc_rms:.6} (ratio {:.4})", cc_rms / in_rms);
-            eprintln!("  Rust enc → Rust dec:      {rr_rms:.6} (ratio {:.4})", rr_rms / in_rms);
-            eprintln!("  Rust enc → C dec:         {cr_rms:.6} (ratio {:.4})", cr_rms / in_rms);
-            eprintln!("  C enc → Rust dec:         {rc_rms:.6} (ratio {:.4})", rc_rms / in_rms);
+            eprintln!(
+                "  C enc → C dec:            {cc_rms:.6} (ratio {:.4})",
+                cc_rms / in_rms
+            );
+            eprintln!(
+                "  Rust enc → Rust dec:      {rr_rms:.6} (ratio {:.4})",
+                rr_rms / in_rms
+            );
+            eprintln!(
+                "  Rust enc → C dec:         {cr_rms:.6} (ratio {:.4})",
+                cr_rms / in_rms
+            );
+            eprintln!(
+                "  C enc → Rust dec:         {rc_rms:.6} (ratio {:.4})",
+                rc_rms / in_rms
+            );
             eprintln!(
                 "  C pkt: size={c_len}, TOC=0x{c_toc:02x} (config={})",
                 (c_toc >> 3) & 0x1F
@@ -123,8 +141,11 @@ fn test_silk_roundtrip_gain_ratio() {
             let t = (f * FRAME_SIZE as usize + i) as f32 / fs as f32;
             pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
         }
-        let len = enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32).unwrap();
-        dec.decode_float(Some(&pkt[..len as usize]), &mut out, FRAME_SIZE, false).unwrap();
+        let len = enc
+            .encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32)
+            .unwrap();
+        dec.decode_float(Some(&pkt[..len as usize]), &mut out, FRAME_SIZE, false)
+            .unwrap();
     }
 
     let in_rms = rms(&pcm);
@@ -157,8 +178,12 @@ fn test_silk_decoder_matches_c_reference() {
             pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
         }
         let len = c_enc.encode_float(&pcm, FRAME_SIZE, &mut pkt).unwrap();
-        c_dec.decode_float(Some(&pkt[..len as usize]), &mut c_out, FRAME_SIZE, false).unwrap();
-        rust_dec.decode_float(Some(&pkt[..len as usize]), &mut rust_out, FRAME_SIZE, false).unwrap();
+        c_dec
+            .decode_float(Some(&pkt[..len as usize]), &mut c_out, FRAME_SIZE, false)
+            .unwrap();
+        rust_dec
+            .decode_float(Some(&pkt[..len as usize]), &mut rust_out, FRAME_SIZE, false)
+            .unwrap();
     }
 
     let c_rms = rms(&c_out);
@@ -187,7 +212,9 @@ fn test_silk_packet_size_stability() {
             let t = (f * FRAME_SIZE as usize + i) as f32 / fs as f32;
             pcm[i] = 0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin();
         }
-        let len = enc.encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32).unwrap();
+        let len = enc
+            .encode_float(&pcm, FRAME_SIZE, &mut pkt, MAX_PACKET as i32)
+            .unwrap();
         if f >= 5 {
             // Skip first 5 warmup frames
             sizes.push(len as usize);

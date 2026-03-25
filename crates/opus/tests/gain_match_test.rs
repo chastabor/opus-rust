@@ -6,7 +6,7 @@
 mod common;
 
 use common::{gen_sine, rms};
-use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
+use opus::{Application, Bitrate, Channels, OpusDecoder, OpusEncoder, SampleRate};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const SAMPLE_RATE: i32 = 48000;
@@ -19,12 +19,20 @@ const N_WARMUP: usize = 10;
 fn gain_match_celt_mode() {
     // -- Set up encoders & decoders --
     // Use RESTRICTED_LOWDELAY to force CELT-only mode in both implementations
-    let mut c_enc =
-        COpusEncoder::new(SAMPLE_RATE, 1, opus_ffi::OPUS_APPLICATION_RESTRICTED_LOWDELAY).unwrap();
+    let mut c_enc = COpusEncoder::new(
+        SAMPLE_RATE,
+        1,
+        opus_ffi::OPUS_APPLICATION_RESTRICTED_LOWDELAY,
+    )
+    .unwrap();
     c_enc.set_bitrate(BITRATE).unwrap();
 
-    let mut rust_enc =
-        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::RestrictedLowDelay).unwrap();
+    let mut rust_enc = OpusEncoder::new(
+        SampleRate::Hz48000,
+        Channels::Mono,
+        Application::RestrictedLowDelay,
+    )
+    .unwrap();
     rust_enc.set_bitrate(Bitrate::BitsPerSecond(BITRATE));
 
     let mut c_dec = COpusDecoder::new(SAMPLE_RATE, 1).unwrap();
@@ -53,7 +61,12 @@ fn gain_match_celt_mode() {
 
         // C encode → C decode
         c_dec
-            .decode_float(Some(&c_pkt[..c_len as usize]), &mut c_c_out, FRAME_SIZE, false)
+            .decode_float(
+                Some(&c_pkt[..c_len as usize]),
+                &mut c_c_out,
+                FRAME_SIZE,
+                false,
+            )
             .unwrap();
         // Rust encode → Rust decode
         rust_dec
@@ -92,7 +105,10 @@ fn gain_match_celt_mode() {
 
             eprintln!("=== Gain analysis (frame {frame}, 440Hz @ 0.5 amp) ===");
             eprintln!("  Input RMS:                     {in_rms:.6}");
-            eprintln!("  C enc → C dec RMS:             {cc_rms:.6} (ratio {:.4})", cc_rms / in_rms);
+            eprintln!(
+                "  C enc → C dec RMS:             {cc_rms:.6} (ratio {:.4})",
+                cc_rms / in_rms
+            );
             eprintln!(
                 "  Rust enc → Rust dec RMS:       {rr_rms:.6} (ratio {:.4})",
                 rr_rms / in_rms
@@ -107,8 +123,14 @@ fn gain_match_celt_mode() {
             );
             let c_toc = c_pkt[0];
             let rust_toc = rust_pkt[0];
-            eprintln!("  C pkt: size={c_len}, TOC=0x{c_toc:02x} (config={})", (c_toc >> 3) & 0x1F);
-            eprintln!("  Rust pkt: size={rust_len}, TOC=0x{rust_toc:02x} (config={})", (rust_toc >> 3) & 0x1F);
+            eprintln!(
+                "  C pkt: size={c_len}, TOC=0x{c_toc:02x} (config={})",
+                (c_toc >> 3) & 0x1F
+            );
+            eprintln!(
+                "  Rust pkt: size={rust_len}, TOC=0x{rust_toc:02x} (config={})",
+                (rust_toc >> 3) & 0x1F
+            );
 
             // The Rust roundtrip should produce output within 6dB of the C roundtrip
             // (gain ratio between 0.5x and 2.0x).

@@ -49,7 +49,10 @@ fn fft_sine_120() {
     let fin: Vec<KissFftCpx> = (0..nfft)
         .map(|i| {
             let phase = 2.0 * std::f32::consts::PI * 10.0 * i as f32 / nfft as f32;
-            KissFftCpx { r: phase.cos(), i: 0.0 }
+            KissFftCpx {
+                r: phase.cos(),
+                i: 0.0,
+            }
         })
         .collect();
     compare_fft(nfft, &fin, 1e-4, "fft120_sine");

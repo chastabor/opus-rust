@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 fn bench_c_encode(c: &mut Criterion) {
@@ -48,11 +48,8 @@ fn bench_c_decode(c: &mut Criterion) {
         group.bench_function(cfg.name, |b| {
             b.iter_batched(
                 || {
-                    let dec = COpusDecoder::new(
-                        i32::from(SAMPLE_RATE),
-                        i32::from(cfg.channels),
-                    )
-                    .unwrap();
+                    let dec =
+                        COpusDecoder::new(i32::from(SAMPLE_RATE), i32::from(cfg.channels)).unwrap();
                     let pcm = vec![0.0f32; FRAME_SIZE as usize * i32::from(cfg.channels) as usize];
                     (dec, pcm)
                 },

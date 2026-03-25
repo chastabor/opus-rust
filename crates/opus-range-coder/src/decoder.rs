@@ -33,7 +33,8 @@ impl EcCtx {
             let sym = self.rem as u32;
             self.rem = self.read_byte() as i32;
             let sym = ((sym << EC_SYM_BITS) | self.rem as u32) >> (EC_SYM_BITS - EC_CODE_EXTRA);
-            self.val = ((self.val << EC_SYM_BITS).wrapping_add(EC_SYM_MAX & !sym)) & (EC_CODE_TOP - 1);
+            self.val =
+                ((self.val << EC_SYM_BITS).wrapping_add(EC_SYM_MAX & !sym)) & (EC_CODE_TOP - 1);
         }
     }
 

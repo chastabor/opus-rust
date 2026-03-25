@@ -59,11 +59,7 @@ pub fn silk_inner_product_flp(data1: &[f32], data2: &[f32]) -> f64 {
 
 /// Compute autocorrelation of a float signal.
 /// results[k] = inner_product(input, input+k) for k = 0..correlation_count-1.
-pub fn silk_autocorrelation_flp(
-    results: &mut [f32],
-    input: &[f32],
-    correlation_count: usize,
-) {
+pub fn silk_autocorrelation_flp(results: &mut [f32], input: &[f32], correlation_count: usize) {
     let n = input.len();
     let count = correlation_count.min(n);
     for i in 0..count {
@@ -75,11 +71,7 @@ pub fn silk_autocorrelation_flp(
 
 /// Schur recursion: autocorrelation → reflection coefficients + residual energy.
 /// Returns residual energy. Fills refl_coef[0..order].
-pub fn silk_schur_flp(
-    refl_coef: &mut [f32],
-    auto_corr: &[f32],
-    order: usize,
-) -> f32 {
+pub fn silk_schur_flp(refl_coef: &mut [f32], auto_corr: &[f32], order: usize) -> f32 {
     let mut c = [[0.0f64; 2]; SILK_MAX_ORDER_LPC + 1];
 
     // Copy correlations
@@ -141,12 +133,7 @@ pub fn silk_bwexpander_flp(ar: &mut [f32], d: usize, chirp: f32) {
 /// Apply a sine window to a signal.
 /// win_type: 1 = rising (starts from 0), 2 = falling (starts from 1).
 /// length must be a multiple of 4.
-pub fn silk_apply_sine_window_flp(
-    px_win: &mut [f32],
-    px: &[f32],
-    win_type: i32,
-    length: usize,
-) {
+pub fn silk_apply_sine_window_flp(px_win: &mut [f32], px: &[f32], win_type: i32, length: usize) {
     let freq = std::f32::consts::PI / (length as f32 + 1.0);
     let c = 2.0f32 - freq * freq;
 
@@ -172,12 +159,7 @@ pub fn silk_apply_sine_window_flp(
 // ---- scale_copy_vector_FLP.c ----
 
 /// Scale and copy a float vector: data_out[i] = gain * data_in[i].
-pub fn silk_scale_copy_vector_flp(
-    data_out: &mut [f32],
-    data_in: &[f32],
-    gain: f32,
-    len: usize,
-) {
+pub fn silk_scale_copy_vector_flp(data_out: &mut [f32], data_in: &[f32], gain: f32, len: usize) {
     let n = len.min(data_out.len()).min(data_in.len());
     let n4 = n & !3;
 

@@ -4,10 +4,10 @@
 // several parallel quantization paths and selects the best one based on
 // rate-distortion cost. Faithfully ported from the C reference.
 
-use crate::*;
-use crate::nsq::{NsqState, MAX_SHAPE_LPC_ORDER, NSQ_LPC_BUF_LENGTH};
-use crate::tables::*;
 use crate::nlsf;
+use crate::nsq::{MAX_SHAPE_LPC_ORDER, NSQ_LPC_BUF_LENGTH, NsqState};
+use crate::tables::*;
+use crate::*;
 
 // Constants from silk/define.h
 pub const DECISION_DELAY: usize = 40;
@@ -152,7 +152,6 @@ fn silk_nsq_del_dec_scale_states(
         // Save inverse gain
         nsq.prev_gain_q16 = gains_q16[subfr];
     }
-
 }
 
 /// Per-subframe noise shape quantizer for delayed decision
@@ -196,7 +195,8 @@ fn silk_noise_shape_quantizer_del_dec(
     let mut sample_states = [[SampleState::default(); 2]; MAX_DEL_DEC_STATES];
 
     // shp_lag_ptr and pred_lag_ptr base indices
-    let shp_lag_base = nsq.s_ltp_shp_buf_idx as i64 - lag as i64 + (nsq::HARM_SHAPE_FIR_TAPS / 2) as i64;
+    let shp_lag_base =
+        nsq.s_ltp_shp_buf_idx as i64 - lag as i64 + (nsq::HARM_SHAPE_FIR_TAPS / 2) as i64;
     let pred_lag_base = nsq.s_ltp_buf_idx as i64 - lag as i64 + (LTP_ORDER / 2) as i64;
 
     for i in 0..length {
@@ -220,13 +220,27 @@ fn silk_noise_shape_quantizer_del_dec(
         // Long-term shaping
         let n_ltp_q14 = if lag > 0 {
             let slp = (shp_lag_base + i as i64) as usize;
-            let shp0 = if slp < nsq.s_ltp_shp_q14.len() { nsq.s_ltp_shp_q14[slp] } else { 0 };
-            let shp_m1 = if slp >= 1 && slp - 1 < nsq.s_ltp_shp_q14.len() { nsq.s_ltp_shp_q14[slp - 1] } else { 0 };
-            let shp_m2 = if slp >= 2 && slp - 2 < nsq.s_ltp_shp_q14.len() { nsq.s_ltp_shp_q14[slp - 2] } else { 0 };
+            let shp0 = if slp < nsq.s_ltp_shp_q14.len() {
+                nsq.s_ltp_shp_q14[slp]
+            } else {
+                0
+            };
+            let shp_m1 = if slp >= 1 && slp - 1 < nsq.s_ltp_shp_q14.len() {
+                nsq.s_ltp_shp_q14[slp - 1]
+            } else {
+                0
+            };
+            let shp_m2 = if slp >= 2 && slp - 2 < nsq.s_ltp_shp_q14.len() {
+                nsq.s_ltp_shp_q14[slp - 2]
+            } else {
+                0
+            };
 
             let mut n = silk_smulwb(silk_add_sat32(shp0, shp_m2), harm_shape_fir_packed_q14);
             // silk_SMLAWT: a + ((b * (c >> 16)) >> 16)
-            n = n.wrapping_add(((shp_m1 as i64 * (harm_shape_fir_packed_q14 as i64 >> 16)) >> 16) as i32);
+            n = n.wrapping_add(
+                ((shp_m1 as i64 * (harm_shape_fir_packed_q14 as i64 >> 16)) >> 16) as i32,
+            );
             // silk_SUB_LSHIFT32(LTP_pred_Q14, n_LTP_Q14, 2): LTP_pred_Q14 - (n << 2)
             ltp_pred_q14.wrapping_sub(n << 2)
         } else {
@@ -249,7 +263,8 @@ fn silk_noise_shape_quantizer_del_dec(
             // out = silk_SMLAWB(out, buf[0], coef[0]) ...
             let mut lpc_pred_q14: i32 = predict_lpc_order as i32 >> 1;
             for j in 0..predict_lpc_order {
-                lpc_pred_q14 = silk_smlawb(lpc_pred_q14, dd.s_lpc_q14[ps_lpc_idx - j], a_q12[j] as i32);
+                lpc_pred_q14 =
+                    silk_smlawb(lpc_pred_q14, dd.s_lpc_q14[ps_lpc_idx - j], a_q12[j] as i32);
             }
             lpc_pred_q14 <<= 4; // Q10 -> Q14
 
@@ -259,7 +274,11 @@ fn silk_noise_shape_quantizer_del_dec(
                 // Output of lowpass section
                 let mut tmp2 = silk_smlawb(dd.diff_q14, dd.s_ar2_q14[0], warping_q16);
                 // Output of first allpass section
-                let mut tmp1 = silk_smlawb(dd.s_ar2_q14[0], dd.s_ar2_q14[1].wrapping_sub(tmp2), warping_q16);
+                let mut tmp1 = silk_smlawb(
+                    dd.s_ar2_q14[0],
+                    dd.s_ar2_q14[1].wrapping_sub(tmp2),
+                    warping_q16,
+                );
                 dd.s_ar2_q14[0] = tmp2;
                 let mut n_ar = shaping_lpc_order as i32 >> 1; // rounding bias
                 n_ar = silk_smlawb(n_ar, tmp2, ar_shp_q13[0] as i32);
@@ -267,11 +286,19 @@ fn silk_noise_shape_quantizer_del_dec(
                 // Loop over allpass sections in pairs
                 let mut j = 2;
                 while j < shaping_lpc_order {
-                    tmp2 = silk_smlawb(dd.s_ar2_q14[j - 1], dd.s_ar2_q14[j].wrapping_sub(tmp1), warping_q16);
+                    tmp2 = silk_smlawb(
+                        dd.s_ar2_q14[j - 1],
+                        dd.s_ar2_q14[j].wrapping_sub(tmp1),
+                        warping_q16,
+                    );
                     dd.s_ar2_q14[j - 1] = tmp1;
                     n_ar = silk_smlawb(n_ar, tmp1, ar_shp_q13[j - 1] as i32);
 
-                    tmp1 = silk_smlawb(dd.s_ar2_q14[j], dd.s_ar2_q14[j + 1].wrapping_sub(tmp2), warping_q16);
+                    tmp1 = silk_smlawb(
+                        dd.s_ar2_q14[j],
+                        dd.s_ar2_q14[j + 1].wrapping_sub(tmp2),
+                        warping_q16,
+                    );
                     dd.s_ar2_q14[j] = tmp2;
                     n_ar = silk_smlawb(n_ar, tmp2, ar_shp_q13[j] as i32);
                     j += 2;
@@ -292,7 +319,8 @@ fn silk_noise_shape_quantizer_del_dec(
                 let shape_val = dd.shape_q14[*smpl_buf_idx];
                 let mut n_lf = silk_smulwb(shape_val, lf_shp_q14); // Q12
                 // silk_SMLAWT: a + ((b * (c >> 16)) >> 16)
-                n_lf = n_lf.wrapping_add(((dd.lf_ar_q14 as i64 * (lf_shp_q14 as i64 >> 16)) >> 16) as i32); // Q12
+                n_lf = n_lf
+                    .wrapping_add(((dd.lf_ar_q14 as i64 * (lf_shp_q14 as i64 >> 16)) >> 16) as i32); // Q12
                 n_lf << 2 // Q12 -> Q14
             };
 
@@ -316,7 +344,6 @@ fn silk_noise_shape_quantizer_del_dec(
             let combined_q10 = silk_rshift_round(combined, 4); // Q10
 
             let r_q10 = x_q10[i].wrapping_sub(combined_q10);
-
 
             // Flip sign depending on dither
             let r_q10 = if dd.seed < 0 { -r_q10 } else { r_q10 };
@@ -498,11 +525,15 @@ fn silk_noise_shape_quantizer_del_dec(
             let abs_pulse_idx = (pulses_base as i64 + i as i64 - decision_delay as i64) as usize;
             let abs_xq_idx = (pxq_base as i64 + i as i64 - decision_delay as i64) as usize;
             if abs_pulse_idx < pulses.len() {
-                pulses[abs_pulse_idx] = silk_rshift_round(dd_winner.q_q10[last_smple_idx], 10) as i8;
+                pulses[abs_pulse_idx] =
+                    silk_rshift_round(dd_winner.q_q10[last_smple_idx], 10) as i8;
             }
             if abs_xq_idx < nsq.xq.len() {
                 nsq.xq[abs_xq_idx] = silk_sat16(silk_rshift_round(
-                    silk_smulww_correct(dd_winner.xq_q14[last_smple_idx], delayed_gain_q10[last_smple_idx]),
+                    silk_smulww_correct(
+                        dd_winner.xq_q14[last_smple_idx],
+                        delayed_gain_q10[last_smple_idx],
+                    ),
                     8,
                 ));
             }
@@ -595,7 +626,12 @@ pub fn silk_nsq_del_dec(
 
     // Initialize delayed decision states
     // Stack-allocated states (max 4, ~1.3KB each = ~5.2KB total on stack)
-    let mut del_dec = [DelDecState::new(), DelDecState::new(), DelDecState::new(), DelDecState::new()];
+    let mut del_dec = [
+        DelDecState::new(),
+        DelDecState::new(),
+        DelDecState::new(),
+        DelDecState::new(),
+    ];
     for k in 0..n_states {
         let dd = &mut del_dec[k];
         dd.seed = ((k as i32) + indices.seed as i32) & 3;
@@ -611,8 +647,7 @@ pub fn silk_nsq_del_dec(
         dd.s_ar2_q14[..MAX_SHAPE_LPC_ORDER].copy_from_slice(&nsq.s_ar2_q14[..MAX_SHAPE_LPC_ORDER]);
     }
 
-    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10
-        [(signal_type >> 1) as usize]
+    let offset_q10 = SILK_QUANTIZATION_OFFSETS_Q10[(signal_type >> 1) as usize]
         [quant_offset_type as usize] as i32;
 
     let mut smpl_buf_idx: usize = 0;
@@ -636,8 +671,12 @@ pub fn silk_nsq_del_dec(
     let total_len = ltp_mem_len + frame_len;
     let s_ltp_q15 = &mut scratch_s_ltp_q15[..total_len];
     let s_ltp = &mut scratch_s_ltp[..total_len];
-    for v in s_ltp_q15.iter_mut() { *v = 0; }
-    for v in s_ltp.iter_mut() { *v = 0; }
+    for v in s_ltp_q15.iter_mut() {
+        *v = 0;
+    }
+    for v in s_ltp.iter_mut() {
+        *v = 0;
+    }
 
     // Max subfr_len = MAX_SUB_FRAME_LENGTH = 80
     let mut x_sc_q10 = [0i32; MAX_SUB_FRAME_LENGTH];
@@ -652,8 +691,7 @@ pub fn silk_nsq_del_dec(
     let mut subfr_counter = 0usize;
 
     for k in 0..nb_subfr as usize {
-        let a_q12_offset =
-            ((k >> 1) | (1 - lsf_interpolation_flag)) * MAX_LPC_ORDER;
+        let a_q12_offset = ((k >> 1) | (1 - lsf_interpolation_flag)) * MAX_LPC_ORDER;
         let a_q12 = &pred_coef_q12[a_q12_offset..a_q12_offset + lpc_ord];
         let b_q14 = &ltp_coef_q14[k * LTP_ORDER..(k + 1) * LTP_ORDER];
         let ar_shp_q13 = &ar_q13[k * MAX_SHAPE_LPC_ORDER..(k + 1) * MAX_SHAPE_LPC_ORDER];
@@ -691,20 +729,29 @@ pub fn silk_nsq_del_dec(
                     // Copy final part of signals from winner state to output
                     let mut last_idx = smpl_buf_idx + decision_delay;
                     for j in 0..decision_delay {
-                        last_idx = if last_idx == 0 { DECISION_DELAY - 1 } else { last_idx - 1 };
+                        last_idx = if last_idx == 0 {
+                            DECISION_DELAY - 1
+                        } else {
+                            last_idx - 1
+                        };
                         let out_offset = j as i64 - decision_delay as i64;
                         let pulse_idx = (pulses_offset as i64 + out_offset) as usize;
                         let xq_idx = (pxq_offset as i64 + out_offset) as usize;
                         if pulse_idx < pulses.len() {
-                            pulses[pulse_idx] = silk_rshift_round(del_dec[winner_ind].q_q10[last_idx], 10) as i8;
+                            pulses[pulse_idx] =
+                                silk_rshift_round(del_dec[winner_ind].q_q10[last_idx], 10) as i8;
                         }
                         if xq_idx < nsq.xq.len() {
                             nsq.xq[xq_idx] = silk_sat16(silk_rshift_round(
-                                silk_smulww_correct(del_dec[winner_ind].xq_q14[last_idx], gains_q16[1] >> 6),
+                                silk_smulww_correct(
+                                    del_dec[winner_ind].xq_q14[last_idx],
+                                    gains_q16[1] >> 6,
+                                ),
                                 8,
                             ));
                         }
-                        let shp_dst = (nsq.s_ltp_shp_buf_idx as i64 - decision_delay as i64 + j as i64) as usize;
+                        let shp_dst = (nsq.s_ltp_shp_buf_idx as i64 - decision_delay as i64
+                            + j as i64) as usize;
                         if shp_dst < nsq.s_ltp_shp_q14.len() {
                             nsq.s_ltp_shp_q14[shp_dst] = del_dec[winner_ind].shape_q14[last_idx];
                         }
@@ -714,7 +761,8 @@ pub fn silk_nsq_del_dec(
                 }
 
                 // Rewhiten with new A coefs
-                let start_idx = (ltp_mem_len as i32 - lag - lpc_order - LTP_ORDER as i32 / 2) as usize;
+                let start_idx =
+                    (ltp_mem_len as i32 - lag - lpc_order - LTP_ORDER as i32 / 2) as usize;
 
                 nlsf::silk_lpc_analysis_filter(
                     &mut s_ltp[start_idx..],
@@ -798,7 +846,11 @@ pub fn silk_nsq_del_dec(
     let mut last_idx = smpl_buf_idx + decision_delay;
     let final_gain_q10 = gains_q16[nb_subfr as usize - 1] >> 6;
     for j in 0..decision_delay {
-        last_idx = if last_idx == 0 { DECISION_DELAY - 1 } else { last_idx - 1 };
+        last_idx = if last_idx == 0 {
+            DECISION_DELAY - 1
+        } else {
+            last_idx - 1
+        };
         let out_offset = j as i64 - decision_delay as i64;
         let pulse_idx = (pulses_offset as i64 + out_offset) as usize;
         let xq_idx = (pxq_offset as i64 + out_offset) as usize;
@@ -830,7 +882,8 @@ pub fn silk_nsq_del_dec(
 
     // Save quantized speech signal: shift buffers
     nsq.xq.copy_within(frame_len..frame_len + ltp_mem_len, 0);
-    nsq.s_ltp_shp_q14.copy_within(frame_len..frame_len + ltp_mem_len, 0);
+    nsq.s_ltp_shp_q14
+        .copy_within(frame_len..frame_len + ltp_mem_len, 0);
 }
 
 #[cfg(test)]
@@ -944,11 +997,7 @@ mod tests {
 
     /// Helper to run the scalar NSQ with the same parameters for comparison.
     #[allow(dead_code)]
-    fn run_scalar_nsq(
-        signal: &[i16],
-        signal_type: i32,
-        pitch_lag: i32,
-    ) -> (NsqState, Vec<i8>) {
+    fn run_scalar_nsq(signal: &[i16], signal_type: i32, pitch_lag: i32) -> (NsqState, Vec<i8>) {
         let fs_khz = 16;
         let nb_subfr = 4i32;
         let subfr_length = 5 * fs_khz;
@@ -1056,7 +1105,8 @@ mod tests {
             assert!(
                 p >= -31 && p <= 31,
                 "Pulse {} out of range: {} (should be in [-31, 31])",
-                i, p
+                i,
+                p
             );
         }
 
@@ -1085,7 +1135,8 @@ mod tests {
                 assert!(
                     p >= -31 && p <= 31,
                     "nStates={}: Pulse out of range: {}",
-                    n_states, p
+                    n_states,
+                    p
                 );
             }
 
@@ -1174,8 +1225,8 @@ mod tests {
                 TYPE_UNVOICED,
                 0,
                 4,
-                2,    // nStatesDelayedDecision
-                0,    // warping
+                2, // nStatesDelayedDecision
+                0, // warping
                 &mut scratch_s_ltp_q15,
                 &mut scratch_s_ltp,
             );
@@ -1194,7 +1245,9 @@ mod tests {
         assert!(
             count_high <= count_low + 20,
             "Higher lambda ({}) should produce sparser output: low_lambda_count={}, high_lambda_count={}",
-            non_zero_counts[2].0, count_low, count_high,
+            non_zero_counts[2].0,
+            count_low,
+            count_high,
         );
     }
 
@@ -1214,11 +1267,7 @@ mod tests {
 
         // All pulses should be in valid raw NSQ range
         for &p in pulses.iter() {
-            assert!(
-                p >= -31 && p <= 31,
-                "Voiced pulse out of range: {}",
-                p
-            );
+            assert!(p >= -31 && p <= 31, "Voiced pulse out of range: {}", p);
         }
 
         let non_zero_count = pulses.iter().filter(|&&p| p != 0).count();

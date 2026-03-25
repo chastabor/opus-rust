@@ -4,20 +4,22 @@
 
 use super::dsp::*;
 use crate::pitch_analysis;
-use crate::{silk_sat16, MAX_LPC_ORDER, MAX_NB_SUBFR, TYPE_NO_VOICE_ACTIVITY, TYPE_VOICED, TYPE_UNVOICED};
+use crate::{
+    MAX_LPC_ORDER, MAX_NB_SUBFR, TYPE_NO_VOICE_ACTIVITY, TYPE_UNVOICED, TYPE_VOICED, silk_sat16,
+};
 
 const FIND_PITCH_BANDWIDTH_EXPANSION: f32 = 0.99;
 const FIND_PITCH_WHITE_NOISE_FRACTION: f32 = 1e-3;
 
 /// Output of pitch lag analysis.
 pub struct PitchLagsResult {
-    pub pitch_l: [i32; MAX_NB_SUBFR],    // pitch lags per subframe
-    pub lag_index: i16,                    // lag index for entropy coding
-    pub contour_index: i8,                 // contour index
-    pub ltp_corr: f32,                     // normalized pitch correlation
-    pub signal_type: i32,                  // TYPE_VOICED or TYPE_UNVOICED
-    pub pred_gain: f32,                    // LPC prediction gain
-    pub res_pitch: Vec<f32>,              // LPC residual (buf_len samples, for LTP analysis)
+    pub pitch_l: [i32; MAX_NB_SUBFR], // pitch lags per subframe
+    pub lag_index: i16,               // lag index for entropy coding
+    pub contour_index: i8,            // contour index
+    pub ltp_corr: f32,                // normalized pitch correlation
+    pub signal_type: i32,             // TYPE_VOICED or TYPE_UNVOICED
+    pub pred_gain: f32,               // LPC prediction gain
+    pub res_pitch: Vec<f32>,          // LPC residual (buf_len samples, for LTP analysis)
 }
 
 /// Float pitch lag analysis.
@@ -26,7 +28,7 @@ pub struct PitchLagsResult {
 /// `x` points to x_frame (start of analysis frame in x_buf).
 /// The function accesses x - ltp_mem_length for the LPC analysis.
 pub fn silk_find_pitch_lags_flp(
-    x_buf: &[f32],                        // full x_buf (includes ltp_mem + la_shape + frame)
+    x_buf: &[f32], // full x_buf (includes ltp_mem + la_shape + frame)
     ltp_mem_length: usize,
     frame_length: usize,
     la_pitch: usize,
@@ -66,24 +68,20 @@ pub fn silk_find_pitch_lags_flp(
 
     if x_buf_start + pitch_lpc_win_length <= x_buf.len() && la_pitch >= 4 {
         // First la_pitch samples: rising sine window
-        silk_apply_sine_window_flp(
-            &mut wsig[..la_pitch],
-            &x_buf[x_buf_start..],
-            1, la_pitch,
-        );
+        silk_apply_sine_window_flp(&mut wsig[..la_pitch], &x_buf[x_buf_start..], 1, la_pitch);
 
         // Middle: direct copy
         let mid_len = pitch_lpc_win_length - 2 * la_pitch;
-        wsig[la_pitch..la_pitch + mid_len].copy_from_slice(
-            &x_buf[x_buf_start + la_pitch..x_buf_start + la_pitch + mid_len],
-        );
+        wsig[la_pitch..la_pitch + mid_len]
+            .copy_from_slice(&x_buf[x_buf_start + la_pitch..x_buf_start + la_pitch + mid_len]);
 
         // Last la_pitch samples: falling sine window
         let last_start = la_pitch + mid_len;
         silk_apply_sine_window_flp(
             &mut wsig[last_start..last_start + la_pitch],
             &x_buf[x_buf_start + last_start..],
-            2, la_pitch,
+            2,
+            la_pitch,
         );
     }
 
@@ -106,7 +104,11 @@ pub fn silk_find_pitch_lags_flp(
     silk_k2a_flp(&mut a, &refl_coef, pitch_estimation_lpc_order);
 
     // Bandwidth expansion
-    silk_bwexpander_flp(&mut a, pitch_estimation_lpc_order, FIND_PITCH_BANDWIDTH_EXPANSION);
+    silk_bwexpander_flp(
+        &mut a,
+        pitch_estimation_lpc_order,
+        FIND_PITCH_BANDWIDTH_EXPANSION,
+    );
 
     // LPC analysis filter → residual
     let mut res = vec![0.0f32; buf_len];

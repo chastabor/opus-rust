@@ -4,7 +4,7 @@
 // then re-encode similar signals with the Rust encoder and verify
 // the Rust decoder can handle them.
 
-use opus::{OpusDecoder, OpusEncoder, Application, Bitrate, SampleRate, Channels};
+use opus::{Application, Bitrate, Channels, OpusDecoder, OpusEncoder, SampleRate};
 
 // Auto-generated from C libopus at 48kHz, 20ms frames
 
@@ -67,7 +67,11 @@ fn decode_c_ref(packet: &[u8], channels: Channels, expected_min_energy: f64) {
     let frame_size = 960;
     let mut pcm = vec![0.0f32; frame_size * i32::from(channels) as usize];
     let result = dec.decode_float(Some(packet), &mut pcm, frame_size as i32, false);
-    assert!(result.is_ok(), "Failed to decode C reference packet: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Failed to decode C reference packet: {:?}",
+        result
+    );
     let n = result.unwrap() as usize;
     assert_eq!(n, frame_size);
 
@@ -109,8 +113,13 @@ fn test_rust_encode_vs_c_ref_sine() {
     // Decode C reference
     let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
     let mut c_pcm = vec![0.0f32; frame_size];
-    dec.decode_float(Some(&C_REF_MONO_SINE440), &mut c_pcm, frame_size as i32, false)
-        .unwrap();
+    dec.decode_float(
+        Some(&C_REF_MONO_SINE440),
+        &mut c_pcm,
+        frame_size as i32,
+        false,
+    )
+    .unwrap();
     let c_energy: f64 = c_pcm.iter().map(|&x| x as f64 * x as f64).sum();
 
     // Generate the same signal
@@ -120,7 +129,8 @@ fn test_rust_encode_vs_c_ref_sine() {
     }
 
     // Encode with Rust
-    let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc.set_bitrate(Bitrate::BitsPerSecond(64000));
     let mut packet = vec![0u8; 1500];
     let nbytes = enc
@@ -158,7 +168,8 @@ fn test_rust_encode_packet_size_reasonable() {
     let frame_size = 960;
 
     // Silence
-    let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc.set_bitrate(Bitrate::BitsPerSecond(64000));
     let silence = vec![0.0f32; frame_size];
     let mut packet = vec![0u8; 1500];
@@ -168,13 +179,11 @@ fn test_rust_encode_packet_size_reasonable() {
 
     // C ref silence = 3 bytes with VBR. Rust CBR uses full packet size.
     // At 64kbps/20ms = ~160 bytes. Just verify it's valid.
-    assert!(
-        nbytes > 0,
-        "Silence packet should produce bytes"
-    );
+    assert!(nbytes > 0, "Silence packet should produce bytes");
 
     // 440Hz sine
-    let mut enc2 = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc2 =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc2.set_bitrate(Bitrate::BitsPerSecond(64000));
     let mut sine = vec![0.0f32; frame_size];
     for i in 0..frame_size {
@@ -196,7 +205,8 @@ fn test_rust_encode_packet_size_reasonable() {
 #[test]
 fn test_rust_encode_multiframe_roundtrip() {
     let frame_size = 960;
-    let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
+    let mut enc =
+        OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio).unwrap();
     enc.set_bitrate(Bitrate::BitsPerSecond(64000));
     let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono).unwrap();
 
@@ -222,11 +232,7 @@ fn test_rust_encode_multiframe_roundtrip() {
             frame_size as i32,
             false,
         );
-        assert!(
-            result.is_ok(),
-            "Frame {frame}: decode failed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Frame {frame}: decode failed: {:?}", result);
     }
 }
 
@@ -252,7 +258,11 @@ fn test_decode_silk_c_ref_10k() {
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; 320];
     let result = dec.decode_float(Some(SILK_VOICE_200HZ_10K), &mut pcm, 320, false);
-    assert!(result.is_ok(), "Should decode C ref SILK 10kbps: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should decode C ref SILK 10kbps: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -260,7 +270,11 @@ fn test_decode_silk_c_ref_16k() {
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut pcm = vec![0.0f32; 320];
     let result = dec.decode_float(Some(SILK_VOICE_200HZ_16K), &mut pcm, 320, false);
-    assert!(result.is_ok(), "Should decode C ref SILK 16kbps: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should decode C ref SILK 16kbps: {:?}",
+        result
+    );
 }
 
 /// SILK VOIP encode-decode roundtrip at 16kHz
@@ -279,15 +293,11 @@ fn test_silk_voip_encode_decode_roundtrip() {
         }
 
         let mut packet = vec![0u8; 1500];
-        let nbytes = enc
-            .encode_float(&input, 320, &mut packet, 1500)
-            .unwrap() as usize;
+        let nbytes = enc.encode_float(&input, 320, &mut packet, 1500).unwrap() as usize;
         assert!(nbytes > 0, "Frame {frame}: encode should produce bytes");
 
         let mut output = vec![0.0f32; 320];
-        let result = dec.decode_float(
-            Some(&packet[..nbytes]), &mut output, 320, false,
-        );
+        let result = dec.decode_float(Some(&packet[..nbytes]), &mut output, 320, false);
         assert!(result.is_ok(), "Frame {frame}: decode failed: {:?}", result);
     }
 }

@@ -1,10 +1,10 @@
-use crate::mode::CeltMode;
-use crate::tables::*;
+use crate::bands::{anti_collapse, denormalise_bands, quant_all_bands};
 use crate::mdct::{MdctLookup, clt_mdct_backward};
-use crate::rate::{init_caps, clt_compute_allocation};
-use crate::quant_energy::{unquant_coarse_energy, unquant_fine_energy, unquant_energy_finalise};
-use crate::bands::{denormalise_bands, anti_collapse, quant_all_bands};
+use crate::mode::CeltMode;
 use crate::pitch::comb_filter_inplace;
+use crate::quant_energy::{unquant_coarse_energy, unquant_energy_finalise, unquant_fine_energy};
+use crate::rate::{clt_compute_allocation, init_caps};
+use crate::tables::*;
 use opus_range_coder::EcCtx;
 
 const DECODE_BUFFER_SIZE: usize = DEC_PITCH_BUF_SIZE;
@@ -308,7 +308,6 @@ impl CeltDecoder {
         let mut intensity = 0i32;
         let mut dual_stereo = 0i32;
 
-
         let coded_bands = clt_compute_allocation(
             mode,
             start,
@@ -328,7 +327,6 @@ impl CeltDecoder {
             dec,
         );
 
-
         unquant_fine_energy(mode, start, end, &mut self.old_band_e, &fine_quant, dec, c);
 
         // Allocate normalized MDCTs
@@ -337,12 +335,12 @@ impl CeltDecoder {
         // Shift decode memory
         for ch in 0..cc {
             let base = ch * (DECODE_BUFFER_SIZE + overlap);
-            self.decode_mem.copy_within((base + n)..(base + DECODE_BUFFER_SIZE + overlap), base);
+            self.decode_mem
+                .copy_within((base + n)..(base + DECODE_BUFFER_SIZE + overlap), base);
         }
 
         // Decode fixed codebook
         let mut collapse_masks = vec![0u8; c * nb_ebands];
-
 
         // Split x_norm into X and Y for stereo (safe disjoint borrows via split_at_mut)
         let (x_ref, y_ref): (&mut [f32], Option<&mut [f32]>) = if c == 2 {
@@ -373,7 +371,6 @@ impl CeltDecoder {
             &mut self.rng,
             self.disable_inv,
         );
-
 
         // Anti-collapse
         let anti_collapse_on = if anti_collapse_rsv > 0 {
@@ -419,7 +416,18 @@ impl CeltDecoder {
         }
 
         // Synthesis
-        self.celt_synthesis(mode, &x_norm, start, eff_end, c, cc, is_transient, lm, n, silence);
+        self.celt_synthesis(
+            mode,
+            &x_norm,
+            start,
+            eff_end,
+            c,
+            cc,
+            is_transient,
+            lm,
+            n,
+            silence,
+        );
 
         // Comb filter (postfilter)
         for ch in 0..cc {
@@ -501,8 +509,7 @@ impl CeltDecoder {
         }
 
         // Update background noise estimate
-        let max_bg_increase =
-            (self.loss_duration as f32 + mm as f32).min(160.0) * 0.001;
+        let max_bg_increase = (self.loss_duration as f32 + mm as f32).min(160.0) * 0.001;
         for i in 0..(2 * nb_ebands) {
             self.background_log_e[i] =
                 (self.background_log_e[i] + max_bg_increase).min(self.old_band_e[i]);
@@ -564,7 +571,11 @@ impl CeltDecoder {
         } else {
             (1usize, mode.short_mdct_size << lm as usize)
         };
-        let shift = if is_transient { mode.max_lm } else { mode.max_lm - lm as usize };
+        let shift = if is_transient {
+            mode.max_lm
+        } else {
+            mode.max_lm - lm as usize
+        };
 
         let mut freq = vec![0.0f32; n];
 
@@ -596,7 +607,7 @@ impl CeltDecoder {
                     mode.window,
                     overlap,
                     shift,
-                    b,  // stride = B
+                    b, // stride = B
                 );
             }
         }
@@ -640,7 +651,8 @@ impl CeltDecoder {
             if self.downsample > 1 {
                 let mut scratch = vec![0.0f32; n];
                 for j in 0..n {
-                    let tmp = (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
+                    let tmp =
+                        (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
                     m = coef0 * tmp;
                     scratch[j] = sig2res * tmp;
                 }
@@ -649,7 +661,8 @@ impl CeltDecoder {
                 }
             } else {
                 for j in 0..n {
-                    let tmp = (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
+                    let tmp =
+                        (self.decode_mem[out_start + j] + VERY_SMALL + m).clamp(-SIG_SAT, SIG_SAT);
                     m = coef0 * tmp;
                     pcm[j * cc + ch] = sig2res * tmp;
                 }
@@ -683,7 +696,14 @@ impl CeltDecoder {
 }
 
 /// TF (time-frequency) resolution decode.
-fn tf_decode(start: usize, end: usize, is_transient: bool, tf_res: &mut [i32], lm: i32, dec: &mut EcCtx) {
+fn tf_decode(
+    start: usize,
+    end: usize,
+    is_transient: bool,
+    tf_res: &mut [i32],
+    lm: i32,
+    dec: &mut EcCtx,
+) {
     let budget = dec.storage as i32 * 8;
     let mut tell = dec.tell();
     let mut logp = if is_transient { 2u32 } else { 4u32 };

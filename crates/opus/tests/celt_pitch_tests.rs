@@ -79,9 +79,21 @@ fn remove_doubling_periodic_signal() {
     let c_gain = c_remove_doubling(&mut c_signal, maxperiod, 30, n, &mut c_t0, 200, 0.5);
 
     let diff = (rust_t0 as i32 - c_t0).abs();
-    assert!(diff <= 2, "remove_doubling pitch: Rust T0={} C T0={} (diff={})", rust_t0, c_t0, diff);
+    assert!(
+        diff <= 2,
+        "remove_doubling pitch: Rust T0={} C T0={} (diff={})",
+        rust_t0,
+        c_t0,
+        diff
+    );
     let gain_diff = (rust_gain - c_gain).abs();
-    assert!(gain_diff < 0.2, "remove_doubling gain: Rust={:.4} C={:.4} diff={:.4}", rust_gain, c_gain, gain_diff);
+    assert!(
+        gain_diff < 0.2,
+        "remove_doubling gain: Rust={:.4} C={:.4} diff={:.4}",
+        rust_gain,
+        c_gain,
+        gain_diff
+    );
 }
 
 // ── pitch_search ──
@@ -108,7 +120,9 @@ fn pitch_search_periodic_signal() {
     assert!(
         diff <= 2,
         "pitch_search: Rust={} C={} (diff={})",
-        rust_pitch, c_pitch, diff
+        rust_pitch,
+        c_pitch,
+        diff
     );
 }
 
@@ -128,28 +142,43 @@ fn comb_filter_matches_c() {
     // Rust: uses explicit (buf, offset) pairs
     let mut rust_out = vec![0.0f32; buf_size];
     pitch::comb_filter(
-        &mut rust_out, offset,
-        &signal, offset,
-        t1, t1, n,
-        0.0, 0.5,
-        0, 0,
-        &WINDOW_120, 120,
+        &mut rust_out,
+        offset,
+        &signal,
+        offset,
+        t1,
+        t1,
+        n,
+        0.0,
+        0.5,
+        0,
+        0,
+        &WINDOW_120,
+        120,
     );
 
     // C: pass pointers starting at offset so C's negative indexing works
     let mut c_signal = signal.clone();
     let mut c_out = vec![0.0f32; buf_size];
     c_comb_filter(
-        &mut c_out[offset..], &mut c_signal[offset..],
-        t1 as i32, t1 as i32, n,
-        0.0, 0.5, 0, 0, 120,
+        &mut c_out[offset..],
+        &mut c_signal[offset..],
+        t1 as i32,
+        t1 as i32,
+        n,
+        0.0,
+        0.5,
+        0,
+        0,
+        120,
     );
 
     // Compare only the output region [0..N)
     assert_f32_slice_close(
         &rust_out[offset..offset + n],
         &c_out[offset..offset + n],
-        1e-5, "comb_filter(g0=0, g1=0.5)",
+        1e-5,
+        "comb_filter(g0=0, g1=0.5)",
     );
 }
 
@@ -166,25 +195,40 @@ fn comb_filter_crossfade() {
 
     let mut rust_out = vec![0.0f32; buf_size];
     pitch::comb_filter(
-        &mut rust_out, offset,
-        &signal, offset,
-        t0, t1, n,
-        0.3, 0.6,
-        0, 1,
-        &WINDOW_120, 120,
+        &mut rust_out,
+        offset,
+        &signal,
+        offset,
+        t0,
+        t1,
+        n,
+        0.3,
+        0.6,
+        0,
+        1,
+        &WINDOW_120,
+        120,
     );
 
     let mut c_signal = signal.clone();
     let mut c_out = vec![0.0f32; buf_size];
     c_comb_filter(
-        &mut c_out[offset..], &mut c_signal[offset..],
-        t0 as i32, t1 as i32, n,
-        0.3, 0.6, 0, 1, 120,
+        &mut c_out[offset..],
+        &mut c_signal[offset..],
+        t0 as i32,
+        t1 as i32,
+        n,
+        0.3,
+        0.6,
+        0,
+        1,
+        120,
     );
 
     assert_f32_slice_close(
         &rust_out[offset..offset + n],
         &c_out[offset..offset + n],
-        1e-4, "comb_filter(crossfade)",
+        1e-4,
+        "comb_filter(crossfade)",
     );
 }

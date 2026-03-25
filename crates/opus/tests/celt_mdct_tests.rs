@@ -3,7 +3,7 @@
 mod common;
 
 use common::assert_f32_slice_close;
-use opus_celt::mdct::{clt_mdct_backward, clt_mdct_forward, MdctLookup};
+use opus_celt::mdct::{MdctLookup, clt_mdct_backward, clt_mdct_forward};
 use opus_celt::tables::WINDOW_120;
 use opus_ffi::*;
 
@@ -22,7 +22,15 @@ fn mdct_forward_sine_shift0() {
 
     let mut mdct = MdctLookup::new(n, 3);
     let mut rust_output = vec![0.0f32; n2];
-    clt_mdct_forward(&mut mdct, &input, &mut rust_output, &WINDOW_120, overlap, 0, 1);
+    clt_mdct_forward(
+        &mut mdct,
+        &input,
+        &mut rust_output,
+        &WINDOW_120,
+        overlap,
+        0,
+        1,
+    );
 
     let mut c_output = vec![0.0f32; n2];
     c_clt_mdct_forward(&mut c_input, &mut c_output, n, overlap, 0, 1);
@@ -47,7 +55,15 @@ fn mdct_forward_noise_shift0() {
 
     let mut mdct = MdctLookup::new(n, 3);
     let mut rust_output = vec![0.0f32; n2];
-    clt_mdct_forward(&mut mdct, &input, &mut rust_output, &WINDOW_120, overlap, 0, 1);
+    clt_mdct_forward(
+        &mut mdct,
+        &input,
+        &mut rust_output,
+        &WINDOW_120,
+        overlap,
+        0,
+        1,
+    );
 
     let mut c_output = vec![0.0f32; n2];
     c_clt_mdct_forward(&mut c_input, &mut c_output, n, overlap, 0, 1);
@@ -73,7 +89,15 @@ fn mdct_backward_shift0() {
 
     let mut mdct = MdctLookup::new(n, 3);
     let mut rust_output = vec![0.0f32; n];
-    clt_mdct_backward(&mut mdct, &input, &mut rust_output, &WINDOW_120, overlap, 0, 1);
+    clt_mdct_backward(
+        &mut mdct,
+        &input,
+        &mut rust_output,
+        &WINDOW_120,
+        overlap,
+        0,
+        1,
+    );
 
     let mut c_output = vec![0.0f32; n];
     c_clt_mdct_backward(&mut c_input, &mut c_output, n, overlap, 0, 1);
@@ -98,7 +122,15 @@ fn mdct_forward_shift1() {
 
     let mut mdct = MdctLookup::new(n, 3);
     let mut rust_output = vec![0.0f32; n2_shifted];
-    clt_mdct_forward(&mut mdct, &input, &mut rust_output, &WINDOW_120, overlap, shift, 1);
+    clt_mdct_forward(
+        &mut mdct,
+        &input,
+        &mut rust_output,
+        &WINDOW_120,
+        overlap,
+        shift,
+        1,
+    );
 
     let mut c_output = vec![0.0f32; n2_shifted];
     c_clt_mdct_forward(&mut c_input, &mut c_output, n, overlap, shift, 1);

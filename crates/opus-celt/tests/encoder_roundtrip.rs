@@ -8,7 +8,11 @@ const FRAME_SIZE: usize = 960;
 fn energy_db(pcm: &[f32]) -> f64 {
     let sum: f64 = pcm.iter().map(|&x| (x as f64) * (x as f64)).sum();
     let rms = (sum / pcm.len().max(1) as f64).sqrt();
-    if rms < 1e-20 { -200.0 } else { 20.0 * rms.log10() }
+    if rms < 1e-20 {
+        -200.0
+    } else {
+        20.0 * rms.log10()
+    }
 }
 
 fn gen_sine(freq: f32, amplitude: f32, n: usize) -> Vec<f32> {

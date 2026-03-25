@@ -220,11 +220,7 @@ fn silk_vad_get_noise_levels(xnrg: &[i32; VAD_N_BANDS], state: &mut VadState) {
         let coef = coef.max(min_coef);
 
         // Smooth inverse energies
-        state.inv_nl[k] = silk_smlawb(
-            state.inv_nl[k],
-            inv_nrg - state.inv_nl[k],
-            coef,
-        );
+        state.inv_nl[k] = silk_smlawb(state.inv_nl[k], inv_nrg - state.inv_nl[k], coef);
         debug_assert!(state.inv_nl[k] >= 0);
 
         // Compute noise level by inverting again
@@ -256,7 +252,7 @@ fn decimate_into_bands(
 ) -> [usize; VAD_N_BANDS] {
     let decimated_framelength1 = (frame_length >> 1) as usize; // frame_length / 2
     let decimated_framelength2 = (frame_length >> 2) as usize; // frame_length / 4
-    let decimated_framelength = (frame_length >> 3) as usize;  // frame_length / 8
+    let decimated_framelength = (frame_length >> 3) as usize; // frame_length / 8
 
     // Band offsets in the working buffer (matches C layout):
     //   Band 0 (0-1 kHz):  offset 0, length = decimated_framelength
@@ -267,7 +263,9 @@ fn decimate_into_bands(
         0,
         decimated_framelength + decimated_framelength2,
         decimated_framelength + decimated_framelength2 + decimated_framelength,
-        decimated_framelength + decimated_framelength2 + decimated_framelength
+        decimated_framelength
+            + decimated_framelength2
+            + decimated_framelength
             + decimated_framelength2,
     ];
     let x_len = x_offset[3] + decimated_framelength1;
@@ -384,8 +382,7 @@ fn silk_vad_compute(
                 // Right shift by 3 to prevent overflow in accumulation.
                 // Energy will be < dec_subframe_length * (i16::MIN / 8)^2.
                 // Safe as long as dec_subframe_length <= 128.
-                let x_tmp =
-                    x[x_offset[b] + (i + dec_subframe_offset) as usize] as i32 >> 3;
+                let x_tmp = x[x_offset[b] + (i + dec_subframe_offset) as usize] as i32 >> 3;
                 sum_squared = silk_smlabb(sum_squared, x_tmp, x_tmp);
                 debug_assert!(sum_squared >= 0);
             }
@@ -418,11 +415,9 @@ fn silk_vad_compute(
             // Divide, with sufficient resolution
             if (xnrg[b] & 0xFF80_0000u32 as i32) == 0 {
                 // xnrg fits in 23 bits, so we can shift left by 8 safely
-                nrg_to_noise_ratio_q8[b] =
-                    silk_div32(xnrg[b] << 8, state.nl[b] + 1);
+                nrg_to_noise_ratio_q8[b] = silk_div32(xnrg[b] << 8, state.nl[b] + 1);
             } else {
-                nrg_to_noise_ratio_q8[b] =
-                    silk_div32(xnrg[b], (state.nl[b] >> 8) + 1);
+                nrg_to_noise_ratio_q8[b] = silk_div32(xnrg[b], (state.nl[b] >> 8) + 1);
             }
 
             // Convert to log domain
@@ -433,10 +428,7 @@ fn silk_vad_compute(
 
             // Tilt measure: scale down SNR for small subband speech energies
             if speech_nrg < (1 << 20) {
-                snr_q7 = silk_smulwb(
-                    silk_sqrt_approx(speech_nrg) << 6,
-                    snr_q7,
-                );
+                snr_q7 = silk_smulwb(silk_sqrt_approx(speech_nrg) << 6, snr_q7);
             }
             input_tilt = silk_smlawb(input_tilt, TILT_WEIGHTS[b], snr_q7);
         } else {
@@ -452,9 +444,8 @@ fn silk_vad_compute(
     let p_snr_db_q7 = (3 * silk_sqrt_approx(sum_squared)) as i16 as i32;
 
     // ---- Speech Probability Estimation ----
-    let mut sa_q15 = silk_sigm_q15(
-        silk_smulwb(VAD_SNR_FACTOR_Q16, p_snr_db_q7) - VAD_NEGATIVE_OFFSET_Q5,
-    );
+    let mut sa_q15 =
+        silk_sigm_q15(silk_smulwb(VAD_SNR_FACTOR_Q16, p_snr_db_q7) - VAD_NEGATIVE_OFFSET_Q5);
 
     // ---- Frequency Tilt Measure ----
     *tilt_q15 = (silk_sigm_q15(input_tilt) - 16384) << 1;
@@ -484,8 +475,7 @@ fn silk_vad_compute(
 
     // ---- Energy Level and SNR estimation ----
     // Smoothing coefficient
-    let mut smooth_coef_q16 =
-        silk_smulwb(VAD_SNR_SMOOTH_COEF_Q18, silk_smulwb(sa_q15, sa_q15));
+    let mut smooth_coef_q16 = silk_smulwb(VAD_SNR_SMOOTH_COEF_Q18, silk_smulwb(sa_q15, sa_q15));
 
     if is_10ms_frame {
         smooth_coef_q16 >>= 1;

@@ -1,7 +1,7 @@
 // Port of silk/float/find_LPC_FLP.c: silk_find_LPC_FLP
 // Burg LPC analysis with NLSF interpolation coefficient search.
 
-use super::dsp::{silk_lpc_analysis_filter_flp, silk_energy_flp};
+use super::dsp::{silk_energy_flp, silk_lpc_analysis_filter_flp};
 use super::wrappers::{silk_a2nlsf_flp, silk_nlsf2a_flp};
 use crate::lpc_analysis::silk_burg_modified_flp;
 use crate::{MAX_LPC_ORDER, MAX_NB_SUBFR, silk_interpolate_i16};
@@ -12,16 +12,16 @@ use crate::{MAX_LPC_ORDER, MAX_NB_SUBFR, silk_interpolate_i16};
 ///
 /// Sets `nlsf_interp_coef_q2` on the output and fills `nlsf_q15`.
 pub fn silk_find_lpc_flp(
-    nlsf_q15: &mut [i16],                 // O: NLSFs in Q15
-    nlsf_interp_coef_q2: &mut i8,         // O: interpolation coefficient (0-4)
-    x: &[f32],                            // I: input signal (gain-normalized lpc_in_pre)
-    min_inv_gain: f32,                     // I: minimum inverse prediction gain
+    nlsf_q15: &mut [i16],         // O: NLSFs in Q15
+    nlsf_interp_coef_q2: &mut i8, // O: interpolation coefficient (0-4)
+    x: &[f32],                    // I: input signal (gain-normalized lpc_in_pre)
+    min_inv_gain: f32,            // I: minimum inverse prediction gain
     predict_lpc_order: usize,
     nb_subfr: usize,
-    subfr_length_with_d: usize,           // subfr_length + predictLPCOrder
+    subfr_length_with_d: usize, // subfr_length + predictLPCOrder
     use_interpolated_nlsfs: bool,
     first_frame_after_reset: bool,
-    prev_nlsf_q15: &[i16],               // I: previous frame's quantized NLSFs
+    prev_nlsf_q15: &[i16], // I: previous frame's quantized NLSFs
 ) {
     let mut a = [0.0f32; MAX_LPC_ORDER];
 
@@ -30,7 +30,12 @@ pub fn silk_find_lpc_flp(
 
     // Burg AR analysis for the full frame
     let mut res_nrg = silk_burg_modified_flp(
-        &mut a, x, min_inv_gain, subfr_length_with_d, nb_subfr, predict_lpc_order,
+        &mut a,
+        x,
+        min_inv_gain,
+        subfr_length_with_d,
+        nb_subfr,
+        predict_lpc_order,
     );
 
     if use_interpolated_nlsfs && !first_frame_after_reset && nb_subfr == MAX_NB_SUBFR {
@@ -38,8 +43,12 @@ pub fn silk_find_lpc_flp(
         let mut a_tmp = [0.0f32; MAX_LPC_ORDER];
         let half_offset = (MAX_NB_SUBFR / 2) * subfr_length_with_d;
         res_nrg -= silk_burg_modified_flp(
-            &mut a_tmp, &x[half_offset..], min_inv_gain,
-            subfr_length_with_d, MAX_NB_SUBFR / 2, predict_lpc_order,
+            &mut a_tmp,
+            &x[half_offset..],
+            min_inv_gain,
+            subfr_length_with_d,
+            MAX_NB_SUBFR / 2,
+            predict_lpc_order,
         );
 
         // Convert second-half LPC to NLSFs
@@ -55,8 +64,11 @@ pub fn silk_find_lpc_flp(
             // Interpolate NLSFs for first half
             let mut nlsf0_q15 = [0i16; MAX_LPC_ORDER];
             silk_interpolate_i16(
-                &mut nlsf0_q15, prev_nlsf_q15, nlsf_q15,
-                k, predict_lpc_order,
+                &mut nlsf0_q15,
+                prev_nlsf_q15,
+                nlsf_q15,
+                k,
+                predict_lpc_order,
             );
 
             // Convert to float LPC for residual energy evaluation
@@ -68,9 +80,7 @@ pub fn silk_find_lpc_flp(
 
             // C: energy(LPC_res + predictLPCOrder, subfr_length_with_d - predictLPCOrder) per half
             let range_len = subfr_length_with_d - predict_lpc_order;
-            let nrg0 = silk_energy_flp(
-                &lpc_res[predict_lpc_order..predict_lpc_order + range_len],
-            );
+            let nrg0 = silk_energy_flp(&lpc_res[predict_lpc_order..predict_lpc_order + range_len]);
             let nrg1 = silk_energy_flp(
                 &lpc_res[predict_lpc_order + subfr_length_with_d
                     ..predict_lpc_order + subfr_length_with_d + range_len],
@@ -94,4 +104,3 @@ pub fn silk_find_lpc_flp(
         silk_a2nlsf_flp(nlsf_q15, &a, predict_lpc_order);
     }
 }
-

@@ -20,8 +20,7 @@ mod common;
 //   /tmp/gen_pitch_vectors > /tmp/pitch_vectors.txt
 
 use opus::{
-    OpusDecoder, OpusEncoder,
-    Application, Bandwidth, Bitrate, Mode, SampleRate, Channels,
+    Application, Bandwidth, Bitrate, Channels, Mode, OpusDecoder, OpusEncoder, SampleRate,
     opus_packet_get_bandwidth, opus_packet_get_mode,
 };
 
@@ -64,8 +63,7 @@ fn generate_tone(freq: f32, amplitude: f32, num_samples: usize, sample_offset: u
     let mut buf = vec![0.0f32; num_samples];
     for i in 0..num_samples {
         buf[i] = amplitude
-            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32
-                / SAMPLE_RATE as f32)
+            * (2.0 * std::f32::consts::PI * freq * (sample_offset + i) as f32 / SAMPLE_RATE as f32)
                 .sin();
     }
     buf
@@ -172,9 +170,11 @@ fn test_decode_c_ref_silk_200hz_10k() {
 #[test]
 fn test_silk_pitch_200hz_roundtrip() {
     let mut enc = create_silk_encoder();
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Decode with a fresh decoder, feeding all packets to build up state
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
@@ -197,9 +197,11 @@ fn test_silk_pitch_200hz_roundtrip() {
 #[test]
 fn test_silk_pitch_300hz_roundtrip() {
     let mut enc = create_silk_encoder();
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
@@ -221,9 +223,11 @@ fn test_silk_pitch_300hz_roundtrip() {
 #[test]
 fn test_silk_pitch_silence_roundtrip() {
     let mut enc = create_silk_encoder();
-    let packets = encode_frames(&mut enc, &|_| {
-        generate_silence(FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_frames(
+        &mut enc,
+        &|_| generate_silence(FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
@@ -246,9 +250,11 @@ fn test_silk_pitch_silence_roundtrip() {
 #[test]
 fn test_silk_pitch_noise_roundtrip() {
     let mut enc = create_silk_encoder();
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_noise(0.3, FRAME_SIZE, 12345 + frame_idx as u32 * 1000)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_noise(0.3, FRAME_SIZE, 12345 + frame_idx as u32 * 1000),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut last_pcm = vec![0.0f32; FRAME_SIZE];
@@ -278,21 +284,27 @@ fn test_silk_pitch_noise_roundtrip() {
 fn test_voiced_vs_unvoiced_packets_differ() {
     // Encode 200Hz tone
     let mut enc_200 = create_silk_encoder();
-    let packets_200 = encode_frames(&mut enc_200, &|frame_idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_200 = encode_frames(
+        &mut enc_200,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Encode 300Hz tone
     let mut enc_300 = create_silk_encoder();
-    let packets_300 = encode_frames(&mut enc_300, &|frame_idx| {
-        generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_300 = encode_frames(
+        &mut enc_300,
+        &|frame_idx| generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Encode white noise
     let mut enc_noise = create_silk_encoder();
-    let packets_noise = encode_frames(&mut enc_noise, &|frame_idx| {
-        generate_noise(0.3, FRAME_SIZE, 12345 + frame_idx as u32 * 1000)
-    }, NUM_WARMUP_FRAMES);
+    let packets_noise = encode_frames(
+        &mut enc_noise,
+        &|frame_idx| generate_noise(0.3, FRAME_SIZE, 12345 + frame_idx as u32 * 1000),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Get the last packets (steady state after warmup)
     let pkt_200 = packets_200.last().unwrap();
@@ -365,14 +377,18 @@ fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
 #[test]
 fn test_different_pitch_periods_produce_different_packets() {
     let mut enc_200 = create_silk_encoder();
-    let packets_200 = encode_frames(&mut enc_200, &|frame_idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_200 = encode_frames(
+        &mut enc_200,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     let mut enc_300 = create_silk_encoder();
-    let packets_300 = encode_frames(&mut enc_300, &|frame_idx| {
-        generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets_300 = encode_frames(
+        &mut enc_300,
+        &|frame_idx| generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     // Compare steady-state packets (last few frames)
     for i in (NUM_WARMUP_FRAMES - 3)..NUM_WARMUP_FRAMES {
@@ -400,18 +416,22 @@ fn test_different_pitch_periods_produce_different_packets() {
 #[test]
 fn test_encoder_produces_silk_mode_packets() {
     let mut enc = create_silk_encoder();
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, NUM_WARMUP_FRAMES);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        NUM_WARMUP_FRAMES,
+    );
 
     for (i, pkt) in packets.iter().enumerate() {
         assert!(!pkt.is_empty(), "Frame {i} should produce a packet");
 
         let mode = opus_packet_get_mode(&pkt);
         assert_eq!(
-            mode, Mode::SilkOnly,
+            mode,
+            Mode::SilkOnly,
             "Frame {i}: expected SILK-only mode ({:?}), got {:?}",
-            Mode::SilkOnly, mode
+            Mode::SilkOnly,
+            mode
         );
 
         let bandwidth = opus_packet_get_bandwidth(&pkt);
@@ -419,7 +439,8 @@ fn test_encoder_produces_silk_mode_packets() {
         assert!(
             bandwidth <= Bandwidth::Wideband,
             "Frame {i}: bandwidth {:?} should be <= wideband ({:?})",
-            bandwidth, Bandwidth::Wideband
+            bandwidth,
+            Bandwidth::Wideband
         );
     }
 }
@@ -435,9 +456,7 @@ fn test_encoder_produces_silk_mode_packets() {
 #[test]
 fn test_decoded_energy_by_signal_type() {
     // Helper: encode N frames and decode all, return per-frame decoded energies
-    fn encode_decode_energies(
-        generate_frame: &dyn Fn(usize) -> Vec<f32>,
-    ) -> Vec<f64> {
+    fn encode_decode_energies(generate_frame: &dyn Fn(usize) -> Vec<f32>) -> Vec<f64> {
         let mut enc = create_silk_encoder();
         let packets = encode_frames(&mut enc, generate_frame, NUM_WARMUP_FRAMES);
 
@@ -452,18 +471,13 @@ fn test_decoded_energy_by_signal_type() {
         energies
     }
 
-    let energies_200hz = encode_decode_energies(&|idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, idx * FRAME_SIZE)
-    });
-    let energies_300hz = encode_decode_energies(&|idx| {
-        generate_tone(300.0, 0.4, FRAME_SIZE, idx * FRAME_SIZE)
-    });
-    let energies_silence = encode_decode_energies(&|_| {
-        generate_silence(FRAME_SIZE)
-    });
-    let energies_noise = encode_decode_energies(&|idx| {
-        generate_noise(0.3, FRAME_SIZE, 12345 + idx as u32 * 1000)
-    });
+    let energies_200hz =
+        encode_decode_energies(&|idx| generate_tone(200.0, 0.4, FRAME_SIZE, idx * FRAME_SIZE));
+    let energies_300hz =
+        encode_decode_energies(&|idx| generate_tone(300.0, 0.4, FRAME_SIZE, idx * FRAME_SIZE));
+    let energies_silence = encode_decode_energies(&|_| generate_silence(FRAME_SIZE));
+    let energies_noise =
+        encode_decode_energies(&|idx| generate_noise(0.3, FRAME_SIZE, 12345 + idx as u32 * 1000));
 
     // Use the last frame's energy (steady state)
     let e_200 = *energies_200hz.last().unwrap();
@@ -508,9 +522,11 @@ fn test_decoded_energy_by_signal_type() {
 fn test_silk_pitch_200hz_stabilizes() {
     let mut enc = create_silk_encoder();
     let total_frames = 20;
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, total_frames);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        total_frames,
+    );
 
     let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
     let mut frame_energies = Vec::new();
@@ -542,9 +558,11 @@ fn test_silk_pitch_200hz_stabilizes() {
 fn test_silk_pitch_300hz_packet_sizes_stable() {
     let mut enc = create_silk_encoder();
     let total_frames = 15;
-    let packets = encode_frames(&mut enc, &|frame_idx| {
-        generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE)
-    }, total_frames);
+    let packets = encode_frames(
+        &mut enc,
+        &|frame_idx| generate_tone(300.0, 0.4, FRAME_SIZE, frame_idx * FRAME_SIZE),
+        total_frames,
+    );
 
     // After warmup, packet sizes should be relatively consistent
     let stable_sizes: Vec<usize> = packets[5..].iter().map(|p| p.len()).collect();
@@ -561,7 +579,8 @@ fn test_silk_pitch_300hz_packet_sizes_stable() {
         assert!(
             sz >= 2 && sz <= 500,
             "Frame {} packet size {} is out of expected range for SILK encoding",
-            5 + i, sz
+            5 + i,
+            sz
         );
     }
     // Verify sizes are stable: max/min ratio should be reasonable
@@ -589,19 +608,17 @@ fn test_c_ref_silk_multi_decode_stability() {
     // Feed the same packet multiple times (not ideal but tests decoder stability)
     for i in 0..5 {
         let mut pcm = vec![0.0f32; FRAME_SIZE];
-        let result = dec.decode_float(
-            Some(C_SILK_200HZ_16K),
-            &mut pcm,
-            FRAME_SIZE as i32,
-            false,
-        );
+        let result = dec.decode_float(Some(C_SILK_200HZ_16K), &mut pcm, FRAME_SIZE as i32, false);
         assert!(
             result.is_ok(),
             "Decode iteration {i} should succeed: {:?}",
             result
         );
         let n = result.unwrap() as usize;
-        assert_eq!(n, FRAME_SIZE, "Should always decode exactly {FRAME_SIZE} samples");
+        assert_eq!(
+            n, FRAME_SIZE,
+            "Should always decode exactly {FRAME_SIZE} samples"
+        );
 
         // Check no NaN or Inf in output
         for (j, &sample) in pcm.iter().enumerate() {
@@ -636,7 +653,12 @@ fn test_silk_silence_to_tone_transition() {
         let input = if frame_idx < transition_frame {
             generate_silence(FRAME_SIZE)
         } else {
-            generate_tone(200.0, 0.4, FRAME_SIZE, (frame_idx - transition_frame) * FRAME_SIZE)
+            generate_tone(
+                200.0,
+                0.4,
+                FRAME_SIZE,
+                (frame_idx - transition_frame) * FRAME_SIZE,
+            )
         };
 
         let mut packet = vec![0u8; 1500];

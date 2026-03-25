@@ -62,7 +62,14 @@ pub fn celt_iir(x: &[f32], lpc: &[f32], y: &mut [f32], n: usize, ord: usize, mem
 }
 
 /// Autocorrelation.
-pub fn celt_autocorr(x: &[f32], ac: &mut [f32], _window: &[f32], _overlap: usize, p: usize, n: usize) {
+pub fn celt_autocorr(
+    x: &[f32],
+    ac: &mut [f32],
+    _window: &[f32],
+    _overlap: usize,
+    p: usize,
+    n: usize,
+) {
     for k in 0..=p {
         let mut sum = 0.0f32;
         for i in k..n {

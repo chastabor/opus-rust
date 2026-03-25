@@ -1,20 +1,20 @@
 // Top-level SILK encoder
 // Port of silk/enc_API.c, silk/control_codec.c (simplified)
 
-use opus_range_coder::EcCtx;
-use crate::*;
-use crate::tables::*;
-use crate::nlsf::*;
-use crate::gain_quant;
 use crate::encode_indices;
 use crate::encode_pulses;
-use crate::nlsf_encode;
+use crate::gain_quant;
 use crate::lpc_analysis;
-use crate::pitch_analysis;
-use crate::nsq::{self, NsqState, MAX_SHAPE_LPC_ORDER};
-use crate::nsq_del_dec;
-use crate::vad;
+use crate::nlsf::*;
+use crate::nlsf_encode;
 use crate::noise_shape_analysis;
+use crate::nsq::{self, MAX_SHAPE_LPC_ORDER, NsqState};
+use crate::nsq_del_dec;
+use crate::pitch_analysis;
+use crate::tables::*;
+use crate::vad;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Fixed-point division with variable Q shift: (a << q_shift) / b
 #[allow(dead_code)]
@@ -139,7 +139,7 @@ const MAX_SILK_WIN: usize = 240; // shape_win_length max (15 * 16)
 #[derive(Default)]
 pub struct SilkScratch {
     pub delayed_input: Vec<i16>, // frame_length for resampler delay
-    pub analysis_buf: Vec<i16>,   // MAX_SILK_TOTAL
+    pub analysis_buf: Vec<i16>,  // MAX_SILK_TOTAL
     pub vad_x: Vec<i16>,         // ~800
     pub x_windowed: Vec<i16>,    // MAX_SILK_WIN
     pub nsq_s_ltp_q15: Vec<i32>, // MAX_SILK_TOTAL
@@ -307,13 +307,20 @@ impl EncChannelState {
             // Resampler delay matching C reference: delay_matrix_enc[rateID][rateID]
             // 8kHz→6, 12kHz→7, 16kHz→10
             self.resampler_input_delay = match fs_khz {
-                8 => 6, 12 => 7, 16 => 10, _ => 10,
+                8 => 6,
+                12 => 7,
+                16 => 10,
+                _ => 10,
             } as usize;
             self.resampler_delay_buf = [0; 16];
         }
 
         self.fs_khz = fs_khz;
-        self.nb_subfr = if payload_size_ms == 10 { 2 } else { MAX_NB_SUBFR as i32 };
+        self.nb_subfr = if payload_size_ms == 10 {
+            2
+        } else {
+            MAX_NB_SUBFR as i32
+        };
         self.subfr_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz;
         self.frame_length = self.nb_subfr * self.subfr_length;
         self.ltp_mem_length = LTP_MEM_LENGTH_MS as i32 * fs_khz;
@@ -349,7 +356,7 @@ impl EncChannelState {
         // Shaping LPC order based on complexity (from silk/control_codec.c)
         // and warping for bilinear transform
         self.shaping_lpc_order = 16; // default, updated in encode() based on complexity
-        self.warping_q16 = 0;        // default, updated based on complexity >= 4
+        self.warping_q16 = 0; // default, updated based on complexity >= 4
     }
 }
 
@@ -396,12 +403,7 @@ impl SilkEncoder {
     ///
     /// Returns the number of bytes written, or a negative error code.
     /// The encoder writes into the provided range coder `enc`.
-    pub fn encode(
-        &mut self,
-        control: &SilkEncControl,
-        enc: &mut EcCtx,
-        samples: &[i16],
-    ) -> i32 {
+    pub fn encode(&mut self, control: &SilkEncControl, enc: &mut EcCtx, samples: &[i16]) -> i32 {
         // Take scratch buffers to avoid borrow conflicts with self.state
         let mut scratch = std::mem::take(&mut self.scratch);
         let cs = &mut self.state;
@@ -540,7 +542,11 @@ impl SilkEncoder {
         // NLSF mu from C reference: 6 for voiced, 4 for unvoiced (scaled by 2^20)
         // Use previous signal type since pitch analysis hasn't run yet for this frame
         let prev_voiced = cs.prev_signal_type == TYPE_VOICED;
-        let nlsf_mu_q20 = if prev_voiced { 6 << 20 >> 2 } else { 4 << 20 >> 2 };
+        let nlsf_mu_q20 = if prev_voiced {
+            6 << 20 >> 2
+        } else {
+            4 << 20 >> 2
+        };
         // Number of NLSF survivors based on complexity (from silk/control_codec.c)
         let nlsf_survivors = match control.complexity {
             0 => 2,
@@ -556,17 +562,23 @@ impl SilkEncoder {
             &mut nlsf_q15,
             nlsf_cb,
             &w_q2,
-            nlsf_mu_q20, nlsf_survivors,
+            nlsf_mu_q20,
+            nlsf_survivors,
             cs.indices.signal_type as i32,
         );
 
         // 4. Convert quantized NLSFs back to LPC for filtering
         let mut pred_coef_q12 = [0i16; 2 * MAX_LPC_ORDER];
-        silk_nlsf2a(&mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order], &nlsf_q15, lpc_order);
+        silk_nlsf2a(
+            &mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order],
+            &nlsf_q15,
+            lpc_order,
+        );
         // For interpolation: use the same coefficients for both halves (simplified)
         // Copy second half to first half via temp to satisfy borrow checker
         let mut tmp_coefs = [0i16; MAX_LPC_ORDER];
-        tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
+        tmp_coefs[..lpc_order]
+            .copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
         pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
 
         // nlsf_interp_coef_q2 is set by the interpolation search in Step 3
@@ -586,11 +598,11 @@ impl SilkEncoder {
 
         // Derive search threshold from complexity (matches C reference)
         let search_thres1_q16 = match control.complexity {
-            0 | 2 => 52429,   // SILK_FIX_CONST(0.8, 16)
-            1 | 3 => 49807,   // SILK_FIX_CONST(0.76, 16)
-            4 | 5 => 48497,   // SILK_FIX_CONST(0.74, 16)
-            6 | 7 => 47186,   // SILK_FIX_CONST(0.72, 16)
-            _ => 45875,       // SILK_FIX_CONST(0.7, 16)
+            0 | 2 => 52429, // SILK_FIX_CONST(0.8, 16)
+            1 | 3 => 49807, // SILK_FIX_CONST(0.76, 16)
+            4 | 5 => 48497, // SILK_FIX_CONST(0.74, 16)
+            6 | 7 => 47186, // SILK_FIX_CONST(0.72, 16)
+            _ => 45875,     // SILK_FIX_CONST(0.7, 16)
         };
         let search_thres2_q13 = 2458; // SILK_FIX_CONST(0.3, 13)
 
@@ -736,7 +748,6 @@ impl SilkEncoder {
             inv_gains_f[k] = 1.0 / gains_f[k].max(1e-12);
         }
 
-
         // Step 2: Create gain-normalized LPC_in_pre (float, matching C float encoder)
         // C: silk_scale_copy_vector_FLP(x_pre_ptr, x_ptr, invGains[i], len)
         let lpc_pre_len = nb_subfr * (lpc_order + subfr_length);
@@ -775,8 +786,12 @@ impl SilkEncoder {
 
             let mut a_flp = [0.0f32; MAX_LPC_ORDER];
             let _burg_res_nrg_f = lpc_analysis::silk_burg_modified_flp(
-                &mut a_flp, &lpc_in_pre_f,
-                min_inv_gain_f, burg_subfr, nb_subfr, lpc_order,
+                &mut a_flp,
+                &lpc_in_pre_f,
+                min_inv_gain_f,
+                burg_subfr,
+                nb_subfr,
+                lpc_order,
             );
 
             // Convert float coefficients to Q16 (C: silk_A2NLSF_FLP does this)
@@ -789,13 +804,11 @@ impl SilkEncoder {
             // Default: no interpolation
             cs.indices.nlsf_interp_coef_q2 = 4;
 
-
             let mut new_nlsf_q15 = [0i16; MAX_LPC_ORDER];
 
             // NLSF interpolation search (C: find_LPC_FIX.c lines 65-141)
-            let use_interpolated = control.complexity >= 5
-                && !cs.first_frame_after_reset
-                && nb_subfr == MAX_NB_SUBFR;
+            let use_interpolated =
+                control.complexity >= 5 && !cs.first_frame_after_reset && nb_subfr == MAX_NB_SUBFR;
 
             // Float residual energy for interpolation comparison
             let mut burg_res_nrg_f = _burg_res_nrg_f;
@@ -804,8 +817,12 @@ impl SilkEncoder {
                 // Float Burg on last 2 subframes (second half)
                 let mut a_tmp_flp = [0.0f32; MAX_LPC_ORDER];
                 let res_tmp_nrg_f = lpc_analysis::silk_burg_modified_flp(
-                    &mut a_tmp_flp, &lpc_in_pre_f[2 * burg_subfr..],
-                    min_inv_gain_f, burg_subfr, 2, lpc_order,
+                    &mut a_tmp_flp,
+                    &lpc_in_pre_f[2 * burg_subfr..],
+                    min_inv_gain_f,
+                    burg_subfr,
+                    2,
+                    lpc_order,
                 );
 
                 // Subtract second-half energy from full-frame energy
@@ -896,18 +913,31 @@ impl SilkEncoder {
                 nlsf_mu_q20 += nlsf_mu_q20 >> 1; // 1.5x for 10ms
             }
             let nlsf_survivors = match control.complexity {
-                0 => 2, 1 => 3, 2 => 2, 3 => 4, 4 | 5 => 6, 6 | 7 => 8, _ => 16,
+                0 => 2,
+                1 => 3,
+                2 => 2,
+                3 => 4,
+                4 | 5 => 6,
+                6 | 7 => 8,
+                _ => 16,
             };
             nlsf_encode::silk_nlsf_encode(
-                &mut cs.indices.nlsf_indices, &mut new_nlsf_q15,
-                nlsf_cb, &w_q2, nlsf_mu_q20, nlsf_survivors,
+                &mut cs.indices.nlsf_indices,
+                &mut new_nlsf_q15,
+                nlsf_cb,
+                &w_q2,
+                nlsf_mu_q20,
+                nlsf_survivors,
                 cs.indices.signal_type as i32,
             );
 
             // Convert quantized NLSFs back to LPC Q12 for second half
             // C: silk_NLSF2A(PredCoef_Q12[1], pNLSF_Q15, ...)
-            silk_nlsf2a(&mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order],
-                        &new_nlsf_q15, lpc_order);
+            silk_nlsf2a(
+                &mut pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order],
+                &new_nlsf_q15,
+                lpc_order,
+            );
 
             // First half: interpolate or copy (C: process_NLSFs.c lines 94-106)
             if cs.indices.nlsf_interp_coef_q2 < 4 {
@@ -923,7 +953,8 @@ impl SilkEncoder {
             } else {
                 // No interpolation — copy second half to first half
                 let mut tmp_coefs = [0i16; MAX_LPC_ORDER];
-                tmp_coefs[..lpc_order].copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
+                tmp_coefs[..lpc_order]
+                    .copy_from_slice(&pred_coef_q12[MAX_LPC_ORDER..MAX_LPC_ORDER + lpc_order]);
                 pred_coef_q12[..lpc_order].copy_from_slice(&tmp_coefs[..lpc_order]);
             }
 
@@ -980,7 +1011,8 @@ impl SilkEncoder {
                         }
                     }
                     // C: nrgs[k] = gains[k] * gains[k] * silk_energy_FLP(...)
-                    res_nrg_f[sf_idx] = (gains_f[sf_idx] as f64 * gains_f[sf_idx] as f64 * energy) as f32;
+                    res_nrg_f[sf_idx] =
+                        (gains_f[sf_idx] as f64 * gains_f[sf_idx] as f64 * energy) as f32;
                 }
             }
         }
@@ -989,8 +1021,7 @@ impl SilkEncoder {
         // gain = sqrt(gain² + ResNrg * InvMaxSqrVal), all in float
         {
             let snr_db = snr_for_shaping as f32 / 128.0;
-            let inv_max_sqr_val: f32 = 2.0f32.powf(0.33 * (21.0 - snr_db))
-                / (subfr_length as f32);
+            let inv_max_sqr_val: f32 = 2.0f32.powf(0.33 * (21.0 - snr_db)) / (subfr_length as f32);
 
             for k in 0..nb_subfr {
                 let gain = gains_f[k];
@@ -1003,7 +1034,6 @@ impl SilkEncoder {
                 gains_q16[k] = (gains_f[k] * 65536.0) as i32;
             }
         }
-
 
         // Save unquantized gains for the iterative bitrate loop
         let gains_unq_q16 = gains_q16;
@@ -1065,7 +1095,8 @@ impl SilkEncoder {
                     // Delta coding: boost the delta to increase gain
                     lbrr_gains_indices[0] = ((lbrr_gains_indices[0] as i32
                         + cs.lbrr_gain_increases)
-                        .min(MAX_DELTA_GAIN_QUANT - MIN_DELTA_GAIN_QUANT)) as i8;
+                        .min(MAX_DELTA_GAIN_QUANT - MIN_DELTA_GAIN_QUANT))
+                        as i8;
                 }
                 cs.indices_lbrr[frame_idx].gains_indices = lbrr_gains_indices;
 
@@ -1190,43 +1221,87 @@ impl SilkEncoder {
             let mut pulses = [0i8; MAX_FRAME_LENGTH];
             if n_states_delayed_decision > 1 {
                 nsq_del_dec::silk_nsq_del_dec(
-                    &mut cs.nsq_state, &mut cs.indices,
-                    &samples[..frame_length], &mut pulses,
-                    &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-                    harm_shape_gain_q14, tilt_q14, lf_shp_q14,
-                    &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
-                    nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
-                    nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
-                    nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
-                    n_states_delayed_decision, cs.warping_q16,
-                    &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
+                    &mut cs.nsq_state,
+                    &mut cs.indices,
+                    &samples[..frame_length],
+                    &mut pulses,
+                    &pred_coef_q12,
+                    &ltp_coef_q14,
+                    &ar_q13,
+                    harm_shape_gain_q14,
+                    tilt_q14,
+                    lf_shp_q14,
+                    &gains_q16,
+                    &pitch_lags,
+                    lambda_q10,
+                    ltp_scale_q14,
+                    nsq_frame_length,
+                    nsq_subfr_length,
+                    nsq_ltp_mem_length,
+                    nsq_lpc_order,
+                    MAX_SHAPE_LPC_ORDER as i32,
+                    nsq_nb_subfr,
+                    nsq_signal_type,
+                    nsq_quant_offset_type,
+                    nsq_nlsf_interp_coef_q2,
+                    n_states_delayed_decision,
+                    cs.warping_q16,
+                    &mut scratch.nsq_s_ltp_q15,
+                    &mut scratch.nsq_s_ltp,
                 );
             } else {
                 nsq::silk_nsq(
-                    &mut cs.nsq_state, &mut cs.indices,
-                    &samples[..frame_length], &mut pulses,
-                    &pred_coef_q12, &ltp_coef_q14, &ar_q13,
-                    harm_shape_gain_q14, tilt_q14, lf_shp_q14,
-                    &gains_q16, &pitch_lags, lambda_q10, ltp_scale_q14,
-                    nsq_frame_length, nsq_subfr_length, nsq_ltp_mem_length,
-                    nsq_lpc_order, MAX_SHAPE_LPC_ORDER as i32, nsq_nb_subfr,
-                    nsq_signal_type, nsq_quant_offset_type, nsq_nlsf_interp_coef_q2,
-                    &mut scratch.nsq_s_ltp_q15, &mut scratch.nsq_s_ltp,
-                    &mut scratch.nsq_x_sc_q10, &mut scratch.nsq_xq_tmp,
+                    &mut cs.nsq_state,
+                    &mut cs.indices,
+                    &samples[..frame_length],
+                    &mut pulses,
+                    &pred_coef_q12,
+                    &ltp_coef_q14,
+                    &ar_q13,
+                    harm_shape_gain_q14,
+                    tilt_q14,
+                    lf_shp_q14,
+                    &gains_q16,
+                    &pitch_lags,
+                    lambda_q10,
+                    ltp_scale_q14,
+                    nsq_frame_length,
+                    nsq_subfr_length,
+                    nsq_ltp_mem_length,
+                    nsq_lpc_order,
+                    MAX_SHAPE_LPC_ORDER as i32,
+                    nsq_nb_subfr,
+                    nsq_signal_type,
+                    nsq_quant_offset_type,
+                    nsq_nlsf_interp_coef_q2,
+                    &mut scratch.nsq_s_ltp_q15,
+                    &mut scratch.nsq_s_ltp,
+                    &mut scratch.nsq_x_sc_q10,
+                    &mut scratch.nsq_xq_tmp,
                 );
             }
 
-
-
-        // Encode indices + pulses
+            // Encode indices + pulses
             encode_indices::silk_encode_indices(
-                &cs.indices, enc, 0, false, cond_coding,
-                cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
-                cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+                &cs.indices,
+                enc,
+                0,
+                false,
+                cond_coding,
+                cs.nb_subfr,
+                cs.nlsf_cb_sel,
+                cs.pitch_contour_sel,
+                cs.pitch_lag_low_bits_sel,
+                cs.fs_khz,
+                prev_sig_type,
+                prev_lag_idx,
             );
             encode_pulses::silk_encode_pulses(
-                enc, &pulses, cs.indices.signal_type as i32,
-                cs.indices.quant_offset_type as i32, cs.frame_length,
+                enc,
+                &pulses,
+                cs.indices.signal_type as i32,
+                cs.indices.quant_offset_type as i32,
+                cs.frame_length,
             );
 
             let n_bits = enc.tell() - saved_enc.tell();
@@ -1246,13 +1321,25 @@ impl SilkEncoder {
                 cs.indices = saved_indices.clone();
                 let zero_pulses = [0i8; MAX_FRAME_LENGTH];
                 encode_indices::silk_encode_indices(
-                    &cs.indices, enc, 0, false, cond_coding,
-                    cs.nb_subfr, cs.nlsf_cb_sel, cs.pitch_contour_sel,
-                    cs.pitch_lag_low_bits_sel, cs.fs_khz, prev_sig_type, prev_lag_idx,
+                    &cs.indices,
+                    enc,
+                    0,
+                    false,
+                    cond_coding,
+                    cs.nb_subfr,
+                    cs.nlsf_cb_sel,
+                    cs.pitch_contour_sel,
+                    cs.pitch_lag_low_bits_sel,
+                    cs.fs_khz,
+                    prev_sig_type,
+                    prev_lag_idx,
                 );
                 encode_pulses::silk_encode_pulses(
-                    enc, &zero_pulses, cs.indices.signal_type as i32,
-                    cs.indices.quant_offset_type as i32, cs.frame_length,
+                    enc,
+                    &zero_pulses,
+                    cs.indices.signal_type as i32,
+                    cs.indices.quant_offset_type as i32,
+                    cs.frame_length,
                 );
                 break;
             }
@@ -1298,10 +1385,7 @@ impl SilkEncoder {
     ///
     /// The LBRR data written here is from the PREVIOUS packet. The first packet
     /// encoded never has LBRR data (no previous packet to reference).
-    pub fn write_lbrr_data(
-        &self,
-        enc: &mut EcCtx,
-    ) -> bool {
+    pub fn write_lbrr_data(&self, enc: &mut EcCtx) -> bool {
         let cs = &self.state;
 
         if !cs.prev_lbrr_any {
@@ -1349,8 +1433,16 @@ impl SilkEncoder {
                     cs.pitch_lag_low_bits_sel,
                     cs.fs_khz,
                     // For LBRR ec_prev state: use previous LBRR frame's signal type/lag
-                    if i > 0 { cs.prev_indices_lbrr[i - 1].signal_type as i32 } else { 0 },
-                    if i > 0 { cs.prev_indices_lbrr[i - 1].lag_index } else { 0 },
+                    if i > 0 {
+                        cs.prev_indices_lbrr[i - 1].signal_type as i32
+                    } else {
+                        0
+                    },
+                    if i > 0 {
+                        cs.prev_indices_lbrr[i - 1].lag_index
+                    } else {
+                        0
+                    },
                 );
 
                 encode_pulses::silk_encode_pulses(
@@ -1577,7 +1669,7 @@ impl Default for SilkEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decoder::{SilkDecoder, SilkDecControl};
+    use crate::decoder::{SilkDecControl, SilkDecoder};
     use opus_range_coder::EcCtx;
 
     #[test]
@@ -1638,13 +1730,14 @@ mod tests {
         let n = 320;
         let mut samples = vec![0i16; n];
         for i in 0..n {
-            samples[i] = (5000.0 * (2.0 * std::f64::consts::PI * 200.0 * i as f64 / 16000.0).sin()) as i16;
+            samples[i] =
+                (5000.0 * (2.0 * std::f64::consts::PI * 200.0 * i as f64 / 16000.0).sin()) as i16;
         }
 
         let mut range_enc = EcCtx::enc_init(1275);
 
         // Write packet header: VAD flag + LBRR flag
-        range_enc.enc_bit_logp(true, 1);  // VAD flag = 1 (voice activity)
+        range_enc.enc_bit_logp(true, 1); // VAD flag = 1 (voice activity)
         range_enc.enc_bit_logp(false, 1); // LBRR flag = 0
 
         let result = enc.encode(&control, &mut range_enc, &samples);
@@ -1674,7 +1767,7 @@ mod tests {
 
         let ret = dec.decode(
             &mut dec_control,
-            0, // not lost
+            0,    // not lost
             true, // new packet
             &mut range_dec,
             &mut decoded,
@@ -1682,7 +1775,10 @@ mod tests {
         );
 
         assert_eq!(ret, 0, "Decode should succeed on encoder output");
-        assert_eq!(n_samples_out, n as i32, "Should decode correct number of samples");
+        assert_eq!(
+            n_samples_out, n as i32,
+            "Should decode correct number of samples"
+        );
 
         // Verify decoded signal has energy (not all zeros)
         let energy: i64 = decoded.iter().map(|&x| x as i64 * x as i64).sum();

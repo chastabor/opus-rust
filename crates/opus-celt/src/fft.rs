@@ -236,7 +236,10 @@ fn kf_bfly2(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
                 };
                 fout[idx0].r += t.r;
                 fout[idx0].i += t.i;
-                tw_idx += fstride; if tw_idx >= n { tw_idx -= n; }
+                tw_idx += fstride;
+                if tw_idx >= n {
+                    tw_idx -= n;
+                }
             }
         }
     }
@@ -256,13 +259,31 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
             let a2 = fout[base + 2];
             let a3 = fout[base + 3];
 
-            let scratch0 = KissFftCpx { r: a0.r - a2.r, i: a0.i - a2.i };
-            let sum02 = KissFftCpx { r: a0.r + a2.r, i: a0.i + a2.i };
-            let scratch1_add = KissFftCpx { r: a1.r + a3.r, i: a1.i + a3.i };
-            let scratch1_sub = KissFftCpx { r: a1.r - a3.r, i: a1.i - a3.i };
+            let scratch0 = KissFftCpx {
+                r: a0.r - a2.r,
+                i: a0.i - a2.i,
+            };
+            let sum02 = KissFftCpx {
+                r: a0.r + a2.r,
+                i: a0.i + a2.i,
+            };
+            let scratch1_add = KissFftCpx {
+                r: a1.r + a3.r,
+                i: a1.i + a3.i,
+            };
+            let scratch1_sub = KissFftCpx {
+                r: a1.r - a3.r,
+                i: a1.i - a3.i,
+            };
 
-            fout[base + 2] = KissFftCpx { r: sum02.r - scratch1_add.r, i: sum02.i - scratch1_add.i };
-            fout[base] = KissFftCpx { r: sum02.r + scratch1_add.r, i: sum02.i + scratch1_add.i };
+            fout[base + 2] = KissFftCpx {
+                r: sum02.r - scratch1_add.r,
+                i: sum02.i - scratch1_add.i,
+            };
+            fout[base] = KissFftCpx {
+                r: sum02.r + scratch1_add.r,
+                i: sum02.i + scratch1_add.i,
+            };
             // Forward FFT sign convention
             fout[base + 1] = KissFftCpx {
                 r: scratch0.r + scratch1_sub.i,
@@ -283,13 +304,31 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
                 let a2 = cmul(fout[base + j + 2 * m], tw[tw2_idx]);
                 let a3 = cmul(fout[base + j + 3 * m], tw[tw3_idx]);
 
-                let scratch5 = KissFftCpx { r: a0.r - a2.r, i: a0.i - a2.i };
-                let sum02 = KissFftCpx { r: a0.r + a2.r, i: a0.i + a2.i };
-                let scratch3 = KissFftCpx { r: a1.r + a3.r, i: a1.i + a3.i };
-                let scratch4 = KissFftCpx { r: a1.r - a3.r, i: a1.i - a3.i };
+                let scratch5 = KissFftCpx {
+                    r: a0.r - a2.r,
+                    i: a0.i - a2.i,
+                };
+                let sum02 = KissFftCpx {
+                    r: a0.r + a2.r,
+                    i: a0.i + a2.i,
+                };
+                let scratch3 = KissFftCpx {
+                    r: a1.r + a3.r,
+                    i: a1.i + a3.i,
+                };
+                let scratch4 = KissFftCpx {
+                    r: a1.r - a3.r,
+                    i: a1.i - a3.i,
+                };
 
-                fout[base + j + 2 * m] = KissFftCpx { r: sum02.r - scratch3.r, i: sum02.i - scratch3.i };
-                fout[base + j] = KissFftCpx { r: sum02.r + scratch3.r, i: sum02.i + scratch3.i };
+                fout[base + j + 2 * m] = KissFftCpx {
+                    r: sum02.r - scratch3.r,
+                    i: sum02.i - scratch3.i,
+                };
+                fout[base + j] = KissFftCpx {
+                    r: sum02.r + scratch3.r,
+                    i: sum02.i + scratch3.i,
+                };
                 fout[base + j + m] = KissFftCpx {
                     r: scratch5.r + scratch4.i,
                     i: scratch5.i - scratch4.r,
@@ -298,9 +337,18 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
                     r: scratch5.r - scratch4.i,
                     i: scratch5.i + scratch4.r,
                 };
-                tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
-                tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
-                tw3_idx += 3 * fstride; if tw3_idx >= n { tw3_idx -= n; }
+                tw1_idx += fstride;
+                if tw1_idx >= n {
+                    tw1_idx -= n;
+                }
+                tw2_idx += 2 * fstride;
+                if tw2_idx >= n {
+                    tw2_idx -= n;
+                }
+                tw3_idx += 3 * fstride;
+                if tw3_idx >= n {
+                    tw3_idx -= n;
+                }
             }
         }
     }
@@ -334,11 +382,23 @@ fn kf_bfly3(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
             let s_r = epi3_i * (a1.i - a2.i);
             let s_i = epi3_i * (a2.r - a1.r);
 
-            fout[base + j + m] = KissFftCpx { r: m_r - s_r, i: m_i - s_i };
-            fout[base + j + 2 * m] = KissFftCpx { r: m_r + s_r, i: m_i + s_i };
+            fout[base + j + m] = KissFftCpx {
+                r: m_r - s_r,
+                i: m_i - s_i,
+            };
+            fout[base + j + 2 * m] = KissFftCpx {
+                r: m_r + s_r,
+                i: m_i + s_i,
+            };
 
-            tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
-            tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
+            tw1_idx += fstride;
+            if tw1_idx >= n {
+                tw1_idx -= n;
+            }
+            tw2_idx += 2 * fstride;
+            if tw2_idx >= n {
+                tw2_idx -= n;
+            }
         }
     }
 }
@@ -379,21 +439,45 @@ fn kf_bfly5(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
             let t2r = d12i * ya_i + d34i * yb_i;
             let t2i = -(d12r * ya_i + d34r * yb_i);
 
-            fout[base + j + m] = KissFftCpx { r: t1r - t2r, i: t1i - t2i };
-            fout[base + j + 4 * m] = KissFftCpx { r: t1r + t2r, i: t1i + t2i };
+            fout[base + j + m] = KissFftCpx {
+                r: t1r - t2r,
+                i: t1i - t2i,
+            };
+            fout[base + j + 4 * m] = KissFftCpx {
+                r: t1r + t2r,
+                i: t1i + t2i,
+            };
 
             let t3r = a0.r + s12r * yb_r + s34r * ya_r;
             let t3i = a0.i + s12i * yb_r + s34i * ya_r;
             let t4r = d12i * yb_i - d34i * ya_i;
             let t4i = -(d12r * yb_i - d34r * ya_i);
 
-            fout[base + j + 2 * m] = KissFftCpx { r: t3r - t4r, i: t3i - t4i };
-            fout[base + j + 3 * m] = KissFftCpx { r: t3r + t4r, i: t3i + t4i };
+            fout[base + j + 2 * m] = KissFftCpx {
+                r: t3r - t4r,
+                i: t3i - t4i,
+            };
+            fout[base + j + 3 * m] = KissFftCpx {
+                r: t3r + t4r,
+                i: t3i + t4i,
+            };
 
-            tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
-            tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
-            tw3_idx += 3 * fstride; if tw3_idx >= n { tw3_idx -= n; }
-            tw4_idx += 4 * fstride; if tw4_idx >= n { tw4_idx -= n; }
+            tw1_idx += fstride;
+            if tw1_idx >= n {
+                tw1_idx -= n;
+            }
+            tw2_idx += 2 * fstride;
+            if tw2_idx >= n {
+                tw2_idx -= n;
+            }
+            tw3_idx += 3 * fstride;
+            if tw3_idx >= n {
+                tw3_idx -= n;
+            }
+            tw4_idx += 4 * fstride;
+            if tw4_idx >= n {
+                tw4_idx -= n;
+            }
         }
     }
 }
@@ -422,11 +506,19 @@ mod tests {
         opus_fft(&st, &input, &mut output);
 
         let expected = 1.0 / n as f32;
-        let max_err = output.iter()
+        let max_err = output
+            .iter()
             .map(|c| (c.r - expected).abs().max(c.i.abs()))
             .fold(0.0f32, f32::max);
-        println!("opus_fft delta test: max_err={:.6e} (expected constant={:.6e})", max_err, expected);
-        assert!(max_err < 1e-6, "opus_fft delta test failed: max_err={}", max_err);
+        println!(
+            "opus_fft delta test: max_err={:.6e} (expected constant={:.6e})",
+            max_err, expected
+        );
+        assert!(
+            max_err < 1e-6,
+            "opus_fft delta test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]
@@ -439,11 +531,16 @@ mod tests {
         data[0] = KissFftCpx { r: 1.0, i: 0.0 };
         opus_fft_impl(&st, &mut data);
 
-        let max_err = data.iter()
+        let max_err = data
+            .iter()
             .map(|c| (c.r - 1.0).abs().max(c.i.abs()))
             .fold(0.0f32, f32::max);
         println!("opus_fft_impl delta test: max_err={:.6e}", max_err);
-        assert!(max_err < 1e-6, "opus_fft_impl delta test failed: max_err={}", max_err);
+        assert!(
+            max_err < 1e-6,
+            "opus_fft_impl delta test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]
@@ -458,11 +555,19 @@ mod tests {
         opus_fft(&st, &input, &mut output);
 
         let expected = 1.0 / n as f32;
-        let max_err = output.iter()
+        let max_err = output
+            .iter()
             .map(|c| (c.r - expected).abs().max(c.i.abs()))
             .fold(0.0f32, f32::max);
-        println!("FFT 480 delta: max_err={:.6e}, expected={:.6e}", max_err, expected);
-        assert!(max_err < 1e-5, "FFT 480 delta test failed: max_err={}", max_err);
+        println!(
+            "FFT 480 delta: max_err={:.6e}, expected={:.6e}",
+            max_err, expected
+        );
+        assert!(
+            max_err < 1e-5,
+            "FFT 480 delta test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]
@@ -484,10 +589,19 @@ mod tests {
         // The peak should be at bin k and n-k
         let scale = 1.0 / n as f32;
         let peak_k = (output[k].r * output[k].r + output[k].i * output[k].i).sqrt();
-        let peak_nk = (output[n-k].r * output[n-k].r + output[n-k].i * output[n-k].i).sqrt();
+        let peak_nk =
+            (output[n - k].r * output[n - k].r + output[n - k].i * output[n - k].i).sqrt();
         let expected_peak = 0.5 * scale * n as f32; // = 0.5
-        println!("FFT 480 sinusoid: peak_k={:.6}, peak_nk={:.6}, expected={:.6}", peak_k, peak_nk, expected_peak);
-        assert!((peak_k - 0.5).abs() < 0.01, "Peak at k={} is wrong: {}", k, peak_k);
+        println!(
+            "FFT 480 sinusoid: peak_k={:.6}, peak_nk={:.6}, expected={:.6}",
+            peak_k, peak_nk, expected_peak
+        );
+        assert!(
+            (peak_k - 0.5).abs() < 0.01,
+            "Peak at k={} is wrong: {}",
+            k,
+            peak_k
+        );
     }
 
     #[test]
@@ -497,10 +611,12 @@ mod tests {
         let st = KissFftState::new(n);
 
         // Create a test signal
-        let input: Vec<KissFftCpx> = (0..n).map(|i| KissFftCpx {
-            r: (i as f32 * 0.1).sin(),
-            i: (i as f32 * 0.2).cos(),
-        }).collect();
+        let input: Vec<KissFftCpx> = (0..n)
+            .map(|i| KissFftCpx {
+                r: (i as f32 * 0.1).sin(),
+                i: (i as f32 * 0.2).cos(),
+            })
+            .collect();
 
         // Forward FFT (includes 1/n scaling)
         let mut fft_out = vec![KissFftCpx { r: 0.0, i: 0.0 }; n];
@@ -524,11 +640,17 @@ mod tests {
             c.i = -c.i;
         }
 
-        let max_err = input.iter().zip(ifft_out.iter())
+        let max_err = input
+            .iter()
+            .zip(ifft_out.iter())
             .map(|(a, b)| (a.r - b.r).abs().max((a.i - b.i).abs()))
             .fold(0.0f32, f32::max);
         println!("FFT roundtrip test: max_err={:.6e}", max_err);
-        assert!(max_err < 1e-4, "FFT roundtrip test failed: max_err={}", max_err);
+        assert!(
+            max_err < 1e-4,
+            "FFT roundtrip test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]
@@ -552,10 +674,12 @@ mod tests {
         let n = 60;
         let st = KissFftState::new(n);
         println!("factors for 60: {:?}", st.factors);
-        let input: Vec<KissFftCpx> = (0..n).map(|i| KissFftCpx {
-            r: (i as f32 * 0.1).sin() * 100.0,
-            i: (i as f32 * 0.2).cos() * 100.0,
-        }).collect();
+        let input: Vec<KissFftCpx> = (0..n)
+            .map(|i| KissFftCpx {
+                r: (i as f32 * 0.1).sin() * 100.0,
+                i: (i as f32 * 0.2).cos() * 100.0,
+            })
+            .collect();
         let mut fft_out = vec![KissFftCpx { r: 0.0, i: 0.0 }; n];
         opus_fft(&st, &input, &mut fft_out);
         let mut ifft_out = vec![KissFftCpx { r: 0.0, i: 0.0 }; n];
@@ -563,24 +687,36 @@ mod tests {
             let rev = st.bitrev[i];
             ifft_out[rev] = fft_out[i];
         }
-        for c in ifft_out.iter_mut() { c.i = -c.i; }
+        for c in ifft_out.iter_mut() {
+            c.i = -c.i;
+        }
         opus_fft_impl(&st, &mut ifft_out);
-        for c in ifft_out.iter_mut() { c.i = -c.i; }
-        let max_err = input.iter().zip(ifft_out.iter())
+        for c in ifft_out.iter_mut() {
+            c.i = -c.i;
+        }
+        let max_err = input
+            .iter()
+            .zip(ifft_out.iter())
             .map(|(a, b)| (a.r - b.r).abs().max((a.i - b.i).abs()))
             .fold(0.0f32, f32::max);
         println!("FFT roundtrip 60 test: max_err={:.6e}", max_err);
-        assert!(max_err < 1e-3, "FFT roundtrip 60 test failed: max_err={}", max_err);
+        assert!(
+            max_err < 1e-3,
+            "FFT roundtrip 60 test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]
     fn test_fft_roundtrip_480() {
         let n = 480;
         let st = KissFftState::new(n);
-        let input: Vec<KissFftCpx> = (0..n).map(|i| KissFftCpx {
-            r: (i as f32 * 0.1).sin(),
-            i: (i as f32 * 0.2).cos(),
-        }).collect();
+        let input: Vec<KissFftCpx> = (0..n)
+            .map(|i| KissFftCpx {
+                r: (i as f32 * 0.1).sin(),
+                i: (i as f32 * 0.2).cos(),
+            })
+            .collect();
         let mut fft_out = vec![KissFftCpx { r: 0.0, i: 0.0 }; n];
         opus_fft(&st, &input, &mut fft_out);
         let mut ifft_out = vec![KissFftCpx { r: 0.0, i: 0.0 }; n];
@@ -588,14 +724,24 @@ mod tests {
             let rev = st.bitrev[i];
             ifft_out[rev] = fft_out[i];
         }
-        for c in ifft_out.iter_mut() { c.i = -c.i; }
+        for c in ifft_out.iter_mut() {
+            c.i = -c.i;
+        }
         opus_fft_impl(&st, &mut ifft_out);
-        for c in ifft_out.iter_mut() { c.i = -c.i; }
-        let max_err = input.iter().zip(ifft_out.iter())
+        for c in ifft_out.iter_mut() {
+            c.i = -c.i;
+        }
+        let max_err = input
+            .iter()
+            .zip(ifft_out.iter())
             .map(|(a, b)| (a.r - b.r).abs().max((a.i - b.i).abs()))
             .fold(0.0f32, f32::max);
         println!("FFT roundtrip 480 test: max_err={:.6e}", max_err);
-        assert!(max_err < 1e-4, "FFT roundtrip 480 test failed: max_err={}", max_err);
+        assert!(
+            max_err < 1e-4,
+            "FFT roundtrip 480 test failed: max_err={}",
+            max_err
+        );
     }
 
     #[test]

@@ -76,7 +76,9 @@ impl EcCtx {
     pub fn encode(&mut self, fl: u32, fh: u32, ft: u32) {
         let r = self.rng / ft;
         if fl > 0 {
-            self.val = self.val.wrapping_add(self.rng.wrapping_sub(r.wrapping_mul(ft - fl)));
+            self.val = self
+                .val
+                .wrapping_add(self.rng.wrapping_sub(r.wrapping_mul(ft - fl)));
             self.rng = r.wrapping_mul(fh - fl);
         } else {
             self.rng -= r.wrapping_mul(ft - fh);
@@ -88,7 +90,9 @@ impl EcCtx {
     pub fn encode_bin(&mut self, fl: u32, fh: u32, bits: u32) {
         let r = self.rng >> bits;
         if fl > 0 {
-            self.val = self.val.wrapping_add(self.rng.wrapping_sub(r.wrapping_mul((1u32 << bits) - fl)));
+            self.val = self
+                .val
+                .wrapping_add(self.rng.wrapping_sub(r.wrapping_mul((1u32 << bits) - fl)));
             self.rng = r.wrapping_mul(fh - fl);
         } else {
             self.rng -= r.wrapping_mul((1u32 << bits) - fh);
@@ -113,9 +117,9 @@ impl EcCtx {
     pub fn enc_icdf(&mut self, s: usize, icdf: &[u8], ftb: u32) {
         let r = self.rng >> ftb;
         if s > 0 {
-            self.val = self.val.wrapping_add(
-                self.rng.wrapping_sub(r.wrapping_mul(icdf[s - 1] as u32)),
-            );
+            self.val = self
+                .val
+                .wrapping_add(self.rng.wrapping_sub(r.wrapping_mul(icdf[s - 1] as u32)));
             self.rng = r.wrapping_mul(icdf[s - 1] as u32 - icdf[s] as u32);
         } else {
             self.rng -= r.wrapping_mul(icdf[s] as u32);
@@ -127,9 +131,9 @@ impl EcCtx {
     pub fn enc_icdf16(&mut self, s: usize, icdf: &[u16], ftb: u32) {
         let r = self.rng >> ftb;
         if s > 0 {
-            self.val = self.val.wrapping_add(
-                self.rng.wrapping_sub(r.wrapping_mul(icdf[s - 1] as u32)),
-            );
+            self.val = self
+                .val
+                .wrapping_add(self.rng.wrapping_sub(r.wrapping_mul(icdf[s - 1] as u32)));
             self.rng = r.wrapping_mul(icdf[s - 1] as u32 - icdf[s] as u32);
         } else {
             self.rng -= r.wrapping_mul(icdf[s] as u32);

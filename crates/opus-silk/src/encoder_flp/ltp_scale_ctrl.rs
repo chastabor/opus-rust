@@ -2,8 +2,8 @@
 // Controls LTP scaling based on packet loss rate and SNR.
 // Higher loss → more LTP scaling → less reliance on pitch prediction.
 
-use crate::{silk_smulbb, silk_log2lin, CODE_INDEPENDENTLY};
 use crate::tables::SILK_LTP_SCALES_TABLE_Q14;
+use crate::{CODE_INDEPENDENTLY, silk_log2lin, silk_smulbb};
 
 /// Result of LTP scale control.
 pub struct LtpScaleResult {

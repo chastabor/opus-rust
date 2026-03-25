@@ -1,8 +1,8 @@
 // Port of silk/decode_pulses.c, silk/shell_coder.c, silk/code_signs.c
 
-use opus_range_coder::EcCtx;
-use crate::*;
 use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 /// Decode quantization indices of excitation
 pub fn silk_decode_pulses(
@@ -13,10 +13,8 @@ pub fn silk_decode_pulses(
     frame_length: i32,
 ) {
     // Decode rate level
-    let rate_level_index = ps_range_dec.dec_icdf(
-        &SILK_RATE_LEVELS_ICDF[(signal_type >> 1) as usize],
-        8,
-    );
+    let rate_level_index =
+        ps_range_dec.dec_icdf(&SILK_RATE_LEVELS_ICDF[(signal_type >> 1) as usize], 8);
 
     // Calculate number of shell blocks
     let mut iter = frame_length as usize >> LOG2_SHELL_CODEC_FRAME_LENGTH;
@@ -38,10 +36,9 @@ pub fn silk_decode_pulses(
             n_lshifts[i] += 1;
             // When we've already got 10 LSBs, shift the table
             let offset = if n_lshifts[i] == 10 { 1 } else { 0 };
-            sum_pulses[i] = ps_range_dec.dec_icdf(
-                &SILK_PULSES_PER_BLOCK_ICDF[N_RATE_LEVELS - 1][offset..],
-                8,
-            ) as i32;
+            sum_pulses[i] = ps_range_dec
+                .dec_icdf(&SILK_PULSES_PER_BLOCK_ICDF[N_RATE_LEVELS - 1][offset..], 8)
+                as i32;
         }
     }
 
@@ -74,62 +71,76 @@ pub fn silk_decode_pulses(
     }
 
     // Decode and add signs
-    silk_decode_signs(ps_range_dec, pulses, frame_length, signal_type, quant_offset_type, &sum_pulses);
+    silk_decode_signs(
+        ps_range_dec,
+        pulses,
+        frame_length,
+        signal_type,
+        quant_offset_type,
+        &sum_pulses,
+    );
 }
 
 /// Shell decoder - operates on one shell code frame of 16 pulses
-fn silk_shell_decoder(
-    pulses0: &mut [i16],
-    ps_range_dec: &mut EcCtx,
-    pulses4: i32,
-) {
+fn silk_shell_decoder(pulses0: &mut [i16], ps_range_dec: &mut EcCtx, pulses4: i32) {
     let mut pulses3 = [0i16; 2];
     let mut pulses2 = [0i16; 4];
     let mut pulses1 = [0i16; 8];
 
     let (a, b) = decode_split(ps_range_dec, pulses4, &SILK_SHELL_CODE_TABLE3);
-    pulses3[0] = a; pulses3[1] = b;
+    pulses3[0] = a;
+    pulses3[1] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses3[0] as i32, &SILK_SHELL_CODE_TABLE2);
-    pulses2[0] = a; pulses2[1] = b;
+    pulses2[0] = a;
+    pulses2[1] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses2[0] as i32, &SILK_SHELL_CODE_TABLE1);
-    pulses1[0] = a; pulses1[1] = b;
+    pulses1[0] = a;
+    pulses1[1] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[0] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[0] = a; pulses0[1] = b;
+    pulses0[0] = a;
+    pulses0[1] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[1] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[2] = a; pulses0[3] = b;
+    pulses0[2] = a;
+    pulses0[3] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses2[1] as i32, &SILK_SHELL_CODE_TABLE1);
-    pulses1[2] = a; pulses1[3] = b;
+    pulses1[2] = a;
+    pulses1[3] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[2] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[4] = a; pulses0[5] = b;
+    pulses0[4] = a;
+    pulses0[5] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[3] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[6] = a; pulses0[7] = b;
+    pulses0[6] = a;
+    pulses0[7] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses3[1] as i32, &SILK_SHELL_CODE_TABLE2);
-    pulses2[2] = a; pulses2[3] = b;
+    pulses2[2] = a;
+    pulses2[3] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses2[2] as i32, &SILK_SHELL_CODE_TABLE1);
-    pulses1[4] = a; pulses1[5] = b;
+    pulses1[4] = a;
+    pulses1[5] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[4] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[8] = a; pulses0[9] = b;
+    pulses0[8] = a;
+    pulses0[9] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[5] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[10] = a; pulses0[11] = b;
+    pulses0[10] = a;
+    pulses0[11] = b;
 
     let (a, b) = decode_split(ps_range_dec, pulses2[3] as i32, &SILK_SHELL_CODE_TABLE1);
-    pulses1[6] = a; pulses1[7] = b;
+    pulses1[6] = a;
+    pulses1[7] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[6] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[12] = a; pulses0[13] = b;
+    pulses0[12] = a;
+    pulses0[13] = b;
     let (a, b) = decode_split(ps_range_dec, pulses1[7] as i32, &SILK_SHELL_CODE_TABLE0);
-    pulses0[14] = a; pulses0[15] = b;
+    pulses0[14] = a;
+    pulses0[15] = b;
 }
 
-fn decode_split(
-    ps_range_dec: &mut EcCtx,
-    p: i32,
-    shell_table: &[u8],
-) -> (i16, i16) {
+fn decode_split(ps_range_dec: &mut EcCtx, p: i32, shell_table: &[u8]) -> (i16, i16) {
     if p > 0 {
         let offset = SILK_SHELL_CODE_TABLE_OFFSETS[p as usize] as usize;
         let child1 = ps_range_dec.dec_icdf(&shell_table[offset..], 8) as i16;
@@ -153,7 +164,8 @@ fn silk_decode_signs(
     icdf[1] = 0;
 
     let icdf_offset = 7 * (quant_offset_type + signal_type * 2) as usize;
-    let n_blocks = (length as usize + SHELL_CODEC_FRAME_LENGTH / 2) >> LOG2_SHELL_CODEC_FRAME_LENGTH;
+    let n_blocks =
+        (length as usize + SHELL_CODEC_FRAME_LENGTH / 2) >> LOG2_SHELL_CODEC_FRAME_LENGTH;
 
     for i in 0..n_blocks {
         let p = sum_pulses[i];

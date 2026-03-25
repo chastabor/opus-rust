@@ -3,10 +3,10 @@
 //
 // Stereo encoding: convert L/R to adaptive M/S with prediction.
 
-use opus_range_coder::EcCtx;
-use crate::*;
-use crate::tables::*;
 use crate::signal_processing::silk_inner_prod_aligned_scale;
+use crate::tables::*;
+use crate::*;
+use opus_range_coder::EcCtx;
 
 // Constants from silk/define.h
 const LA_SHAPE_MS: i32 = 5;
@@ -116,10 +116,7 @@ pub fn silk_stereo_find_predictor(
 /// Brute-force search over SILK_STEREO_PRED_QUANT_Q13 table with
 /// STEREO_QUANT_SUB_STEPS=5 sub-steps.
 /// Outputs ix[2][3] indices and updates pred_q13 to quantized values.
-pub fn silk_stereo_quant_pred(
-    pred_q13: &mut [i32; 2],
-    ix: &mut [[i8; 3]; 2],
-) {
+pub fn silk_stereo_quant_pred(pred_q13: &mut [i32; 2], ix: &mut [[i8; 3]; 2]) {
     // SILK_FIX_CONST(0.5 / STEREO_QUANT_SUB_STEPS, 16) = 0.1 * 65536 = 6554
     const STEP_SCALE_Q16: i32 = 6554;
 
@@ -158,10 +155,7 @@ pub fn silk_stereo_quant_pred(
 /// Entropy-code the mid/side quantization indices.
 ///
 /// Port of silk_stereo_encode_pred (silk/stereo_encode_pred.c).
-pub fn silk_stereo_encode_pred(
-    ps_range_enc: &mut EcCtx,
-    ix: &[[i8; 3]; 2],
-) {
+pub fn silk_stereo_encode_pred(ps_range_enc: &mut EcCtx, ix: &[[i8; 3]; 2]) {
     // Joint coarse index: 5 * ix[0][2] + ix[1][2]
     let n = (5 * ix[0][2] + ix[1][2]) as usize;
     debug_assert!(n < 25);
@@ -179,10 +173,7 @@ pub fn silk_stereo_encode_pred(
 /// Entropy-code the mid-only flag.
 ///
 /// Port of silk_stereo_encode_mid_only (silk/stereo_encode_pred.c).
-pub fn silk_stereo_encode_mid_only(
-    ps_range_enc: &mut EcCtx,
-    mid_only_flag: i8,
-) {
+pub fn silk_stereo_encode_mid_only(ps_range_enc: &mut EcCtx, mid_only_flag: i8) {
     ps_range_enc.enc_icdf(mid_only_flag as usize, &SILK_STEREO_ONLY_CODE_MID_ICDF, 8);
 }
 
@@ -215,8 +206,8 @@ pub fn silk_stereo_encode_mid_only(
 /// * `frame_length` - Number of samples per channel
 pub fn silk_stereo_lr_to_ms(
     state: &mut StereoEncState,
-    x1: &mut [i16],   // length = frame_length + 2
-    x2: &mut [i16],   // length = frame_length + 2
+    x1: &mut [i16], // length = frame_length + 2
+    x2: &mut [i16], // length = frame_length + 2
     ix: &mut [[i8; 3]; 2],
     mid_only_flag: &mut i8,
     mid_side_rates_bps: &mut [i32; 2],
@@ -253,10 +244,26 @@ pub fn silk_stereo_lr_to_ms(
     side[1] = state.s_side[1];
     // Save last 2 samples for next frame's buffer
     // In the C code: state->sMid = &mid[frame_length], which is x1[frame_length..frame_length+2]
-    state.s_mid[0] = if frame_length < buf_len { x1[frame_length] } else { mid_saved[0] };
-    state.s_mid[1] = if frame_length + 1 < buf_len { x1[frame_length + 1] } else { mid_saved[1] };
-    state.s_side[0] = if frame_length < buf_len { side[frame_length] } else { side_saved[0] };
-    state.s_side[1] = if frame_length + 1 < buf_len { side[frame_length + 1] } else { side_saved[1] };
+    state.s_mid[0] = if frame_length < buf_len {
+        x1[frame_length]
+    } else {
+        mid_saved[0]
+    };
+    state.s_mid[1] = if frame_length + 1 < buf_len {
+        x1[frame_length + 1]
+    } else {
+        mid_saved[1]
+    };
+    state.s_side[0] = if frame_length < buf_len {
+        side[frame_length]
+    } else {
+        side_saved[0]
+    };
+    state.s_side[1] = if frame_length + 1 < buf_len {
+        side[frame_length + 1]
+    } else {
+        side_saved[1]
+    };
 
     // LP and HP filter mid signal
     // mid[n] is x1[n], and mid[n+1] is x1[n+1], mid[n+2] is x1[n+2]
@@ -333,11 +340,7 @@ pub fn silk_stereo_lr_to_ms(
     // mid_rate = (8 / (13 + 3 * frac)) * total_rate
     let frac_3_q16 = 3 * frac_q16;
     // SILK_FIX_CONST(8 + 5, 16) = 13 << 16 = 851968
-    mid_side_rates_bps[0] = silk_div32_varq(
-        total_rate_bps,
-        (13 << 16) + frac_3_q16,
-        16 + 3,
-    );
+    mid_side_rates_bps[0] = silk_div32_varq(total_rate_bps, (13 << 16) + frac_3_q16, 16 + 3);
 
     let mut width_q14: i32;
 
@@ -375,8 +378,8 @@ pub fn silk_stereo_lr_to_ms(
         silk_stereo_quant_pred(&mut pred_q13, ix);
     } else if state.width_prev_q14 == 0
         && (8 * total_rate_bps < 13 * min_mid_rate_bps
-            || silk_smulwb(frac_q16, state.smth_width_q14 as i32)
-                < 819) // SILK_FIX_CONST(0.05, 14) = 819
+            || silk_smulwb(frac_q16, state.smth_width_q14 as i32) < 819)
+    // SILK_FIX_CONST(0.05, 14) = 819
     {
         // Code as panned-mono; previous frame already had zero width
         pred_q13[0] = silk_smulbb(state.smth_width_q14 as i32, pred_q13[0]) >> 14;
@@ -391,8 +394,8 @@ pub fn silk_stereo_lr_to_ms(
         *mid_only_flag = 1;
     } else if state.width_prev_q14 != 0
         && (8 * total_rate_bps < 11 * min_mid_rate_bps
-            || silk_smulwb(frac_q16, state.smth_width_q14 as i32)
-                < 328) // SILK_FIX_CONST(0.02, 14) = 328
+            || silk_smulwb(frac_q16, state.smth_width_q14 as i32) < 328)
+    // SILK_FIX_CONST(0.02, 14) = 328
     {
         // Transition to zero-width stereo
         pred_q13[0] = silk_smulbb(state.smth_width_q14 as i32, pred_q13[0]) >> 14;

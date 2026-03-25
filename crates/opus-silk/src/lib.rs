@@ -1,29 +1,29 @@
 // SILK codec crate for Opus audio codec
 // Ported from the C reference implementation
 
-pub mod tables;
-pub mod decode_indices;
-pub mod decode_pulses;
-pub mod nlsf;
-pub mod decode_params;
-pub mod decode_core;
-pub mod plc;
 pub mod cng;
+pub mod decode_core;
+pub mod decode_indices;
+pub mod decode_params;
+pub mod decode_pulses;
+pub mod decoder;
+pub mod nlsf;
+pub mod plc;
 pub mod resampler;
 pub mod stereo;
-pub mod decoder;
+pub mod tables;
 
 // Encoder modules
-pub mod gain_quant;
 pub mod encode_indices;
 pub mod encode_pulses;
+pub mod encoder;
+pub mod gain_quant;
+pub mod lpc_analysis;
+pub mod nlsf_encode;
+pub mod noise_shape_analysis;
 pub mod nsq;
 pub mod nsq_del_dec;
-pub mod nlsf_encode;
-pub mod lpc_analysis;
 pub mod pitch_analysis;
-pub mod noise_shape_analysis;
-pub mod encoder;
 pub mod signal_processing;
 pub mod stereo_encode;
 pub mod vad;
@@ -32,7 +32,7 @@ pub mod vad;
 pub mod encoder_flp;
 
 // Re-export the main decoder
-pub use decoder::{SilkDecoder, SilkDecControl};
+pub use decoder::{SilkDecControl, SilkDecoder};
 
 // Re-export the main encoder
 pub use encoder::SilkEncoder;
@@ -50,8 +50,7 @@ pub fn silk_interpolate_i16(
     len: usize,
 ) {
     for i in 0..len {
-        result[i] = (prev[i] as i32
-            + ((coef_q2 * (curr[i] as i32 - prev[i] as i32)) >> 2)) as i16;
+        result[i] = (prev[i] as i32 + ((coef_q2 * (curr[i] as i32 - prev[i] as i32)) >> 2)) as i16;
     }
 }
 
@@ -150,9 +149,9 @@ pub const PE_NB_STAGE3_LAGS: usize = 5;
 pub const PE_NB_CBKS_STAGE2: usize = 3;
 pub const PE_NB_CBKS_STAGE3_MID: usize = 24;
 pub const PE_NB_CBKS_STAGE3_MIN: usize = 16;
-pub const PE_SHORTLAG_BIAS: i32 = 1638;       // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
-pub const PE_PREVLAG_BIAS: i32 = 1638;        // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
-pub const PE_FLATCONTOUR_BIAS: i32 = 1638;    // 0.05 in Q15 = SILK_FIX_CONST(0.05, 15)
+pub const PE_SHORTLAG_BIAS: i32 = 1638; // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
+pub const PE_PREVLAG_BIAS: i32 = 1638; // 0.2 in Q13 = SILK_FIX_CONST(0.2, 13)
+pub const PE_FLATCONTOUR_BIAS: i32 = 1638; // 0.05 in Q15 = SILK_FIX_CONST(0.05, 15)
 
 // LSF cosine table size
 pub const LSF_COS_TAB_SZ_FIX: usize = 128;
@@ -285,13 +284,19 @@ pub fn silk_add_lshift(a: i32, b: i32, shift: i32) -> i32 {
 /// Count leading zeros
 #[inline(always)]
 pub fn silk_clz32(x: i32) -> i32 {
-    if x == 0 { 32 } else { (x as u32).leading_zeros() as i32 }
+    if x == 0 {
+        32
+    } else {
+        (x as u32).leading_zeros() as i32
+    }
 }
 
 /// Integer RAND: 907633515 + (seed * 196314165)
 #[inline(always)]
 pub fn silk_rand(seed: i32) -> i32 {
-    (seed as u32).wrapping_mul(196314165).wrapping_add(907633515) as i32
+    (seed as u32)
+        .wrapping_mul(196314165)
+        .wrapping_add(907633515) as i32
 }
 
 /// silk_DIV32_16: integer division of 32-bit by 16-bit
@@ -303,7 +308,11 @@ pub fn silk_div32_16(a: i32, b: i16) -> i32 {
 /// silk_DIV32: integer division
 #[inline(always)]
 pub fn silk_div32(a: i32, b: i32) -> i32 {
-    if b == 0 { if a >= 0 { i32::MAX } else { i32::MIN } } else { a / b }
+    if b == 0 {
+        if a >= 0 { i32::MAX } else { i32::MIN }
+    } else {
+        a / b
+    }
 }
 
 /// silk_INVERSE32_varQ: compute 1/a in variable Q domain
@@ -341,10 +350,12 @@ fn silk_clz_frac(input: i32) -> (i32, i32) {
     // silk_ROR32(in, 24 - lzeros) & 0x7f
     let shift = 24 - lzeros;
     let rotated = if shift >= 0 && shift < 32 {
-        ((input as u32).wrapping_shr(shift as u32) | (input as u32).wrapping_shl((32 - shift) as u32)) as i32
+        ((input as u32).wrapping_shr(shift as u32)
+            | (input as u32).wrapping_shl((32 - shift) as u32)) as i32
     } else if shift < 0 {
         let neg_shift = (-shift) as u32;
-        ((input as u32).wrapping_shl(neg_shift) | (input as u32).wrapping_shr((32 - neg_shift) as u32)) as i32
+        ((input as u32).wrapping_shl(neg_shift)
+            | (input as u32).wrapping_shr((32 - neg_shift) as u32)) as i32
     } else {
         input
     };
@@ -396,7 +407,9 @@ pub fn silk_log2lin(in_log_q7: i32) -> i32 {
 /// silk_SQRT_APPROX: approximate integer square root (matching C reference)
 #[inline(always)]
 pub fn silk_sqrt_approx(x: i32) -> i32 {
-    if x <= 0 { return 0; }
+    if x <= 0 {
+        return 0;
+    }
     let (lz, frac_q7) = silk_clz_frac(x);
 
     let mut y = if lz & 1 != 0 { 32768i32 } else { 46214i32 };
@@ -605,20 +618,24 @@ pub enum NlsfCbSel {
 }
 
 impl Default for NlsfCbSel {
-    fn default() -> Self { NlsfCbSel::NbMb }
+    fn default() -> Self {
+        NlsfCbSel::NbMb
+    }
 }
 
 /// Enum for selecting pitch contour iCDF table
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PitchContourSel {
-    Nb,         // silk_pitch_contour_NB_iCDF
-    Wb,         // silk_pitch_contour_iCDF
-    Nb10ms,     // silk_pitch_contour_10_ms_NB_iCDF
-    Wb10ms,     // silk_pitch_contour_10_ms_iCDF
+    Nb,     // silk_pitch_contour_NB_iCDF
+    Wb,     // silk_pitch_contour_iCDF
+    Nb10ms, // silk_pitch_contour_10_ms_NB_iCDF
+    Wb10ms, // silk_pitch_contour_10_ms_iCDF
 }
 
 impl Default for PitchContourSel {
-    fn default() -> Self { PitchContourSel::Nb }
+    fn default() -> Self {
+        PitchContourSel::Nb
+    }
 }
 
 /// Enum for selecting pitch lag low bits iCDF table
@@ -630,7 +647,9 @@ pub enum PitchLagLowBitsSel {
 }
 
 impl Default for PitchLagLowBitsSel {
-    fn default() -> Self { PitchLagLowBitsSel::Uniform4 }
+    fn default() -> Self {
+        PitchLagLowBitsSel::Uniform4
+    }
 }
 
 impl ChannelState {

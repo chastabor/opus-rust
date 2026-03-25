@@ -35,16 +35,16 @@ pub struct PredCoefsResult {
 /// `la_shape` is the lookback before x_frame for the actual frame data.
 /// The actual frame starts at `x_buf[x_frame_offset + la_shape]`.
 pub fn silk_find_pred_coefs_flp(
-    x_buf: &[f32],                         // I: full x_buf
-    x_frame_offset: usize,                // I: offset of x_frame in x_buf
-    la_shape: usize,                       // I: la_shape lookback
-    res_pitch: &[f32],                     // I: LPC residual from pitch analysis (full buffer)
-    res_pitch_frame_offset: usize,         // I: offset where frame starts in res_pitch
-    pitch_lags: &[i32; MAX_NB_SUBFR],     // I: pitch lags per subframe
-    gains: &[f32],                         // I: per-subframe gains from noise_shape
-    coding_quality: f32,                   // I: from noise_shape
-    signal_type: i32,                      // I: TYPE_VOICED or TYPE_UNVOICED
-    sum_log_gain_q7_in: i32,               // I: cumulative log gain from previous frames
+    x_buf: &[f32],                    // I: full x_buf
+    x_frame_offset: usize,            // I: offset of x_frame in x_buf
+    la_shape: usize,                  // I: la_shape lookback
+    res_pitch: &[f32],                // I: LPC residual from pitch analysis (full buffer)
+    res_pitch_frame_offset: usize,    // I: offset where frame starts in res_pitch
+    pitch_lags: &[i32; MAX_NB_SUBFR], // I: pitch lags per subframe
+    gains: &[f32],                    // I: per-subframe gains from noise_shape
+    coding_quality: f32,              // I: from noise_shape
+    signal_type: i32,                 // I: TYPE_VOICED or TYPE_UNVOICED
+    sum_log_gain_q7_in: i32,          // I: cumulative log gain from previous frames
     indices: &mut SideInfoIndices,
     prev_nlsf_q15: &mut [i16],
     predict_lpc_order: usize,

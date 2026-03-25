@@ -52,7 +52,9 @@ fn silk_plc_update(ps_dec: &mut ChannelState, ps_dec_ctrl: &DecoderControl) {
 
         let mut j = 0;
         while j * subfr_len < last_pitch as usize {
-            if j >= nb_subfr { break; }
+            if j >= nb_subfr {
+                break;
+            }
             let mut temp = 0i32;
             for i in 0..LTP_ORDER {
                 temp += ps_dec_ctrl.ltp_coef_q14[(nb_subfr - 1 - j) * LTP_ORDER + i] as i32;
@@ -60,7 +62,8 @@ fn silk_plc_update(ps_dec: &mut ChannelState, ps_dec_ctrl: &DecoderControl) {
             if temp > ltp_gain_q14 {
                 ltp_gain_q14 = temp;
                 ps_dec.s_plc.ltp_coef_q14.copy_from_slice(
-                    &ps_dec_ctrl.ltp_coef_q14[(nb_subfr - 1 - j) * LTP_ORDER..(nb_subfr - j) * LTP_ORDER]
+                    &ps_dec_ctrl.ltp_coef_q14
+                        [(nb_subfr - 1 - j) * LTP_ORDER..(nb_subfr - j) * LTP_ORDER],
                 );
                 ps_dec.s_plc.pitch_l_q8 = ps_dec_ctrl.pitch_l[nb_subfr - 1 - j] << 8;
             }
@@ -150,7 +153,8 @@ fn silk_plc_conceal(
             }
             rand_scale_q14 = (1i16 << 14).wrapping_sub(sum);
             rand_scale_q14 = rand_scale_q14.max(3277);
-            rand_scale_q14 = ((rand_scale_q14 as i32 * ps_dec.s_plc.prev_ltp_scale_q14 as i32) >> 14) as i16;
+            rand_scale_q14 =
+                ((rand_scale_q14 as i32 * ps_dec.s_plc.prev_ltp_scale_q14 as i32) >> 14) as i16;
         }
     }
 
@@ -160,8 +164,7 @@ fn silk_plc_conceal(
     // Simplified PLC: generate output using LPC synthesis
     let mut s_lpc_q14 = [0i32; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH + MAX_LPC_ORDER];
     let lpc_base = ltp_mem_length - MAX_LPC_ORDER;
-    s_lpc_q14[lpc_base..lpc_base + MAX_LPC_ORDER]
-        .copy_from_slice(&ps_dec.s_lpc_q14_buf);
+    s_lpc_q14[lpc_base..lpc_base + MAX_LPC_ORDER].copy_from_slice(&ps_dec.s_lpc_q14_buf);
 
     // Simple concealment: attenuated random noise through LPC
     for i in 0..frame_length {
@@ -187,10 +190,8 @@ fn silk_plc_conceal(
             );
         }
 
-        s_lpc_q14[lpc_base + MAX_LPC_ORDER + i] = silk_add_sat32(
-            exc_q14,
-            silk_lshift_sat32(lpc_pred_q10, 4),
-        );
+        s_lpc_q14[lpc_base + MAX_LPC_ORDER + i] =
+            silk_add_sat32(exc_q14, silk_lshift_sat32(lpc_pred_q10, 4));
 
         frame[i] = silk_sat16(silk_rshift_round(
             silk_smulww_correct(s_lpc_q14[lpc_base + MAX_LPC_ORDER + i], prev_gain_q10[1]),
@@ -200,7 +201,7 @@ fn silk_plc_conceal(
 
     // Save LPC state
     ps_dec.s_lpc_q14_buf.copy_from_slice(
-        &s_lpc_q14[lpc_base + frame_length..lpc_base + frame_length + MAX_LPC_ORDER]
+        &s_lpc_q14[lpc_base + frame_length..lpc_base + frame_length + MAX_LPC_ORDER],
     );
 
     // Update PLC state
@@ -212,11 +213,7 @@ fn silk_plc_conceal(
 }
 
 /// Glue concealed frames with new good frames
-pub fn silk_plc_glue_frames(
-    ps_dec: &mut ChannelState,
-    frame: &mut [i16],
-    length: usize,
-) {
+pub fn silk_plc_glue_frames(ps_dec: &mut ChannelState, frame: &mut [i16], length: usize) {
     if ps_dec.loss_cnt > 0 {
         let mut energy = 0i32;
         let mut shift = 0i32;

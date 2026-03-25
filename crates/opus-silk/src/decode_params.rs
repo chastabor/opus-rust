@@ -1,8 +1,8 @@
 // Port of silk/decode_parameters.c, silk/decode_pitch.c
 
-use crate::*;
-use crate::tables::*;
 use crate::gain_quant::silk_gains_dequant;
+use crate::tables::*;
+use crate::*;
 
 /// Decode parameters from payload
 pub fn silk_decode_parameters(
@@ -25,7 +25,11 @@ pub fn silk_decode_parameters(
     nlsf::silk_nlsf_decode(&mut p_nlsf_q15, &ps_dec.indices.nlsf_indices, nlsf_cb);
 
     // Convert NLSF to AR prediction filter coefficients
-    nlsf::silk_nlsf2a(&mut ps_dec_ctrl.pred_coef_q12[1], &p_nlsf_q15, ps_dec.lpc_order as usize);
+    nlsf::silk_nlsf2a(
+        &mut ps_dec_ctrl.pred_coef_q12[1],
+        &p_nlsf_q15,
+        ps_dec.lpc_order as usize,
+    );
 
     // Handle interpolation
     if ps_dec.first_frame_after_reset {
@@ -36,10 +40,15 @@ pub fn silk_decode_parameters(
         let mut p_nlsf0_q15 = [0i16; MAX_LPC_ORDER];
         let interp = ps_dec.indices.nlsf_interp_coef_q2 as i32;
         for i in 0..ps_dec.lpc_order as usize {
-            p_nlsf0_q15[i] = (ps_dec.prev_nlsf_q15[i] as i32 +
-                ((interp * (p_nlsf_q15[i] as i32 - ps_dec.prev_nlsf_q15[i] as i32)) >> 2)) as i16;
+            p_nlsf0_q15[i] = (ps_dec.prev_nlsf_q15[i] as i32
+                + ((interp * (p_nlsf_q15[i] as i32 - ps_dec.prev_nlsf_q15[i] as i32)) >> 2))
+                as i16;
         }
-        nlsf::silk_nlsf2a(&mut ps_dec_ctrl.pred_coef_q12[0], &p_nlsf0_q15, ps_dec.lpc_order as usize);
+        nlsf::silk_nlsf2a(
+            &mut ps_dec_ctrl.pred_coef_q12[0],
+            &p_nlsf0_q15,
+            ps_dec.lpc_order as usize,
+        );
     } else {
         ps_dec_ctrl.pred_coef_q12[0] = ps_dec_ctrl.pred_coef_q12[1];
     }
@@ -50,8 +59,16 @@ pub fn silk_decode_parameters(
 
     // After packet loss, apply BWE
     if ps_dec.loss_cnt > 0 {
-        nlsf::silk_bwexpander(&mut ps_dec_ctrl.pred_coef_q12[0], ps_dec.lpc_order as usize, BWE_AFTER_LOSS_Q16);
-        nlsf::silk_bwexpander(&mut ps_dec_ctrl.pred_coef_q12[1], ps_dec.lpc_order as usize, BWE_AFTER_LOSS_Q16);
+        nlsf::silk_bwexpander(
+            &mut ps_dec_ctrl.pred_coef_q12[0],
+            ps_dec.lpc_order as usize,
+            BWE_AFTER_LOSS_Q16,
+        );
+        nlsf::silk_bwexpander(
+            &mut ps_dec_ctrl.pred_coef_q12[1],
+            ps_dec.lpc_order as usize,
+            BWE_AFTER_LOSS_Q16,
+        );
     }
 
     if ps_dec.indices.signal_type as i32 == TYPE_VOICED {
@@ -74,7 +91,8 @@ pub fn silk_decode_parameters(
         }
 
         // Decode LTP scaling
-        ps_dec_ctrl.ltp_scale_q14 = SILK_LTP_SCALES_TABLE_Q14[ps_dec.indices.ltp_scale_index as usize] as i32;
+        ps_dec_ctrl.ltp_scale_q14 =
+            SILK_LTP_SCALES_TABLE_Q14[ps_dec.indices.ltp_scale_index as usize] as i32;
     } else {
         ps_dec_ctrl.pitch_l[..ps_dec.nb_subfr as usize].fill(0);
         ps_dec_ctrl.ltp_coef_q14[..LTP_ORDER * ps_dec.nb_subfr as usize].fill(0);

@@ -5,8 +5,8 @@
 //
 // Ported from silk/NLSF_VQ.c, silk/NLSF_del_dec_quant.c, silk/NLSF_encode.c
 
-use crate::*;
 use crate::nlsf::*;
+use crate::*;
 
 // Constants from silk/define.h
 const NLSF_QUANT_DEL_DEC_STATES_LOG2: usize = 2;
@@ -39,7 +39,8 @@ fn silk_nlsf_vq(
             let m_u = m as usize;
 
             // Compute weighted absolute predictive quantization error for index m + 1
-            let diff_q15 = (in_q15[m_u + 1] as i32) - ((cb_nlsf_q8[cb_offset + m_u + 1] as i32) << 7);
+            let diff_q15 =
+                (in_q15[m_u + 1] as i32) - ((cb_nlsf_q8[cb_offset + m_u + 1] as i32) << 7);
             let diffw_q24 = diff_q15.wrapping_mul(cb_wght_q9[cb_offset + m_u + 1] as i32);
             sum_error_q24 = sum_error_q24.wrapping_add((diffw_q24 - (pred_q24 >> 1)).abs());
             pred_q24 = diffw_q24;
@@ -121,12 +122,17 @@ fn silk_nlsf_del_dec_quant(
         let in_q10 = x_q10[i_rev] as i32;
 
         for j in 0..n_states {
-            let pred_q10 = (((pred_coef_q8[i_rev] as i16 as i32) * (prev_out_q10[j] as i32)) >> 8) as i32;
+            let pred_q10 =
+                (((pred_coef_q8[i_rev] as i16 as i32) * (prev_out_q10[j] as i32)) >> 8) as i32;
             let res_q10 = in_q10 - pred_q10;
             // C: silk_RSHIFT(silk_SMULBB(inv_quant_step_size_Q6, res_Q10), 16)
             // silk_SMULBB truncates both to i16
-            let mut ind_tmp = ((inv_quant_step_size_q6 as i16 as i32) * (res_q10 as i16 as i32)) >> 16;
-            ind_tmp = ind_tmp.clamp(-NLSF_QUANT_MAX_AMPLITUDE_EXT, NLSF_QUANT_MAX_AMPLITUDE_EXT - 1);
+            let mut ind_tmp =
+                ((inv_quant_step_size_q6 as i16 as i32) * (res_q10 as i16 as i32)) >> 16;
+            ind_tmp = ind_tmp.clamp(
+                -NLSF_QUANT_MAX_AMPLITUDE_EXT,
+                NLSF_QUANT_MAX_AMPLITUDE_EXT - 1,
+            );
             ind[j][i_rev] = ind_tmp as i8;
 
             // Compute outputs for ind_tmp and ind_tmp + 1
@@ -143,7 +149,9 @@ fn silk_nlsf_del_dec_quant(
 
             if ind_tmp + 1 >= NLSF_QUANT_MAX_AMPLITUDE {
                 if ind_tmp + 1 == NLSF_QUANT_MAX_AMPLITUDE {
-                    rate0_q5 = ec_rates_q5[rates_q5_offset + (ind_tmp + NLSF_QUANT_MAX_AMPLITUDE) as usize] as i32;
+                    rate0_q5 = ec_rates_q5
+                        [rates_q5_offset + (ind_tmp + NLSF_QUANT_MAX_AMPLITUDE) as usize]
+                        as i32;
                     rate1_q5 = 280;
                 } else {
                     rate0_q5 = 280 - 43 * NLSF_QUANT_MAX_AMPLITUDE + 43 * ind_tmp;
@@ -152,14 +160,20 @@ fn silk_nlsf_del_dec_quant(
             } else if ind_tmp <= -NLSF_QUANT_MAX_AMPLITUDE {
                 if ind_tmp == -NLSF_QUANT_MAX_AMPLITUDE {
                     rate0_q5 = 280;
-                    rate1_q5 = ec_rates_q5[rates_q5_offset + (ind_tmp + 1 + NLSF_QUANT_MAX_AMPLITUDE) as usize] as i32;
+                    rate1_q5 = ec_rates_q5
+                        [rates_q5_offset + (ind_tmp + 1 + NLSF_QUANT_MAX_AMPLITUDE) as usize]
+                        as i32;
                 } else {
                     rate0_q5 = 280 + 43 * NLSF_QUANT_MAX_AMPLITUDE - 43 * ind_tmp;
                     rate1_q5 = rate0_q5 - 43;
                 }
             } else {
-                rate0_q5 = ec_rates_q5[rates_q5_offset + (ind_tmp + NLSF_QUANT_MAX_AMPLITUDE) as usize] as i32;
-                rate1_q5 = ec_rates_q5[rates_q5_offset + (ind_tmp + 1 + NLSF_QUANT_MAX_AMPLITUDE) as usize] as i32;
+                rate0_q5 = ec_rates_q5
+                    [rates_q5_offset + (ind_tmp + NLSF_QUANT_MAX_AMPLITUDE) as usize]
+                    as i32;
+                rate1_q5 = ec_rates_q5
+                    [rates_q5_offset + (ind_tmp + 1 + NLSF_QUANT_MAX_AMPLITUDE) as usize]
+                    as i32;
             }
 
             let rd_tmp_q25 = rd_q25[j];
@@ -331,11 +345,8 @@ pub fn silk_nlsf_encode(
             let w_tmp_q9 = nlsf_cb.cb1_wght_q9[cb_offset + i] as i32;
             let diff = p_nlsf_q15[i] as i32 - nlsf_tmp_q15;
             res_q10[i] = ((diff.wrapping_mul(w_tmp_q9)) >> 14) as i16;
-            w_adj_q5[i] = silk_div32_varq(
-                p_w_q2[i] as i32,
-                w_tmp_q9.wrapping_mul(w_tmp_q9),
-                21,
-            ) as i16;
+            w_adj_q5[i] =
+                silk_div32_varq(p_w_q2[i] as i32, w_tmp_q9.wrapping_mul(w_tmp_q9), 21) as i16;
         }
 
         // Unpack entropy table indices and predictor for current CB1 index
@@ -385,7 +396,6 @@ pub fn silk_nlsf_encode(
     for i in 0..order {
         nlsf_indices[i + 1] = temp_indices2[best_offset + i];
     }
-
 
     // Decode back to get the quantized NLSFs
     silk_nlsf_decode(p_nlsf_q15, nlsf_indices, nlsf_cb);

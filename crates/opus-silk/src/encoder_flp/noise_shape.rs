@@ -3,7 +3,7 @@
 
 use super::dsp::*;
 use crate::nsq::MAX_SHAPE_LPC_ORDER;
-use crate::{MAX_NB_SUBFR, MAX_FS_KHZ, SUB_FRAME_LENGTH_MS, TYPE_VOICED};
+use crate::{MAX_FS_KHZ, MAX_NB_SUBFR, SUB_FRAME_LENGTH_MS, TYPE_VOICED};
 
 // Constants from silk/define.h and silk/tuning_parameters.h
 const SHAPE_LPC_WIN_MAX: usize = 15 * MAX_FS_KHZ; // 240
@@ -82,7 +82,8 @@ fn warped_true2monic_coefs(coefs: &mut [f32], lambda: f32, limit: f32, order: us
         }
 
         // Apply bandwidth expansion
-        let chirp = 0.99 - (0.8 + 0.1 * iter as f32) * (maxabs - limit) / (maxabs * (ind + 1) as f32);
+        let chirp =
+            0.99 - (0.8 + 0.1 * iter as f32) * (maxabs - limit) / (maxabs * (ind + 1) as f32);
         silk_bwexpander_flp(coefs, order, chirp);
 
         // Convert to monic warped coefficients
@@ -111,7 +112,8 @@ fn limit_coefs(coefs: &mut [f32], limit: f32, order: usize) {
         if maxabs <= limit {
             return;
         }
-        let chirp = 0.99 - (0.8 + 0.1 * iter as f32) * (maxabs - limit) / (maxabs * (ind + 1) as f32);
+        let chirp =
+            0.99 - (0.8 + 0.1 * iter as f32) * (maxabs - limit) / (maxabs * (ind + 1) as f32);
         silk_bwexpander_flp(coefs, order, chirp);
     }
 }
@@ -174,22 +176,22 @@ pub fn silk_noise_shape_analysis_flp(
     // ---- GAIN CONTROL (C lines 168-190) ----
     let mut snr_adj_db = snr_db_q7 as f32 * (1.0 / 128.0);
 
-    result.input_quality = 0.5 * (input_quality_bands_q15[0] + input_quality_bands_q15[1]) as f32
-        * (1.0 / 32768.0);
+    result.input_quality =
+        0.5 * (input_quality_bands_q15[0] + input_quality_bands_q15[1]) as f32 * (1.0 / 32768.0);
 
     result.coding_quality = silk_sigmoid(0.25 * (snr_adj_db - 20.0));
 
     if !use_cbr {
         let b = 1.0 - speech_activity_q8 as f32 * (1.0 / 256.0);
-        snr_adj_db -= BG_SNR_DECR_DB * result.coding_quality
-            * (0.5 + 0.5 * result.input_quality) * b * b;
+        snr_adj_db -=
+            BG_SNR_DECR_DB * result.coding_quality * (0.5 + 0.5 * result.input_quality) * b * b;
     }
 
     if signal_type == TYPE_VOICED {
         snr_adj_db += HARM_SNR_INCR_DB * ltp_corr;
     } else {
-        snr_adj_db += (-0.4 * snr_db_q7 as f32 * (1.0 / 128.0) + 6.0)
-            * (1.0 - result.input_quality);
+        snr_adj_db +=
+            (-0.4 * snr_db_q7 as f32 * (1.0 / 128.0) + 6.0) * (1.0 - result.input_quality);
     }
 
     // ---- SPARSENESS PROCESSING (C lines 195-220) ----
@@ -204,7 +206,9 @@ pub fn silk_noise_shape_analysis_flp(
         for k in 0..n_segs {
             let start = k * n_samples;
             let end = (start + n_samples).min(pitch_res.len());
-            if start >= pitch_res.len() { break; }
+            if start >= pitch_res.len() {
+                break;
+            }
             let nrg = n_samples as f32 + silk_energy_flp(&pitch_res[start..end]) as f32;
             let log_energy = silk_log2_f(nrg as f64);
             if k > 0 {
@@ -245,7 +249,8 @@ pub fn silk_noise_shape_analysis_flp(
             silk_apply_sine_window_flp(
                 &mut x_windowed[..slope_part],
                 &x[x_ptr_offset..],
-                1, slope_part,
+                1,
+                slope_part,
             );
             let shift = slope_part;
             x_windowed[shift..shift + flat_part]
@@ -254,7 +259,8 @@ pub fn silk_noise_shape_analysis_flp(
             silk_apply_sine_window_flp(
                 &mut x_windowed[shift2..shift2 + slope_part],
                 &x[x_ptr_offset + shift2..],
-                2, slope_part,
+                2,
+                slope_part,
             );
         }
 
@@ -265,11 +271,18 @@ pub fn silk_noise_shape_analysis_flp(
         auto_corr = [0.0; MAX_SHAPE_LPC_ORDER + 1];
         if warping_q16 > 0 {
             silk_warped_autocorrelation_flp(
-                &mut auto_corr, &x_windowed[..shape_win_length],
-                warping, shape_win_length, shaping_lpc_order,
+                &mut auto_corr,
+                &x_windowed[..shape_win_length],
+                warping,
+                shape_win_length,
+                shaping_lpc_order,
             );
         } else {
-            silk_autocorrelation_flp(&mut auto_corr, &x_windowed[..shape_win_length], shaping_lpc_order + 1);
+            silk_autocorrelation_flp(
+                &mut auto_corr,
+                &x_windowed[..shape_win_length],
+                shaping_lpc_order + 1,
+            );
         }
 
         // Add white noise fraction (C line 261)
@@ -278,30 +291,42 @@ pub fn silk_noise_shape_analysis_flp(
         // Schur → reflection coefficients + residual energy (C lines 264-266)
         rc = [0.0; MAX_SHAPE_LPC_ORDER + 1];
         let nrg = silk_schur_flp(&mut rc, &auto_corr, shaping_lpc_order);
-        silk_k2a_flp(&mut result.ar[ar_offset..ar_offset + shaping_lpc_order], &rc, shaping_lpc_order);
+        silk_k2a_flp(
+            &mut result.ar[ar_offset..ar_offset + shaping_lpc_order],
+            &rc,
+            shaping_lpc_order,
+        );
         result.gains[k] = nrg.max(0.0).sqrt();
 
         // Warping gain adjustment (C lines 269-272)
         if warping_q16 > 0 {
             result.gains[k] *= warped_gain(
                 &result.ar[ar_offset..ar_offset + shaping_lpc_order],
-                warping, shaping_lpc_order,
+                warping,
+                shaping_lpc_order,
             );
         }
 
         // Bandwidth expansion (C line 275)
-        silk_bwexpander_flp(&mut result.ar[ar_offset..ar_offset + shaping_lpc_order], shaping_lpc_order, bw_exp);
+        silk_bwexpander_flp(
+            &mut result.ar[ar_offset..ar_offset + shaping_lpc_order],
+            shaping_lpc_order,
+            bw_exp,
+        );
 
         // Coefficient limiting (C lines 277-283)
         if warping_q16 > 0 {
             warped_true2monic_coefs(
                 &mut result.ar[ar_offset..ar_offset + shaping_lpc_order],
-                warping, 3.999, shaping_lpc_order,
+                warping,
+                3.999,
+                shaping_lpc_order,
             );
         } else {
             limit_coefs(
                 &mut result.ar[ar_offset..ar_offset + shaping_lpc_order],
-                3.999, shaping_lpc_order,
+                3.999,
+                shaping_lpc_order,
             );
         }
     }
@@ -314,8 +339,10 @@ pub fn silk_noise_shape_analysis_flp(
     }
 
     // ---- LOW-FREQUENCY SHAPING AND NOISE TILT (C lines 300-325) ----
-    let strength_lf = LOW_FREQ_SHAPING * (1.0 + LOW_QUALITY_LOW_FREQ_SHAPING_DECR
-        * (input_quality_bands_q15[0] as f32 * (1.0 / 32768.0) - 1.0));
+    let strength_lf = LOW_FREQ_SHAPING
+        * (1.0
+            + LOW_QUALITY_LOW_FREQ_SHAPING_DECR
+                * (input_quality_bands_q15[0] as f32 * (1.0 / 32768.0) - 1.0));
     let strength_lf = strength_lf * speech_activity_q8 as f32 * (1.0 / 256.0);
 
     let tilt: f32;
@@ -326,8 +353,10 @@ pub fn silk_noise_shape_analysis_flp(
             result.lf_ar_shp[k] = 1.0 - b - b * strength_lf;
         }
         tilt = -HP_NOISE_COEF
-            - (1.0 - HP_NOISE_COEF) * HARM_HP_NOISE_COEF
-                * speech_activity_q8 as f32 * (1.0 / 256.0);
+            - (1.0 - HP_NOISE_COEF)
+                * HARM_HP_NOISE_COEF
+                * speech_activity_q8 as f32
+                * (1.0 / 256.0);
     } else {
         let b = 1.3 / fs_khz as f32;
         result.lf_ma_shp[0] = -1.0 + b;

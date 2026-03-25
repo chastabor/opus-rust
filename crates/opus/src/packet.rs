@@ -13,11 +13,7 @@ pub fn opus_packet_get_samples_per_frame(data: &[u8], fs: i32) -> i32 {
         (fs << audiosize) / 400
     } else if (toc & 0x60) == 0x60 {
         // Hybrid
-        if toc & 0x08 != 0 {
-            fs / 50
-        } else {
-            fs / 100
-        }
+        if toc & 0x08 != 0 { fs / 50 } else { fs / 100 }
     } else {
         // SILK-only
         let audiosize = ((toc >> 3) & 0x3) as i32;
