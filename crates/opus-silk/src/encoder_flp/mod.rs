@@ -9,3 +9,5 @@ pub mod residual_energy;
 pub mod process_gains;
 pub mod find_lpc;
 pub mod find_pred_coefs;
+pub mod noise_shape;
+pub mod encode_frame;
