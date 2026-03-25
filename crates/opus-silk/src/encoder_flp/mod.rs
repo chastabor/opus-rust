@@ -13,5 +13,7 @@ pub mod quant_ltp_gains;
 pub mod find_pred_coefs;
 pub mod noise_shape;
 pub mod find_pitch_lags;
+pub mod ltp_scale_ctrl;
+pub mod lbrr;
 pub mod encode_frame;
 pub mod state;

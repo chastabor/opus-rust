@@ -640,11 +640,19 @@ impl OpusEncoder {
                     self.complexity.min(10),
                     nlsf_cb,
                     (max_data_bytes - 1) * 8,
+                    sf.packet_loss_perc,
+                    sf.n_frames_per_packet,
+                    sf.n_frames_encoded as usize,
+                    &mut sf.lbrr,
                     &mut enc,
                     &mut sf.scratch_s_ltp_q15,
                     &mut sf.scratch_s_ltp,
                     &mut sf.scratch_x_sc_q10,
                     &mut sf.scratch_xq_tmp,
+                    &mut sf.lbrr_scratch_s_ltp_q15,
+                    &mut sf.lbrr_scratch_s_ltp,
+                    &mut sf.lbrr_scratch_x_sc_q10,
+                    &mut sf.lbrr_scratch_xq_tmp,
                 );
 
                 sf.n_frames_encoded += 1;

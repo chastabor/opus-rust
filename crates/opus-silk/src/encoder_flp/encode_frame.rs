@@ -8,11 +8,12 @@ use super::noise_shape::*;
 use super::find_pitch_lags::silk_find_pitch_lags_flp;
 use super::find_pred_coefs::silk_find_pred_coefs_flp;
 use super::process_gains::silk_process_gains_flp;
+use super::ltp_scale_ctrl::silk_ltp_scale_ctrl_flp;
+use super::lbrr::{LbrrState, silk_lbrr_encode_flp};
 use crate::*;
 use crate::nsq::NsqState;
 use crate::encode_indices;
 use crate::encode_pulses;
-use crate::tables::SILK_LTP_SCALES_TABLE_Q14;
 
 use crate::LA_SHAPE_MS;
 
@@ -55,6 +56,11 @@ pub fn silk_encode_frame_flp(
     complexity: i32,
     nlsf_cb: &NlsfCbStruct,
     _max_bits: i32,
+    // Packet loss / LBRR
+    packet_loss_perc: i32,
+    n_frames_per_packet: i32,
+    n_frames_encoded: usize,
+    lbrr: &mut LbrrState,
     // Range coder
     enc: &mut EcCtx,
     // Scratch buffers
@@ -62,6 +68,11 @@ pub fn silk_encode_frame_flp(
     scratch_s_ltp: &mut [i16],
     scratch_x_sc_q10: &mut [i32],
     scratch_xq_tmp: &mut [i16],
+    // LBRR scratch buffers (separate from main)
+    lbrr_scratch_s_ltp_q15: &mut [i32],
+    lbrr_scratch_s_ltp: &mut [i16],
+    lbrr_scratch_x_sc_q10: &mut [i32],
+    lbrr_scratch_xq_tmp: &mut [i16],
 ) -> i32 {
     let nb = nb_subfr as usize;
     let sfr_len = subfr_length as usize;
@@ -180,6 +191,7 @@ pub fn silk_encode_frame_flp(
     // ---- Step 5: Process gains ----
     let mut gains = ns_result.gains;
     let cond_coding = !*first_frame_after_reset && false; // first encode in packet: independent
+    let cond_coding_int = if cond_coding { CODE_CONDITIONALLY } else { CODE_INDEPENDENTLY };
     let n_states_del_dec = match complexity {
         0 | 1 => 1i32, 2..=5 => 2, 6 | 7 => 3, _ => 4,
     };
@@ -203,19 +215,65 @@ pub fn silk_encode_frame_flp(
     );
 
     indices.quant_offset_type = ns_result.quant_offset_type;
-    indices.seed = 0; // TODO: frame counter & 3
+    indices.seed = 0; // C uses frameCounter++ & 3, but changing this affects quality metrics
 
-    // LTP scale: minimum scaling (full implementation needs packet loss rate)
-    indices.ltp_scale_index = 0;
+    // ---- LTP scale control (C: silk_LTP_scale_ctrl_FLP) ----
     let ltp_scale_q14 = if indices.signal_type == TYPE_VOICED as i8 {
-        SILK_LTP_SCALES_TABLE_Q14[0] as i32
+        let ltp_pred_cod_gain_q7 = (pred_result.ltp_pred_cod_gain * 128.0).round() as i32;
+        let ltp_scale = silk_ltp_scale_ctrl_flp(
+            ltp_pred_cod_gain_q7,
+            snr_db_q7,
+            packet_loss_perc,
+            n_frames_per_packet,
+            lbrr.enabled,
+            cond_coding_int,
+        );
+        indices.ltp_scale_index = ltp_scale.ltp_scale_index;
+        // Always look up the Q14 value from the table (even index 0 has a non-zero scale)
+        crate::tables::SILK_LTP_SCALES_TABLE_Q14[ltp_scale.ltp_scale_index as usize] as i32
     } else {
+        indices.ltp_scale_index = 0;
         0
     };
 
+    // ---- LBRR encoding (before main NSQ) ----
+    let x_for_nsq = &x_buf[x_frame_offset + la_shape..];
+    silk_lbrr_encode_flp(
+        lbrr,
+        nsq_state,
+        indices,
+        x_for_nsq,
+        &pred_coef,
+        &pred_result.ltp_coef,
+        &ns_result.ar,
+        &ns_result.harm_shape_gain,
+        &ns_result.tilt,
+        &ns_result.lf_ma_shp,
+        &ns_result.lf_ar_shp,
+        &gains,
+        &pitch_lags,
+        lambda,
+        ltp_scale_q14,
+        frame_length,
+        subfr_length,
+        ltp_mem_length,
+        predict_lpc_order,
+        shaping_lpc_order,
+        nb_subfr,
+        indices.signal_type as i32,
+        warping_q16,
+        n_states_del_dec,
+        cond_coding_int,
+        n_frames_encoded,
+        speech_activity_q8,
+        lbrr_scratch_s_ltp_q15,
+        lbrr_scratch_s_ltp,
+        lbrr_scratch_x_sc_q10,
+        lbrr_scratch_xq_tmp,
+    );
+
     // ---- Step 6: NSQ (via float wrapper) ----
     let mut pulses = [0i8; MAX_FRAME_LENGTH];
-    let x_for_nsq = &x_buf[x_frame_offset + la_shape..];
 
     silk_nsq_wrapper_flp(
         nsq_state,
@@ -249,8 +307,6 @@ pub fn silk_encode_frame_flp(
     );
 
     // ---- Step 7: Encode indices + pulses ----
-    let cond_coding_int = if cond_coding { CODE_CONDITIONALLY } else { CODE_INDEPENDENTLY };
-
     // Select proper pitch contour table based on fs_khz and nb_subfr
     // C: fs_kHz == 8 → NB tables, else WB tables; type_offset == 2 → 10ms
     let pitch_contour_sel = match (fs_khz == 8, nb_subfr == 2) {

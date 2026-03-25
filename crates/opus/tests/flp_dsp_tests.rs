@@ -414,3 +414,67 @@ fn quant_ltp_gains_matches() {
         eprintln!("  (minor VQ difference: {} subframe(s) differ)", cbk_diff);
     }
 }
+
+// ---- LTP scale control tests ----
+
+use opus_silk::encoder_flp::ltp_scale_ctrl::silk_ltp_scale_ctrl_flp;
+use opus_silk::{CODE_INDEPENDENTLY, CODE_CONDITIONALLY};
+
+#[test]
+fn ltp_scale_ctrl_zero_loss() {
+    // With 0% packet loss, scale index should always be 0
+    let result = silk_ltp_scale_ctrl_flp(
+        500,  // ltp_pred_cod_gain_q7 (moderate)
+        2415, // snr_db_q7 (~19dB)
+        0,    // packet_loss_perc
+        1,    // n_frames_per_packet
+        false, // lbrr_flag
+        CODE_INDEPENDENTLY,
+    );
+    assert_eq!(result.ltp_scale_index, 0, "zero loss should give index 0");
+    assert!(result.ltp_scale > 0.9, "scale should be close to 1.0 for index 0");
+}
+
+#[test]
+fn ltp_scale_ctrl_conditional_coding() {
+    // Conditional coding always produces index 0 regardless of loss
+    let result = silk_ltp_scale_ctrl_flp(
+        500, 2415, 20, 1, false,
+        CODE_CONDITIONALLY,
+    );
+    assert_eq!(result.ltp_scale_index, 0, "conditional coding → index 0");
+}
+
+#[test]
+fn ltp_scale_ctrl_high_loss_high_gain() {
+    // High packet loss + high LTP gain → higher scale index
+    let result = silk_ltp_scale_ctrl_flp(
+        3000, // high LTP prediction gain
+        1500, // low SNR → easier to trigger thresholds
+        25,   // 25% packet loss
+        2,    // 2 frames per packet → round_loss = 50
+        false,
+        CODE_INDEPENDENTLY,
+    );
+    eprintln!("high_loss: index={} scale={}", result.ltp_scale_index, result.ltp_scale);
+    // product = silk_smulbb(3000, 50) — but silk_smulbb truncates to i16
+    // (3000 as i16) * (50 as i16) = 3000 * 50 = 150000
+    // thresh1 = silk_log2lin(2900 - 1500) = silk_log2lin(1400)
+    // thresh2 = silk_log2lin(3900 - 1500) = silk_log2lin(2400)
+    // If product > both thresholds, index = 2
+    assert!(result.ltp_scale_index >= 1, "high loss should increase scale index");
+}
+
+#[test]
+fn ltp_scale_ctrl_lbrr_reduces_loss() {
+    // With LBRR flag, effective loss is reduced: round_loss = 2 + loss^2/100
+    // 10% loss * 1 frame = 10, with LBRR: 2 + 10*10/100 = 3
+    let no_lbrr = silk_ltp_scale_ctrl_flp(
+        2000, 2000, 10, 1, false, CODE_INDEPENDENTLY,
+    );
+    let with_lbrr = silk_ltp_scale_ctrl_flp(
+        2000, 2000, 10, 1, true, CODE_INDEPENDENTLY,
+    );
+    assert!(with_lbrr.ltp_scale_index <= no_lbrr.ltp_scale_index,
+        "LBRR should reduce or maintain scale index");
+}

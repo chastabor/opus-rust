@@ -4,6 +4,7 @@
 use crate::*;
 use crate::nsq::NsqState;
 use crate::vad;
+use super::lbrr::LbrrState;
 
 use crate::LA_SHAPE_MS;
 const MAX_SILK_X_BUF: usize = 2 * MAX_FRAME_LENGTH + LA_SHAPE_MS * MAX_FS_KHZ;
@@ -54,12 +55,23 @@ pub struct SilkEncoderStateFlp {
 
     // Frame counter
     pub n_frames_encoded: i32,
+    pub n_frames_per_packet: i32,
+
+    // Packet loss / LBRR config
+    pub packet_loss_perc: i32,
+    pub lbrr: LbrrState,
 
     // Scratch buffers (avoid per-frame allocation)
     pub scratch_s_ltp_q15: Vec<i32>,
     pub scratch_s_ltp: Vec<i16>,
     pub scratch_x_sc_q10: Vec<i32>,
     pub scratch_xq_tmp: Vec<i16>,
+
+    // LBRR scratch buffers (separate from main NSQ)
+    pub lbrr_scratch_s_ltp_q15: Vec<i32>,
+    pub lbrr_scratch_s_ltp: Vec<i16>,
+    pub lbrr_scratch_x_sc_q10: Vec<i32>,
+    pub lbrr_scratch_xq_tmp: Vec<i16>,
 }
 
 impl SilkEncoderStateFlp {
@@ -95,10 +107,17 @@ impl SilkEncoderStateFlp {
             input_tilt_q15: 0,
             snr_db_q7: 0,
             n_frames_encoded: 0,
+            n_frames_per_packet: 1,
+            packet_loss_perc: 0,
+            lbrr: LbrrState::new(),
             scratch_s_ltp_q15: vec![0; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH],
             scratch_s_ltp: vec![0; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH],
             scratch_x_sc_q10: vec![0; MAX_SUB_FRAME_LENGTH],
             scratch_xq_tmp: vec![0; MAX_SUB_FRAME_LENGTH],
+            lbrr_scratch_s_ltp_q15: vec![0; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH],
+            lbrr_scratch_s_ltp: vec![0; MAX_LTP_MEM_LENGTH + MAX_FRAME_LENGTH],
+            lbrr_scratch_x_sc_q10: vec![0; MAX_SUB_FRAME_LENGTH],
+            lbrr_scratch_xq_tmp: vec![0; MAX_SUB_FRAME_LENGTH],
         }
     }
 
