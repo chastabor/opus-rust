@@ -428,3 +428,70 @@ pub fn c_silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
 pub fn c_silk_autocorrelation_flp(results: &mut [f32], input: &[f32], corr_count: usize) {
     unsafe { silk_autocorrelation_FLP(results.as_mut_ptr(), input.as_ptr(), input.len() as i32, corr_count as i32, 0) }
 }
+
+// ── Float wrapper FFI (Layer 2) ──
+
+// silk_A2NLSF_FLP and silk_NLSF2A_FLP are thin wrappers around the fixed-point
+// versions. We test them by calling the C float wrapper and comparing with our
+// Rust float wrapper (which calls the same fixed-point core).
+
+// The Burg float is also needed for generating realistic test LPC coefficients.
+unsafe extern "C" {
+    fn silk_burg_modified_FLP(
+        a: *mut f32, x: *const f32, min_inv_gain: f32,
+        subfr_length: i32, nb_subfr: i32, d: i32, arch: i32,
+    ) -> f32;
+
+    fn silk_A2NLSF_FLP(nlsf_q15: *mut i16, a: *const f32, order: i32);
+    fn silk_NLSF2A_FLP(a: *mut f32, nlsf_q15: *const i16, order: i32, arch: i32);
+}
+
+pub fn c_silk_burg_modified_flp(
+    a: &mut [f32], x: &[f32], min_inv_gain: f32,
+    subfr_length: i32, nb_subfr: i32, d: i32,
+) -> f32 {
+    unsafe { silk_burg_modified_FLP(a.as_mut_ptr(), x.as_ptr(), min_inv_gain, subfr_length, nb_subfr, d, 0) }
+}
+
+pub fn c_silk_a2nlsf_flp(nlsf_q15: &mut [i16], a: &[f32], order: usize) {
+    unsafe { silk_A2NLSF_FLP(nlsf_q15.as_mut_ptr(), a.as_ptr(), order as i32) }
+}
+
+pub fn c_silk_nlsf2a_flp(a: &mut [f32], nlsf_q15: &[i16], order: usize) {
+    unsafe { silk_NLSF2A_FLP(a.as_mut_ptr(), nlsf_q15.as_ptr(), order as i32, 0) }
+}
+
+// Float residual energy
+unsafe extern "C" {
+    fn silk_residual_energy_FLP(
+        nrgs: *mut f32,
+        x: *const f32,
+        a: *const f32, // a[2][MAX_LPC_ORDER] flattened
+        gains: *const f32,
+        subfr_length: i32,
+        nb_subfr: i32,
+        lpc_order: i32,
+    );
+}
+
+pub fn c_silk_residual_energy_flp(
+    nrgs: &mut [f32],
+    x: &[f32],
+    a: &[[f32; 16]; 2],
+    gains: &[f32],
+    subfr_length: i32,
+    nb_subfr: i32,
+    lpc_order: i32,
+) {
+    unsafe {
+        silk_residual_energy_FLP(
+            nrgs.as_mut_ptr(),
+            x.as_ptr(),
+            a.as_ptr() as *const f32,
+            gains.as_ptr(),
+            subfr_length,
+            nb_subfr,
+            lpc_order,
+        );
+    }
+}

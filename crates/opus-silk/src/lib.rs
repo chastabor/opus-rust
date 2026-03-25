@@ -37,6 +37,24 @@ pub use decoder::{SilkDecoder, SilkDecControl};
 // Re-export the main encoder
 pub use encoder::SilkEncoder;
 
+// ---- Utility: silk_interpolate (from silk/interpolate.c) ----
+
+/// Linear interpolation between two i16 vectors.
+/// result[i] = prev[i] + (coef/4) * (curr[i] - prev[i])
+/// coef is in Q2 (0..4). coef=0 → prev, coef=4 → curr.
+pub fn silk_interpolate_i16(
+    result: &mut [i16],
+    prev: &[i16],
+    curr: &[i16],
+    coef_q2: i32,
+    len: usize,
+) {
+    for i in 0..len {
+        result[i] = (prev[i] as i32
+            + ((coef_q2 * (curr[i] as i32 - prev[i] as i32)) >> 2)) as i16;
+    }
+}
+
 // ---- Constants (from silk/define.h) ----
 
 pub const DECODER_NUM_CHANNELS: usize = 2;
