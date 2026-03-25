@@ -19,6 +19,10 @@ pub struct SilkEncoderStateFlp {
     pub predict_lpc_order: i32,
     pub shaping_lpc_order: i32,
     pub shape_win_length: i32,
+    pub la_pitch: i32,
+    pub pitch_lpc_win_length: i32,
+    pub pitch_estimation_lpc_order: i32,
+    pub pitch_estimation_complexity: i32,
     pub warping_q16: i32,
     pub nlsf_cb_sel: NlsfCbSel,
 
@@ -70,6 +74,10 @@ impl SilkEncoderStateFlp {
             predict_lpc_order: 0,
             shaping_lpc_order: 0,
             shape_win_length: 0,
+            la_pitch: 0,
+            pitch_lpc_win_length: 0,
+            pitch_estimation_lpc_order: 0,
+            pitch_estimation_complexity: 0,
             warping_q16: 0,
             nlsf_cb_sel: NlsfCbSel::NbMb,
             x_buf: vec![0.0; MAX_SILK_X_BUF],
@@ -111,6 +119,11 @@ impl SilkEncoderStateFlp {
         // C: shapeWinLength = SUB_FRAME_LENGTH_MS * fs_kHz + 2 * la_shape
         let la_shape = LA_SHAPE_MS as i32 * fs_khz;
         self.shape_win_length = SUB_FRAME_LENGTH_MS as i32 * fs_khz + 2 * la_shape;
+        // Pitch analysis params (C: control_codec.c lines 285-290)
+        self.la_pitch = 2 * fs_khz; // LA_PITCH_MS=2
+        let pitch_lpc_win_ms = if self.nb_subfr == 2 { 14 } else { 24 }; // 10+2*2 or 20+2*2
+        self.pitch_lpc_win_length = pitch_lpc_win_ms * fs_khz;
+        self.pitch_estimation_lpc_order = if fs_khz == 8 { 8 } else { 16 };
 
         if fs_khz <= 12 {
             self.predict_lpc_order = MIN_LPC_ORDER as i32;

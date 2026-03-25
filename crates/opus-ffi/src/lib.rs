@@ -57,10 +57,29 @@ unsafe extern "C" {
     fn silk_k2a_FLP(a: *mut f32, rc: *const f32, order: i32);
     fn silk_bwexpander_FLP(ar: *mut f32, d: i32, chirp: f32);
     fn silk_apply_sine_window_FLP(px_win: *mut f32, px: *const f32, win_type: i32, length: i32);
+    fn silk_warped_autocorrelation_FLP(corr: *mut f32, input: *const f32, warping: f32, length: i32, order: i32);
     fn silk_scale_copy_vector_FLP(data_out: *mut f32, data_in: *const f32, gain: f32, data_size: i32);
     fn silk_LPC_analysis_filter_FLP(r_lpc: *mut f32, pred_coef: *const f32, s: *const f32, length: i32, order: i32);
     fn silk_LPC_inverse_pred_gain_FLP(a: *const f32, order: i32) -> f32;
     fn silk_autocorrelation_FLP(results: *mut f32, input: *const f32, input_size: i32, corr_count: i32, arch: i32);
+
+    // LTP analysis (Layer 0 / Layer 3)
+    fn silk_corrVector_FLP(x: *const f32, t: *const f32, l: i32, order: i32, xt: *mut f32, arch: i32);
+    fn silk_corrMatrix_FLP(x: *const f32, l: i32, order: i32, xx: *mut f32, arch: i32);
+    fn silk_find_LTP_FLP(xx: *mut f32, x_x: *mut f32, r_ptr: *const f32, lag: *const i32,
+        subfr_length: i32, nb_subfr: i32, arch: i32);
+    fn silk_quant_LTP_gains(
+        b_q14: *mut i16,
+        cbk_index: *mut i8,
+        periodicity_index: *mut i8,
+        sum_log_gain_q7: *mut i32,
+        pred_gain_db_q7: *mut i32,
+        xx_q17: *const i32,
+        x_x_q17: *const i32,
+        subfr_len: i32,
+        nb_subfr: i32,
+        arch: i32,
+    );
 
     fn silk_NLSF_VQ_weights_laroia(
         pNLSFW_Q_OUT: *mut i16,  // O: NLSF weights [order]
@@ -421,12 +440,47 @@ pub fn c_silk_lpc_analysis_filter_flp(r_lpc: &mut [f32], pred_coef: &[f32], s: &
     unsafe { silk_LPC_analysis_filter_FLP(r_lpc.as_mut_ptr(), pred_coef.as_ptr(), s.as_ptr(), length as i32, order as i32) }
 }
 
+pub fn c_silk_warped_autocorrelation_flp(corr: &mut [f32], input: &[f32], warping: f32, length: usize, order: usize) {
+    unsafe { silk_warped_autocorrelation_FLP(corr.as_mut_ptr(), input.as_ptr(), warping, length as i32, order as i32) }
+}
+
 pub fn c_silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
     unsafe { silk_LPC_inverse_pred_gain_FLP(a.as_ptr(), order as i32) }
 }
 
 pub fn c_silk_autocorrelation_flp(results: &mut [f32], input: &[f32], corr_count: usize) {
     unsafe { silk_autocorrelation_FLP(results.as_mut_ptr(), input.as_ptr(), input.len() as i32, corr_count as i32, 0) }
+}
+
+// ── LTP FFI wrappers ──
+
+pub fn c_silk_corr_vector_flp(x: &[f32], t: &[f32], l: usize, order: usize, xt: &mut [f32]) {
+    unsafe { silk_corrVector_FLP(x.as_ptr(), t.as_ptr(), l as i32, order as i32, xt.as_mut_ptr(), 0) }
+}
+
+pub fn c_silk_corr_matrix_flp(x: &[f32], l: usize, order: usize, xx: &mut [f32]) {
+    unsafe { silk_corrMatrix_FLP(x.as_ptr(), l as i32, order as i32, xx.as_mut_ptr(), 0) }
+}
+
+pub fn c_silk_find_ltp_flp(
+    xx: &mut [f32], x_x: &mut [f32], r_ptr: *const f32,
+    lag: &[i32], subfr_length: i32, nb_subfr: i32,
+) {
+    unsafe { silk_find_LTP_FLP(xx.as_mut_ptr(), x_x.as_mut_ptr(), r_ptr, lag.as_ptr(), subfr_length, nb_subfr, 0) }
+}
+
+pub fn c_silk_quant_ltp_gains(
+    b_q14: &mut [i16], cbk_index: &mut [i8], periodicity_index: &mut i8,
+    sum_log_gain_q7: &mut i32, pred_gain_db_q7: &mut i32,
+    xx_q17: &[i32], x_x_q17: &[i32], subfr_len: i32, nb_subfr: i32,
+) {
+    unsafe {
+        silk_quant_LTP_gains(
+            b_q14.as_mut_ptr(), cbk_index.as_mut_ptr(), periodicity_index,
+            sum_log_gain_q7, pred_gain_db_q7,
+            xx_q17.as_ptr(), x_x_q17.as_ptr(), subfr_len, nb_subfr, 0,
+        )
+    }
 }
 
 // ── Float wrapper FFI (Layer 2) ──

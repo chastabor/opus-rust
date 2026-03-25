@@ -14,7 +14,10 @@ const LTP_MEM_LENGTH: i32 = 320; // 20ms * 16kHz
 const LPC_ORDER: i32 = 16;
 const SHAPING_LPC_ORDER: i32 = 16;
 // C: shapeWinLength = SUB_FRAME_LENGTH_MS * fs_kHz + 2 * la_shape
-const SHAPE_WIN_LENGTH: i32 = 5 * FS_KHZ + 2 * 5 * FS_KHZ; // subfr_len + 2*la_shape = 80 + 160 = 240
+const SHAPE_WIN_LENGTH: i32 = 5 * FS_KHZ + 2 * 5 * FS_KHZ; // 80 + 160 = 240
+const LA_PITCH: i32 = 2 * FS_KHZ; // LA_PITCH_MS=2
+const PITCH_LPC_WIN_LENGTH: i32 = 24 * FS_KHZ; // (20 + 2*2) * fs_kHz
+const PITCH_EST_LPC_ORDER: i32 = 16;
 const LA_SHAPE: usize = 5 * FS_KHZ as usize; // 80
 
 fn gen_sine_i16(len: usize, freq: f32, fs: f32, amplitude: f32) -> Vec<i16> {
@@ -88,7 +91,7 @@ fn encode_frame_flp_produces_output() {
             FRAME_LENGTH,
             LTP_MEM_LENGTH,
             LPC_ORDER,
-            SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH,
+            SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH, LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
             0, // warping_q16
             10, // complexity
             nlsf_cb,
@@ -149,7 +152,7 @@ fn encode_frame_flp_first_frame() {
         &mut prev_harm_smth, &mut prev_tilt_smth,
         255, &[16384; 4], 0, 2415, &input,
         FS_KHZ, NB_SUBFR, SUBFR_LENGTH, FRAME_LENGTH,
-        LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH,
+        LTP_MEM_LENGTH, LPC_ORDER, SHAPING_LPC_ORDER, SHAPE_WIN_LENGTH, LA_PITCH, PITCH_LPC_WIN_LENGTH, PITCH_EST_LPC_ORDER,
         0, 10, get_nlsf_cb(NlsfCbSel::Wb), 1275 * 8,
         &mut enc,
         &mut scratch_s_ltp_q15, &mut scratch_s_ltp,

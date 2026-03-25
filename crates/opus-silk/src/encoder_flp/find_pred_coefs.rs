@@ -1,35 +1,52 @@
 // Port of silk/float/find_pred_coefs_FLP.c: silk_find_pred_coefs_FLP
 // Orchestrates the LPC/LTP prediction pipeline for the float encoder.
-// This is the central analysis function that produces LPC, NLSFs, and residual energy.
+// Handles both voiced (LTP analysis) and unvoiced paths.
 
 use super::dsp::silk_scale_copy_vector_flp;
 use super::find_lpc::silk_find_lpc_flp;
-use super::wrappers::silk_process_nlsfs_flp;
+use super::find_ltp::silk_find_ltp_flp;
+use super::find_ltp::silk_ltp_analysis_filter_flp;
+use super::quant_ltp_gains::silk_quant_ltp_gains_flp;
 use super::residual_energy::silk_residual_energy_flp;
+use super::wrappers::silk_process_nlsfs_flp;
 use crate::*;
 
 use crate::MAX_PREDICTION_POWER_GAIN;
 const MAX_PREDICTION_POWER_GAIN_AFTER_RESET: f32 = 1e2; // silk/define.h
 
-/// Float prediction coefficient analysis (unvoiced path only for now).
+/// Result from find_pred_coefs, including LTP state needed downstream.
+pub struct PredCoefsResult {
+    pub ltp_coef: [f32; MAX_NB_SUBFR * LTP_ORDER],
+    pub ltp_pred_cod_gain: f32,
+    pub sum_log_gain_q7: i32,
+}
+
+/// Float prediction coefficient analysis.
 ///
 /// Port of silk_find_pred_coefs_FLP (find_pred_coefs_FLP.c).
 ///
-/// Computes:
-/// - gain-normalized input (LPC_in_pre)
-/// - LPC via Burg + NLSF interpolation
-/// - NLSF quantization + interpolation → PredCoef[2]
-/// - Per-subframe residual energy (for process_gains)
+/// For voiced frames: LTP analysis → quantize LTP gains → LTP filter → Burg
+/// For unvoiced frames: scale by invGains → Burg
+///
+/// Both paths then: NLSF quantization → residual energy
+///
+/// `x_buf` is the full analysis buffer (ltp_mem + la_shape + frame).
+/// `x_frame_offset` is where x_frame starts in x_buf.
+/// `la_shape` is the lookback before x_frame for the actual frame data.
+/// The actual frame starts at `x_buf[x_frame_offset + la_shape]`.
 pub fn silk_find_pred_coefs_flp(
-    // Per-frame analysis inputs
-    x: &[f32],                            // I: float signal (x_frame with la_shape lookback)
+    x_buf: &[f32],                         // I: full x_buf
+    x_frame_offset: usize,                // I: offset of x_frame in x_buf
+    la_shape: usize,                       // I: la_shape lookback
+    res_pitch: &[f32],                     // I: LPC residual from pitch analysis (full buffer)
+    res_pitch_frame_offset: usize,         // I: offset where frame starts in res_pitch
+    pitch_lags: &[i32; MAX_NB_SUBFR],     // I: pitch lags per subframe
     gains: &[f32],                         // I: per-subframe gains from noise_shape
     coding_quality: f32,                   // I: from noise_shape
-    ltp_pred_cod_gain: f32,                // I: LTP prediction coding gain (0 for unvoiced)
-    // Encoder state (read/write)
+    signal_type: i32,                      // I: TYPE_VOICED or TYPE_UNVOICED
+    sum_log_gain_q7_in: i32,               // I: cumulative log gain from previous frames
     indices: &mut SideInfoIndices,
-    prev_nlsf_q15: &mut [i16],            // I/O: previous frame's quantized NLSFs
-    // Config
+    prev_nlsf_q15: &mut [i16],
     predict_lpc_order: usize,
     subfr_length: usize,
     nb_subfr: usize,
@@ -39,34 +56,92 @@ pub fn silk_find_pred_coefs_flp(
     nlsf_cb: &NlsfCbStruct,
     n_survivors: i32,
     // Outputs
-    pred_coef: &mut [[f32; MAX_LPC_ORDER]; 2],  // O: float LPC [2 halves]
-    res_nrg: &mut [f32; MAX_NB_SUBFR],           // O: residual energy per subframe
-    nlsf_q15_out: &mut [i16],                     // O: quantized NLSFs
-) {
+    pred_coef: &mut [[f32; MAX_LPC_ORDER]; 2],
+    res_nrg: &mut [f32; MAX_NB_SUBFR],
+    nlsf_q15_out: &mut [i16],
+) -> PredCoefsResult {
     let d = predict_lpc_order;
-    let burg_subfr = d + subfr_length;  // subfr_length including D preceding samples
+    let burg_subfr = d + subfr_length;
 
-    // Step 1: Compute invGains (C: invGains[i] = 1.0 / Gains[i])
+    // invGains
     let mut inv_gains = [0.0f32; MAX_NB_SUBFR];
     for i in 0..nb_subfr {
         inv_gains[i] = 1.0 / gains[i].max(1e-12);
     }
 
-    // Step 2: Create gain-normalized LPC_in_pre (unvoiced path)
-    // C: silk_scale_copy_vector_FLP(x_pre_ptr, x_ptr, invGains[i], ...)
-    // x points to x_frame which has la_shape lookback before the actual frame.
-    // In the C code: x_ptr = x - predictLPCOrder, advancing by subfr_length per subframe.
-    // Stack-allocated: max 4 * (16+80) = 384 floats = 1536 bytes
+    // LPC_in_pre buffer
     const MAX_LPC_PRE_LEN: usize = MAX_NB_SUBFR * (MAX_LPC_ORDER + crate::MAX_SUB_FRAME_LENGTH);
     let mut lpc_in_pre = [0.0f32; MAX_LPC_PRE_LEN];
-    {
+
+    let mut result = PredCoefsResult {
+        ltp_coef: [0.0; MAX_NB_SUBFR * LTP_ORDER],
+        ltp_pred_cod_gain: 0.0,
+        sum_log_gain_q7: sum_log_gain_q7_in,
+    };
+
+    // The actual frame data starts at x_buf[x_frame_offset + la_shape]
+    let frame_start = x_frame_offset + la_shape;
+
+    if signal_type == TYPE_VOICED {
+        // ---- VOICED path ----
+
+        // LTP analysis: compute correlation matrices from pitch residual
+        let mut xx_ltp = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
+        let mut x_x_ltp = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
+
+        silk_find_ltp_flp(
+            &mut xx_ltp,
+            &mut x_x_ltp,
+            res_pitch,
+            res_pitch_frame_offset,
+            pitch_lags,
+            subfr_length,
+            nb_subfr,
+        );
+
+        // Quantize LTP gains
+        let mut cbk_index = [0i8; MAX_NB_SUBFR];
+        let mut periodicity_index = 0i8;
+
+        silk_quant_ltp_gains_flp(
+            &mut result.ltp_coef,
+            &mut cbk_index,
+            &mut periodicity_index,
+            &mut result.sum_log_gain_q7,
+            &mut result.ltp_pred_cod_gain,
+            &xx_ltp,
+            &x_x_ltp,
+            subfr_length as i32,
+            nb_subfr,
+        );
+
+        // Store LTP indices
+        indices.ltp_index = cbk_index;
+        indices.per_index = periodicity_index;
+
+        // LTP analysis filter: create gain-normalized LTP residual
+        // C: silk_LTP_analysis_filter_FLP(LPC_in_pre, x - predictLPCOrder, ...)
+        // x = x_frame, so x - predictLPCOrder = x_buf[x_frame_offset + la_shape - d]
+        let x_ltp_offset = frame_start.saturating_sub(d);
+        silk_ltp_analysis_filter_flp(
+            &mut lpc_in_pre,
+            x_buf,
+            x_ltp_offset,
+            &result.ltp_coef,
+            pitch_lags,
+            &inv_gains,
+            subfr_length,
+            nb_subfr,
+            d, // pre_length = predictLPCOrder
+        );
+    } else {
+        // ---- UNVOICED path ----
+        // C: x_ptr = x - predictLPCOrder, advancing by subfr_length per subframe
+        // x = x_frame + la_shape (the actual frame)
+        let x = &x_buf[frame_start..];
         let mut pre_idx = 0usize;
-        // x layout: [... la_shape lookback ... | frame data ...]
-        // The caller provides x starting from the appropriate offset.
-        // For unvoiced: x_ptr starts at x - predictLPCOrder, i.e.,
-        // predictLPCOrder samples before each subframe.
         for i in 0..nb_subfr {
-            let x_start = i * subfr_length; // start of subframe i's data in x
+            let x_start = i * subfr_length;
             let src_start = if x_start >= d { x_start - d } else { 0 };
             let copy_len = burg_subfr.min(x.len().saturating_sub(src_start));
             silk_scale_copy_vector_flp(
@@ -77,20 +152,20 @@ pub fn silk_find_pred_coefs_flp(
             );
             pre_idx += burg_subfr;
         }
+
+        result.ltp_pred_cod_gain = 0.0;
+        result.sum_log_gain_q7 = 0;
     }
 
-    // Set LTP coefficients to zero (unvoiced path)
-    // (Voiced path would fill these via silk_find_LTP_FLP + silk_quant_LTP_gains_FLP)
-
-    // Step 3: minInvGain (C: find_pred_coefs_FLP.c lines 97-100)
+    // minInvGain (C: find_pred_coefs_FLP.c lines 97-100)
     let min_inv_gain = if first_frame_after_reset {
         1.0 / MAX_PREDICTION_POWER_GAIN_AFTER_RESET
     } else {
-        let base = (ltp_pred_cod_gain / 3.0).exp2() / MAX_PREDICTION_POWER_GAIN;
+        let base = (result.ltp_pred_cod_gain / 3.0).exp2() / MAX_PREDICTION_POWER_GAIN;
         base / (0.25 + 0.75 * coding_quality)
     };
 
-    // Step 4: Find LPC via Burg + NLSF interpolation
+    // Find LPC via Burg + NLSF interpolation
     let mut nlsf_q15 = [0i16; MAX_LPC_ORDER];
     silk_find_lpc_flp(
         &mut nlsf_q15,
@@ -105,7 +180,7 @@ pub fn silk_find_pred_coefs_flp(
         prev_nlsf_q15,
     );
 
-    // Step 5: Quantize NLSFs → PredCoef[2] (C: silk_process_NLSFs_FLP)
+    // Quantize NLSFs → PredCoef[2]
     silk_process_nlsfs_flp(
         pred_coef,
         &mut nlsf_q15,
@@ -121,7 +196,7 @@ pub fn silk_find_pred_coefs_flp(
         use_interpolated_nlsfs,
     );
 
-    // Step 6: Compute residual energy using quantized LPC
+    // Compute residual energy
     silk_residual_energy_flp(
         res_nrg,
         &lpc_in_pre,
@@ -135,4 +210,6 @@ pub fn silk_find_pred_coefs_flp(
     // Save NLSFs for next frame
     nlsf_q15_out[..d].copy_from_slice(&nlsf_q15[..d]);
     prev_nlsf_q15[..d].copy_from_slice(&nlsf_q15[..d]);
+
+    result
 }

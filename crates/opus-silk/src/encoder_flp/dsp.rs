@@ -257,6 +257,44 @@ pub fn silk_lpc_inverse_pred_gain_flp(a: &[f32], order: usize) -> f32 {
     inv_gain as f32
 }
 
+// ---- warped_autocorrelation_FLP.c ----
+
+/// Warped autocorrelation using allpass filter chain.
+/// Port of silk_warped_autocorrelation_FLP.
+pub fn silk_warped_autocorrelation_flp(
+    corr: &mut [f32],
+    input: &[f32],
+    warping: f32,
+    length: usize,
+    order: usize,
+) {
+    let mut state = [0.0f64; SILK_MAX_ORDER_LPC + 1];
+    let mut c = [0.0f64; SILK_MAX_ORDER_LPC + 1];
+
+    for n in 0..length {
+        let mut tmp1 = input[n] as f64;
+        // Loop over allpass sections (step by 2)
+        let mut i = 0;
+        while i < order {
+            // Output of first allpass section
+            let tmp2 = state[i] + warping as f64 * state[i + 1] - warping as f64 * tmp1;
+            state[i] = tmp1;
+            c[i] += state[0] * tmp1;
+            // Output of second allpass section
+            tmp1 = state[i + 1] + warping as f64 * state[i + 2] - warping as f64 * tmp2;
+            state[i + 1] = tmp2;
+            c[i + 1] += state[0] * tmp2;
+            i += 2;
+        }
+        state[order] = tmp1;
+        c[order] += state[0] * tmp1;
+    }
+
+    for i in 0..=order {
+        corr[i] = c[i] as f32;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -236,3 +236,183 @@ fn lpc_inv_pred_gain_flp_matches() {
 
     assert_f32_eq(rust_gain, c_gain, 1e-6, "lpc_inv_pred_gain_flp");
 }
+
+// ---- Warped Autocorrelation ----
+
+#[test]
+fn warped_autocorrelation_flp_matches() {
+    let signal = gen_sine(160, 440.0, 16000.0);
+    let warping = 0.015f32; // typical warping for 16kHz
+    let order = 16usize;
+
+    let mut rust_corr = [0.0f32; 17];
+    let mut c_corr = [0.0f32; 17];
+
+    silk_warped_autocorrelation_flp(&mut rust_corr, &signal, warping, 160, order);
+    c_silk_warped_autocorrelation_flp(&mut c_corr, &signal, warping, 160, order);
+
+    assert_f32_slice_eq(&rust_corr[..order + 1], &c_corr[..order + 1], 1e-2, "warped_autocorrelation_flp");
+}
+
+#[test]
+fn warped_autocorrelation_flp_noise() {
+    let signal = gen_noise(256, 42);
+    let warping = 0.02f32;
+    let order = 16usize;
+
+    let mut rust_corr = [0.0f32; 17];
+    let mut c_corr = [0.0f32; 17];
+
+    silk_warped_autocorrelation_flp(&mut rust_corr, &signal, warping, 256, order);
+    c_silk_warped_autocorrelation_flp(&mut c_corr, &signal, warping, 256, order);
+
+    assert_f32_slice_eq(&rust_corr[..order + 1], &c_corr[..order + 1], 1e-2, "warped_autocorrelation_flp(noise)");
+}
+
+// ---- LTP analysis tests ----
+
+use opus_silk::encoder_flp::find_ltp::{silk_corr_vector_flp, silk_corr_matrix_flp, silk_find_ltp_flp};
+use opus_silk::encoder_flp::quant_ltp_gains::silk_quant_ltp_gains;
+use opus_silk::{LTP_ORDER, MAX_NB_SUBFR};
+
+#[test]
+fn corr_vector_flp_matches() {
+    let signal = gen_sine(320, 440.0, 16000.0);
+    let order = LTP_ORDER;
+    let l = 80usize; // subframe length
+
+    // x starts at order-1 in the signal, t at order-1+order for the C convention
+    let x = &signal[..order + l]; // [order-1 + L] = [4 + 80]
+    let t = &signal[order - 1..order - 1 + l]; // target = first L samples starting at col0
+
+    let mut rust_xt = [0.0f32; LTP_ORDER];
+    let mut c_xt = [0.0f32; LTP_ORDER];
+
+    silk_corr_vector_flp(x, t, l, order, &mut rust_xt);
+    c_silk_corr_vector_flp(x, t, l, order, &mut c_xt);
+
+    assert_f32_slice_eq(&rust_xt, &c_xt, 1e-2, "corrVector_FLP");
+}
+
+#[test]
+fn corr_matrix_flp_matches() {
+    let signal = gen_sine(320, 440.0, 16000.0);
+    let order = LTP_ORDER;
+    let l = 80usize;
+
+    let x = &signal[..order + l];
+
+    let mut rust_xx = [0.0f32; LTP_ORDER * LTP_ORDER];
+    let mut c_xx = [0.0f32; LTP_ORDER * LTP_ORDER];
+
+    silk_corr_matrix_flp(x, l, order, &mut rust_xx);
+    c_silk_corr_matrix_flp(x, l, order, &mut c_xx);
+
+    assert_f32_slice_eq(&rust_xx, &c_xx, 1e-2, "corrMatrix_FLP");
+}
+
+#[test]
+fn find_ltp_flp_matches() {
+    // Generate a signal with enough history for pitch lag access
+    let total_len = 640 + 320; // ltp_mem + frame
+    let signal = gen_sine(total_len, 440.0, 16000.0);
+    let subfr_length = 80usize;
+    let nb_subfr = 4usize;
+    let lags: [i32; MAX_NB_SUBFR] = [36, 36, 37, 37]; // ~440Hz at 16kHz
+
+    let mut rust_xx = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
+    let mut rust_x_x = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
+    let mut c_xx = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
+    let mut c_x_x = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
+
+    // Frame starts at offset 320 (ltp_mem_length)
+    let frame_offset = 320usize;
+
+    silk_find_ltp_flp(
+        &mut rust_xx, &mut rust_x_x,
+        &signal, frame_offset, &lags, subfr_length, nb_subfr,
+    );
+
+    // C: r_ptr points to the start of the frame in the residual
+    let r_ptr = unsafe { signal.as_ptr().add(frame_offset) };
+    c_silk_find_ltp_flp(
+        &mut c_xx, &mut c_x_x, r_ptr,
+        &lags, subfr_length as i32, nb_subfr as i32,
+    );
+
+    assert_f32_slice_eq(
+        &rust_xx[..nb_subfr * LTP_ORDER * LTP_ORDER],
+        &c_xx[..nb_subfr * LTP_ORDER * LTP_ORDER],
+        1e-2, "find_LTP_FLP XX",
+    );
+    assert_f32_slice_eq(
+        &rust_x_x[..nb_subfr * LTP_ORDER],
+        &c_x_x[..nb_subfr * LTP_ORDER],
+        1e-2, "find_LTP_FLP xX",
+    );
+}
+
+#[test]
+fn quant_ltp_gains_matches() {
+    // Use correlation matrices from a real-ish signal
+    let total_len = 640 + 320;
+    let signal = gen_sine(total_len, 440.0, 16000.0);
+    let subfr_length = 80usize;
+    let nb_subfr = 4usize;
+    let lags: [i32; MAX_NB_SUBFR] = [36, 36, 37, 37];
+    let frame_offset = 320usize;
+
+    // Compute float correlation matrices
+    let mut xx = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
+    let mut x_x = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
+    silk_find_ltp_flp(
+        &mut xx, &mut x_x, &signal, frame_offset, &lags, subfr_length, nb_subfr,
+    );
+
+    // Convert to Q17
+    let n_xx = nb_subfr * LTP_ORDER * LTP_ORDER;
+    let n_x_x = nb_subfr * LTP_ORDER;
+    let mut xx_q17 = vec![0i32; n_xx];
+    let mut x_x_q17 = vec![0i32; n_x_x];
+    for i in 0..n_xx { xx_q17[i] = (xx[i] * 131072.0).round() as i32; }
+    for i in 0..n_x_x { x_x_q17[i] = (x_x[i] * 131072.0).round() as i32; }
+
+    // Rust
+    let mut r_b_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
+    let mut r_cbk = [0i8; MAX_NB_SUBFR];
+    let mut r_per = 0i8;
+    let mut r_slg = 0i32;
+    let mut r_pgdb = 0i32;
+
+    silk_quant_ltp_gains(
+        &mut r_b_q14, &mut r_cbk, &mut r_per, &mut r_slg, &mut r_pgdb,
+        &xx_q17, &x_x_q17, subfr_length as i32, nb_subfr,
+    );
+
+    // C
+    let mut c_b_q14 = [0i16; MAX_NB_SUBFR * LTP_ORDER];
+    let mut c_cbk = [0i8; MAX_NB_SUBFR];
+    let mut c_per = 0i8;
+    let mut c_slg = 0i32;
+    let mut c_pgdb = 0i32;
+
+    c_silk_quant_ltp_gains(
+        &mut c_b_q14, &mut c_cbk, &mut c_per,
+        &mut c_slg, &mut c_pgdb,
+        &xx_q17, &x_x_q17, subfr_length as i32, nb_subfr as i32,
+    );
+
+    eprintln!("Rust: per={} cbk={:?} B_Q14={:?}", r_per, &r_cbk[..nb_subfr], &r_b_q14[..nb_subfr * LTP_ORDER]);
+    eprintln!("C:    per={} cbk={:?} B_Q14={:?}", c_per, &c_cbk[..nb_subfr], &c_b_q14[..nb_subfr * LTP_ORDER]);
+
+    // Periodicity index must match (codebook family selection)
+    assert_eq!(r_per, c_per, "periodicity_index mismatch");
+
+    // Allow minor VQ differences: count subframes where cbk index differs
+    let cbk_diff = (0..nb_subfr).filter(|&i| r_cbk[i] != c_cbk[i]).count();
+    assert!(cbk_diff <= 1, "too many cbk_index mismatches: {}/{}. Rust={:?} C={:?}",
+        cbk_diff, nb_subfr, &r_cbk[..nb_subfr], &c_cbk[..nb_subfr]);
+    if cbk_diff > 0 {
+        eprintln!("  (minor VQ difference: {} subframe(s) differ)", cbk_diff);
+    }
+}

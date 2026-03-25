@@ -264,8 +264,10 @@ pub fn silk_noise_shape_analysis_flp(
         // Autocorrelation (C lines 253-259)
         auto_corr = [0.0; MAX_SHAPE_LPC_ORDER + 1];
         if warping_q16 > 0 {
-            // TODO: silk_warped_autocorrelation_FLP — for now use regular
-            silk_autocorrelation_flp(&mut auto_corr, &x_windowed[..shape_win_length], shaping_lpc_order + 1);
+            silk_warped_autocorrelation_flp(
+                &mut auto_corr, &x_windowed[..shape_win_length],
+                warping, shape_win_length, shaping_lpc_order,
+            );
         } else {
             silk_autocorrelation_flp(&mut auto_corr, &x_windowed[..shape_win_length], shaping_lpc_order + 1);
         }
