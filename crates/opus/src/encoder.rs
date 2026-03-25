@@ -58,8 +58,10 @@ pub struct OpusEncoder {
     fs: i32,
     /// Application type.
     application: i32,
-    /// SILK encoder state.
+    /// SILK encoder state (old fixed-point, used for stereo).
     silk_enc: SilkEncoder,
+    /// Float SILK encoder state (new, used for mono SILK).
+    silk_flp: opus_silk::encoder_flp::state::SilkEncoderStateFlp,
     /// CELT encoder state.
     celt_enc: CeltEncoder,
     /// Current encoding mode (MODE_SILK_ONLY / MODE_HYBRID / MODE_CELT_ONLY).
@@ -128,6 +130,7 @@ impl OpusEncoder {
         }
 
         let silk_enc = SilkEncoder::new();
+        let silk_flp = opus_silk::encoder_flp::state::SilkEncoderStateFlp::new();
         let celt_enc =
             CeltEncoder::new(48000, channels as usize).map_err(|_| OpusError::InternalError)?;
 
@@ -140,6 +143,7 @@ impl OpusEncoder {
             channels,
             fs,
             application,
+            silk_flp,
             silk_enc,
             celt_enc,
             mode: MODE_CELT_ONLY,
@@ -567,22 +571,81 @@ impl OpusEncoder {
 
                 ret
             } else {
-                // Mono SILK
-                // Apply HP filter matching C reference (opus_encoder.c:1978-1982).
-                // For VOIP, a variable-cutoff biquad HP filter removes DC/LF.
-                // The cutoff starts at ~60Hz and adapts based on SILK VAD.
+                // Mono SILK — use float frame encoder (matching C float path)
+
+                // Initialize/reconfigure on first use or rate change
+                let fs_khz = silk_internal_rate / 1000;
+                if self.silk_flp.fs_khz != fs_khz {
+                    self.silk_flp.set_fs(fs_khz, frame_duration_ms);
+                }
+
+                // Run VAD
+                opus_silk::vad::silk_vad_get_sa_q8(
+                    &mut self.silk_flp.vad_state,
+                    &mut self.silk_flp.speech_activity_q8,
+                    &mut self.silk_flp.snr_db_q7,
+                    &mut self.silk_flp.input_quality_bands_q15,
+                    &mut self.silk_flp.input_tilt_q15,
+                    &pcm_i16[..silk_samples],
+                    self.silk_flp.frame_length,
+                );
+
+                // Compute SNR from target bitrate
+                let snr_db_q7 = opus_silk::encoder::silk_control_snr(
+                    fs_khz, self.silk_flp.nb_subfr, silk_bitrate,
+                );
+
+                // Apply HP filter (VOIP mode)
+                let mut input_hp = pcm_i16[..silk_samples].to_vec();
                 if self.application == OPUS_APPLICATION_VOIP {
-                    // Compute cutoff from smoothed state (C: silk_log2lin(smth2>>8))
                     let cutoff_hz = opus_silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
-                    self.hp_filter_i16(&mut pcm_i16, cutoff_hz);
-                    // TODO: update variable_hp_smth2_q15 from SILK's variable_HP_smth1_Q15
+                    self.hp_filter_i16(&mut input_hp, cutoff_hz);
                 }
 
                 // Write VAD flag and LBRR flag
                 enc.enc_bit_logp(true, 1);
                 enc.enc_bit_logp(false, 1);
 
-                self.silk_enc.encode(&control, &mut enc, &pcm_i16)
+                let nlsf_cb = opus_silk::get_nlsf_cb(self.silk_flp.nlsf_cb_sel);
+                let sf = &mut self.silk_flp;
+
+                // Call float frame encoder
+                let bytes = opus_silk::encoder_flp::encode_frame::silk_encode_frame_flp(
+                    &mut sf.x_buf,
+                    &mut sf.nsq_state,
+                    &mut sf.indices,
+                    &mut sf.prev_nlsf_q15,
+                    &mut sf.prev_signal_type,
+                    &mut sf.prev_lag,
+                    &mut sf.first_frame_after_reset,
+                    &mut sf.last_gain_index,
+                    &mut sf.prev_harm_smth,
+                    &mut sf.prev_tilt_smth,
+                    sf.speech_activity_q8,
+                    &sf.input_quality_bands_q15,
+                    sf.input_tilt_q15,
+                    snr_db_q7,
+                    &input_hp,
+                    fs_khz,
+                    sf.nb_subfr,
+                    sf.subfr_length,
+                    sf.frame_length,
+                    sf.ltp_mem_length,
+                    sf.predict_lpc_order,
+                    sf.shaping_lpc_order,
+                    sf.warping_q16,
+                    self.complexity.min(10),
+                    nlsf_cb,
+                    (max_data_bytes - 1) * 8,
+                    &mut enc,
+                    &mut sf.scratch_s_ltp_q15,
+                    &mut sf.scratch_s_ltp,
+                    &mut sf.scratch_x_sc_q10,
+                    &mut sf.scratch_xq_tmp,
+                );
+
+                sf.n_frames_encoded += 1;
+                bytes as i32
             };
             if result < 0 {
                 return Err(OpusError::InternalError);

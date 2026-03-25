@@ -72,7 +72,7 @@ static SNR_TABLE_WB: &[u8] = &[
 ];
 
 /// Map target bitrate to SNR_dB_Q7 (matches C reference `silk_control_SNR`).
-fn silk_control_snr(fs_khz: i32, nb_subfr: i32, target_rate_bps: i32) -> i32 {
+pub fn silk_control_snr(fs_khz: i32, nb_subfr: i32, target_rate_bps: i32) -> i32 {
     let mut rate = target_rate_bps;
     if nb_subfr == 2 {
         rate -= 2000 + fs_khz / 16;

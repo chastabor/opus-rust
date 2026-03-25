@@ -4,7 +4,9 @@
 
 use crate::MAX_LPC_ORDER;
 
-const SILK_MAX_ORDER_LPC: usize = MAX_LPC_ORDER;
+// The Schur and LPC functions need to handle both predict_lpc_order (<=16)
+// and shaping_lpc_order (<=24). Use 24 as the max.
+const SILK_MAX_ORDER_LPC: usize = 24; // MAX_SHAPE_LPC_ORDER
 
 // ---- energy_FLP.c ----
 

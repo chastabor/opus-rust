@@ -11,3 +11,4 @@ pub mod find_lpc;
 pub mod find_pred_coefs;
 pub mod noise_shape;
 pub mod encode_frame;
+pub mod state;
