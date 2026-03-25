@@ -4,10 +4,8 @@
 
 use super::dsp::*;
 use crate::pitch_analysis;
-use crate::{MAX_NB_SUBFR, TYPE_NO_VOICE_ACTIVITY, TYPE_VOICED, TYPE_UNVOICED};
+use crate::{silk_sat16, MAX_LPC_ORDER, MAX_NB_SUBFR, TYPE_NO_VOICE_ACTIVITY, TYPE_VOICED, TYPE_UNVOICED};
 
-// Constants from silk/define.h and silk/tuning_parameters.h
-const MAX_FIND_PITCH_LPC_ORDER: usize = 16;
 const FIND_PITCH_BANDWIDTH_EXPANSION: f32 = 0.99;
 const FIND_PITCH_WHITE_NOISE_FRACTION: f32 = 1e-3;
 
@@ -90,21 +88,21 @@ pub fn silk_find_pitch_lags_flp(
     }
 
     // Autocorrelation
-    let mut auto_corr = [0.0f32; MAX_FIND_PITCH_LPC_ORDER + 1];
+    let mut auto_corr = [0.0f32; MAX_LPC_ORDER + 1];
     silk_autocorrelation_flp(&mut auto_corr, &wsig, pitch_estimation_lpc_order + 1);
 
     // Add white noise fraction
     auto_corr[0] += auto_corr[0] * FIND_PITCH_WHITE_NOISE_FRACTION + 1.0;
 
     // Schur → reflection coefficients
-    let mut refl_coef = [0.0f32; MAX_FIND_PITCH_LPC_ORDER];
+    let mut refl_coef = [0.0f32; MAX_LPC_ORDER];
     let res_nrg = silk_schur_flp(&mut refl_coef, &auto_corr, pitch_estimation_lpc_order);
 
     // Prediction gain
     result.pred_gain = auto_corr[0] / res_nrg.max(1.0);
 
     // Convert to LPC
-    let mut a = [0.0f32; MAX_FIND_PITCH_LPC_ORDER];
+    let mut a = [0.0f32; MAX_LPC_ORDER];
     silk_k2a_flp(&mut a, &refl_coef, pitch_estimation_lpc_order);
 
     // Bandwidth expansion
@@ -119,10 +117,9 @@ pub fn silk_find_pitch_lags_flp(
     // Store float residual for LTP analysis
     result.res_pitch = res;
 
-    // Convert residual to i16 for the fixed-point pitch search
     let mut res_i16 = vec![0i16; buf_len];
     for i in 0..buf_len {
-        res_i16[i] = (result.res_pitch[i].round() as i32).clamp(-32768, 32767) as i16;
+        res_i16[i] = silk_sat16(result.res_pitch[i].round() as i32);
     }
 
     // Call pitch estimator (reuses existing fixed-point implementation)

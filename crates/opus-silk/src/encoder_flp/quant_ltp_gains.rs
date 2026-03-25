@@ -2,16 +2,10 @@
 // Quantizes LTP gains using codebook VQ search with rate-distortion optimization.
 
 use crate::tables::*;
-use crate::{silk_lin2log, silk_log2lin, LTP_ORDER, MAX_NB_SUBFR};
+use crate::{silk_smlawb, silk_lin2log, silk_log2lin, LTP_ORDER, MAX_NB_SUBFR};
 
 const MAX_SUM_LOG_GAIN_DB: f32 = 250.0;
-
-/// C-matching silk_SMLAWB: a + ((b >> 16) * (i16)(c) + (((b & 0xFFFF) * (i16)(c)) >> 16))
-#[inline(always)]
-fn silk_smlawb_local(a: i32, b: i32, c: i32) -> i32 {
-    let c16 = c as i16 as i32;
-    a + (b >> 16) * c16 + (((b & 0x0000FFFF) * c16) >> 16)
-}
+const MAX_SUM_LOG_GAIN_Q7: i32 = ((MAX_SUM_LOG_GAIN_DB / 6.0) * 128.0) as i32;
 
 /// Entropy-constrained matrix-weighted VQ for 5-element LTP vectors.
 /// Port of silk_VQ_WMat_EC_c (VQ_WMat_EC.c).
@@ -58,7 +52,7 @@ fn silk_vq_wmat_ec(
             + xx_q17[4] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[0] * cb_row[0] as i32;
-        sum1_q15 = silk_smlawb_local(sum1_q15, sum2_q24, cb_row[0] as i32);
+        sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[0] as i32);
 
         // Row 1 of XX
         sum2_q24 = neg_x_x_q24[1]
@@ -67,7 +61,7 @@ fn silk_vq_wmat_ec(
             + xx_q17[9] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[6] * cb_row[1] as i32;
-        sum1_q15 = silk_smlawb_local(sum1_q15, sum2_q24, cb_row[1] as i32);
+        sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[1] as i32);
 
         // Row 2 of XX
         sum2_q24 = neg_x_x_q24[2]
@@ -75,19 +69,19 @@ fn silk_vq_wmat_ec(
             + xx_q17[14] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[12] * cb_row[2] as i32;
-        sum1_q15 = silk_smlawb_local(sum1_q15, sum2_q24, cb_row[2] as i32);
+        sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[2] as i32);
 
         // Row 3 of XX
         sum2_q24 = neg_x_x_q24[3]
             + xx_q17[19] * cb_row[4] as i32;
         sum2_q24 <<= 1;
         sum2_q24 += xx_q17[18] * cb_row[3] as i32;
-        sum1_q15 = silk_smlawb_local(sum1_q15, sum2_q24, cb_row[3] as i32);
+        sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[3] as i32);
 
         // Row 4 of XX
         sum2_q24 = neg_x_x_q24[4] << 1;
         sum2_q24 += xx_q17[24] * cb_row[4] as i32;
-        sum1_q15 = silk_smlawb_local(sum1_q15, sum2_q24, cb_row[4] as i32);
+        sum1_q15 = silk_smlawb(sum1_q15, sum2_q24, cb_row[4] as i32);
 
         if sum1_q15 >= 0 {
             // Translate residual energy to bits: high-rate assumption (6dB = 1 bit/sample)
@@ -137,10 +131,8 @@ pub fn silk_quant_ltp_gains(
         let mut sum_log_gain_tmp_q7 = *sum_log_gain_q7;
 
         for j in 0..nb_subfr {
-            // MAX_SUM_LOG_GAIN_DB / 6.0 in Q7 = 250/6 * 128 ≈ 5333
-            let max_sum_log_gain_q7: i32 = ((MAX_SUM_LOG_GAIN_DB / 6.0) * 128.0) as i32;
             let max_gain_q7 =
-                silk_log2lin(max_sum_log_gain_q7 - sum_log_gain_tmp_q7 + (7 << 7)) - gain_safety;
+                silk_log2lin(MAX_SUM_LOG_GAIN_Q7 - sum_log_gain_tmp_q7 + (7 << 7)) - gain_safety;
 
             let mut ind = 0i8;
             let mut res_nrg_q15_subfr = 0i32;
@@ -223,16 +215,13 @@ pub fn silk_quant_ltp_gains_flp(
 ) {
     let order = LTP_ORDER;
 
-    // Convert XX to Q17 (× 131072)
     let n_xx = nb_subfr * order * order;
-    let mut xx_q17 = vec![0i32; n_xx];
+    let n_x_x = nb_subfr * order;
+    let mut xx_q17 = [0i32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
     for i in 0..n_xx {
         xx_q17[i] = (xx[i] * 131072.0).round() as i32;
     }
-
-    // Convert xX to Q17
-    let n_x_x = nb_subfr * order;
-    let mut x_x_q17 = vec![0i32; n_x_x];
+    let mut x_x_q17 = [0i32; MAX_NB_SUBFR * LTP_ORDER];
     for i in 0..n_x_x {
         x_x_q17[i] = (x_x[i] * 131072.0).round() as i32;
     }

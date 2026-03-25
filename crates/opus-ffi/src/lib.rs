@@ -463,9 +463,10 @@ pub fn c_silk_corr_matrix_flp(x: &[f32], l: usize, order: usize, xx: &mut [f32])
 }
 
 pub fn c_silk_find_ltp_flp(
-    xx: &mut [f32], x_x: &mut [f32], r_ptr: *const f32,
+    xx: &mut [f32], x_x: &mut [f32], res: &[f32], frame_offset: usize,
     lag: &[i32], subfr_length: i32, nb_subfr: i32,
 ) {
+    let r_ptr = unsafe { res.as_ptr().add(frame_offset) };
     unsafe { silk_find_LTP_FLP(xx.as_mut_ptr(), x_x.as_mut_ptr(), r_ptr, lag.as_ptr(), subfr_length, nb_subfr, 0) }
 }
 

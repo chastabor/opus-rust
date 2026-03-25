@@ -22,7 +22,6 @@ pub struct SilkEncoderStateFlp {
     pub la_pitch: i32,
     pub pitch_lpc_win_length: i32,
     pub pitch_estimation_lpc_order: i32,
-    pub pitch_estimation_complexity: i32,
     pub warping_q16: i32,
     pub nlsf_cb_sel: NlsfCbSel,
 
@@ -77,7 +76,7 @@ impl SilkEncoderStateFlp {
             la_pitch: 0,
             pitch_lpc_win_length: 0,
             pitch_estimation_lpc_order: 0,
-            pitch_estimation_complexity: 0,
+
             warping_q16: 0,
             nlsf_cb_sel: NlsfCbSel::NbMb,
             x_buf: vec![0.0; MAX_SILK_X_BUF],

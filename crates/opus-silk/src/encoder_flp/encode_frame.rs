@@ -180,6 +180,9 @@ pub fn silk_encode_frame_flp(
     // ---- Step 5: Process gains ----
     let mut gains = ns_result.gains;
     let cond_coding = !*first_frame_after_reset && false; // first encode in packet: independent
+    let n_states_del_dec = match complexity {
+        0 | 1 => 1i32, 2..=5 => 2, 6 | 7 => 3, _ => 4,
+    };
 
     let lambda = silk_process_gains_flp(
         &mut gains,
@@ -190,7 +193,7 @@ pub fn silk_encode_frame_flp(
         nb,
         indices.signal_type as i32,
         pred_result.ltp_pred_cod_gain,
-        match complexity { 0 | 1 => 1, 2..=5 => 2, 6 | 7 => 3, _ => 4 },
+        n_states_del_dec,
         speech_activity_q8,
         ns_result.input_quality,
         ns_result.coding_quality,
@@ -202,28 +205,16 @@ pub fn silk_encode_frame_flp(
     indices.quant_offset_type = ns_result.quant_offset_type;
     indices.seed = 0; // TODO: frame counter & 3
 
-    // ---- LTP scale control (simplified port of silk_LTP_scale_ctrl_FLP) ----
-    // For first frame (CODE_INDEPENDENTLY), compute LTP scale index
+    // LTP scale: minimum scaling (full implementation needs packet loss rate)
+    indices.ltp_scale_index = 0;
     let ltp_scale_q14 = if indices.signal_type == TYPE_VOICED as i8 {
-        if cond_coding {
-            indices.ltp_scale_index = 0;
-        } else {
-            // Simplified: no LBRR, no packet loss
-            indices.ltp_scale_index = 0;
-        }
-        SILK_LTP_SCALES_TABLE_Q14[indices.ltp_scale_index as usize] as i32
+        SILK_LTP_SCALES_TABLE_Q14[0] as i32
     } else {
-        indices.ltp_scale_index = 0;
         0
     };
 
     // ---- Step 6: NSQ (via float wrapper) ----
     let mut pulses = [0i8; MAX_FRAME_LENGTH];
-    let n_states_del_dec = match complexity {
-        0 | 1 => 1i32, 2..=5 => 2, 6 | 7 => 3, _ => 4,
-    };
-
-    // x_for_pred for NSQ: starts at actual frame data (x_frame + la_shape)
     let x_for_nsq = &x_buf[x_frame_offset + la_shape..];
 
     silk_nsq_wrapper_flp(

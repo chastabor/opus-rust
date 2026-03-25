@@ -333,10 +333,8 @@ fn find_ltp_flp_matches() {
         &signal, frame_offset, &lags, subfr_length, nb_subfr,
     );
 
-    // C: r_ptr points to the start of the frame in the residual
-    let r_ptr = unsafe { signal.as_ptr().add(frame_offset) };
     c_silk_find_ltp_flp(
-        &mut c_xx, &mut c_x_x, r_ptr,
+        &mut c_xx, &mut c_x_x, &signal, frame_offset,
         &lags, subfr_length as i32, nb_subfr as i32,
     );
 

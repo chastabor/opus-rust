@@ -63,13 +63,11 @@ pub fn silk_find_pred_coefs_flp(
     let d = predict_lpc_order;
     let burg_subfr = d + subfr_length;
 
-    // invGains
     let mut inv_gains = [0.0f32; MAX_NB_SUBFR];
     for i in 0..nb_subfr {
         inv_gains[i] = 1.0 / gains[i].max(1e-12);
     }
 
-    // LPC_in_pre buffer
     const MAX_LPC_PRE_LEN: usize = MAX_NB_SUBFR * (MAX_LPC_ORDER + crate::MAX_SUB_FRAME_LENGTH);
     let mut lpc_in_pre = [0.0f32; MAX_LPC_PRE_LEN];
 
@@ -85,7 +83,6 @@ pub fn silk_find_pred_coefs_flp(
     if signal_type == TYPE_VOICED {
         // ---- VOICED path ----
 
-        // LTP analysis: compute correlation matrices from pitch residual
         let mut xx_ltp = [0.0f32; MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER];
         let mut x_x_ltp = [0.0f32; MAX_NB_SUBFR * LTP_ORDER];
 
@@ -99,7 +96,6 @@ pub fn silk_find_pred_coefs_flp(
             nb_subfr,
         );
 
-        // Quantize LTP gains
         let mut cbk_index = [0i8; MAX_NB_SUBFR];
         let mut periodicity_index = 0i8;
 
@@ -115,7 +111,6 @@ pub fn silk_find_pred_coefs_flp(
             nb_subfr,
         );
 
-        // Store LTP indices
         indices.ltp_index = cbk_index;
         indices.per_index = periodicity_index;
 

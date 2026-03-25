@@ -168,13 +168,9 @@ pub fn silk_ltp_analysis_filter_flp(
 
         for i in 0..seg_len {
             let mut val = x_buf[x_ptr_base + i];
-            // x_lag_ptr = x_ptr - pitchL[k], then x_lag_ptr[LTP_ORDER/2 - j]
-            // = x_buf[x_ptr_base + i - lag + order/2 - j]
-            // Use isize arithmetic to handle negative offsets safely
-            let base_idx = (x_ptr_base + i) as isize - lag as isize;
+            let center = x_ptr_base + i - lag + order / 2;
             for j in 0..order {
-                let lag_idx = (base_idx + (order / 2) as isize - j as isize) as usize;
-                val -= b_k[j] * x_buf[lag_idx];
+                val -= b_k[j] * x_buf[center - j];
             }
             ltp_res[res_start + i] = val * inv_gain;
         }
