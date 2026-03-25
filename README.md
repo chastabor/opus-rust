@@ -14,6 +14,7 @@ is included here and is based off the original xiph opus repository.
 ## Encoder/Decoder API Enums
 
 | Enum | Variants | Replaces |
+| ---- | -------- | -------- |
 | Application | Voip, Audio, RestrictedLowDelay | OPUS_APPLICATION_* (2048/2049/2051) |
 | Bandwidth | Narrowband, Mediumband, Wideband, Superwideband, Fullband | OPUS_BANDWIDTH_* (1101–1105) |
 | Mode | SilkOnly, Hybrid, CeltOnly | MODE_* (1000–1002) |
