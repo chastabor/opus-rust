@@ -966,7 +966,6 @@ mod tests {
 
     #[test]
     fn test_encode_i16_multistream() {
-        let fs = 48000;
         let frame_size = 960;
         let mut enc =
             OpusMSEncoder::new(SampleRate::Hz48000, 1, 1, 0, &[0], Application::Audio).unwrap();

@@ -23,7 +23,7 @@ mod common;
 
 use opus::{
     Application, Bandwidth, Bitrate, Channels, OpusDecoder, OpusEncoder, SampleRate, Signal,
-    opus_packet_get_bandwidth, opus_packet_get_mode, opus_packet_get_nb_channels,
+    opus_packet_get_nb_channels,
 };
 
 // =========================================================================
@@ -72,6 +72,7 @@ const C_STEREO_RIGHT_ONLY: &[u8] = &[
 ];
 
 // C reference: mono (1-channel) 440Hz for stereo-vs-mono comparison
+#[allow(dead_code)]
 const C_STEREO_MONO_440HZ: &[u8] = &[
     // PLACEHOLDER: paste output of gen_stereo_vectors for C_STEREO_MONO_440HZ
     0x20, 0x00,

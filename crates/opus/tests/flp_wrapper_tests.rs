@@ -3,8 +3,6 @@
 //! output to the C wrappers for realistic LPC/NLSF inputs.
 
 use opus_ffi::*;
-use opus_silk::MAX_LPC_ORDER;
-use opus_silk::encoder_flp::dsp::*;
 use opus_silk::encoder_flp::wrappers::*;
 use opus_silk::lpc_analysis::silk_burg_modified_flp;
 
@@ -21,14 +19,6 @@ fn get_c_burg_lpc(freq: f32) -> [f32; ORDER] {
     let signal = gen_sine(384, freq, 16000.0);
     let mut a = [0.0f32; ORDER];
     c_silk_burg_modified_flp(&mut a, &signal, 1.0 / 10000.0, 96, 4, ORDER as i32);
-    a
-}
-
-/// Get realistic float LPC coefficients from a sine wave via Rust Burg.
-fn get_rust_burg_lpc(freq: f32) -> [f32; ORDER] {
-    let signal = gen_sine(384, freq, 16000.0);
-    let mut a = [0.0f32; ORDER];
-    silk_burg_modified_flp(&mut a, &signal, 1.0 / 10000.0, 96, 4, ORDER);
     a
 }
 

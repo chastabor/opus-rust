@@ -1,4 +1,5 @@
 //! Shared test utilities for opus integration tests.
+#![allow(dead_code)]
 
 /// Sample rate used across tests.
 pub const SAMPLE_RATE: i32 = 48000;

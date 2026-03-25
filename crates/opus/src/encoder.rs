@@ -963,7 +963,6 @@ mod tests {
     fn test_opus_encode_decode_roundtrip() {
         // Encode with OpusEncoder, decode with OpusDecoder, verify the result.
         let fs = 48000;
-        let channels = 1;
         let frame_size = 960; // 20ms
 
         let mut encoder =

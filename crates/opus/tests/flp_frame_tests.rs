@@ -145,7 +145,6 @@ fn encode_frame_flp_produces_output() {
 /// Test that the encoder handles the first-frame-after-reset case.
 #[test]
 fn encode_frame_flp_first_frame() {
-    let nlsf_cb = get_nlsf_cb(NlsfCbSel::Wb);
     let ltp_mem = LTP_MEM_LENGTH as usize;
     let x_buf_len = ltp_mem + LA_SHAPE + FRAME_LENGTH as usize;
     let mut x_buf = vec![0.0f32; x_buf_len];

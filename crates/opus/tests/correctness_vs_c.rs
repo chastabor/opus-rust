@@ -7,7 +7,6 @@
 mod common;
 
 use common::{gen_sine, gen_stereo_sine};
-use opus::packet::*;
 use opus::{
     Application, Bandwidth, Bitrate, Channels, ForceChannels, OpusDecoder, OpusEncoder, SampleRate,
 };

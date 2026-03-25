@@ -851,7 +851,7 @@ mod tests {
         assert!(residual > 0);
         // rc values should be in valid range
         for &rc in &rc_q15 {
-            assert!(rc >= -32767 && rc <= 32767);
+            assert!(rc >= -32767);
         }
     }
 
