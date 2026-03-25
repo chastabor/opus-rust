@@ -80,51 +80,39 @@ pub fn clt_mdct_forward(
 
     let f_buf = &mut l.fwd_buf[..n2];
     {
-        // Use isize for pointers that decrement past zero (matching C pointer arithmetic)
-        let mut xp1 = (overlap >> 1) as isize;
-        let mut xp2 = (n2 - 1 + (overlap >> 1)) as isize;
-        let mut yp = 0usize;
-        let mut wp1 = (overlap >> 1) as isize;
-        let mut wp2 = (overlap >> 1) as isize - 1;
-        let n2i = n2 as isize;
+        let xp1_base = overlap >> 1;
+        let xp2_base = n2 - 1 + (overlap >> 1);
+        let wp_base = overlap >> 1;
 
         // Loop 1: overlap beginning region
         let loop1_end = (overlap + 3) >> 2;
-        for _i in 0..loop1_end {
-            let w1 = window[wp1 as usize];
-            let w2 = window[wp2 as usize];
-            f_buf[yp] = w2 * input[(xp1 + n2i) as usize] + w1 * input[xp2 as usize];
-            f_buf[yp + 1] = w1 * input[xp1 as usize] - w2 * input[(xp2 - n2i) as usize];
-            yp += 2;
-            xp1 += 2;
-            xp2 -= 2;
-            wp1 += 2;
-            wp2 -= 2;
+        for i in 0..loop1_end {
+            let xp1 = xp1_base + 2 * i;
+            let xp2 = xp2_base - 2 * i;
+            let w1 = window[wp_base + 2 * i];
+            let w2 = window[wp_base - 1 - 2 * i];
+            f_buf[2 * i] = w2 * input[xp1 + n2] + w1 * input[xp2];
+            f_buf[2 * i + 1] = w1 * input[xp1] - w2 * input[xp2 - n2];
         }
 
         // Loop 2: middle region (no windowing, window = 1.0)
         let loop2_end = n4 - ((overlap + 3) >> 2);
-        for _i in loop1_end..loop2_end {
-            f_buf[yp] = input[xp2 as usize];
-            f_buf[yp + 1] = input[xp1 as usize];
-            yp += 2;
-            xp1 += 2;
-            xp2 -= 2;
+        for i in loop1_end..loop2_end {
+            let xp1 = xp1_base + 2 * i;
+            let xp2 = xp2_base - 2 * i;
+            f_buf[2 * i] = input[xp2];
+            f_buf[2 * i + 1] = input[xp1];
         }
 
         // Loop 3: overlap end region
-        wp1 = 0;
-        wp2 = overlap as isize - 1;
-        for _i in loop2_end..n4 {
-            let w1 = window[wp1 as usize];
-            let w2 = window[wp2 as usize];
-            f_buf[yp] = -w1 * input[(xp1 - n2i) as usize] + w2 * input[xp2 as usize];
-            f_buf[yp + 1] = w2 * input[xp1 as usize] + w1 * input[(xp2 + n2i) as usize];
-            yp += 2;
-            xp1 += 2;
-            xp2 -= 2;
-            wp1 += 2;
-            wp2 -= 2;
+        for i in loop2_end..n4 {
+            let xp1 = xp1_base + 2 * i;
+            let xp2 = xp2_base - 2 * i;
+            let k = i - loop2_end;
+            let w1 = window[2 * k];
+            let w2 = window[overlap - 1 - 2 * k];
+            f_buf[2 * i] = -w1 * input[xp1 - n2] + w2 * input[xp2];
+            f_buf[2 * i + 1] = w2 * input[xp1] + w1 * input[xp2 + n2];
         }
     }
 
@@ -152,21 +140,16 @@ pub fn clt_mdct_forward(
 
     // === Phase 4: Post-rotation → output with stride ===
     {
-        let mut yp1 = 0usize;
-        let mut yp2 = stride * (n2 - 1);
+        let out_len = output.len();
         for i in 0..n4 {
             let t0 = trig[i];
             let t1 = trig[n4 + i];
             let yr = fft_buf[i].i * t1 - fft_buf[i].r * t0;
             let yi = fft_buf[i].r * t1 + fft_buf[i].i * t0;
-            if yp1 < output.len() {
-                output[yp1] = yr;
-            }
-            if yp2 < output.len() {
-                output[yp2] = yi;
-            }
-            yp1 += 2 * stride;
-            yp2 = yp2.wrapping_sub(2 * stride);
+            let yp1 = 2 * i * stride;
+            let yp2 = stride * (n2 - 1 - 2 * i);
+            if yp1 < out_len { output[yp1] = yr; }
+            if yp2 < out_len { output[yp2] = yi; }
         }
     }
 }
@@ -203,20 +186,16 @@ pub fn clt_mdct_backward(
     {
         let trig = &l.trig[trig_offset..];
         let bitrev = &l.kfft[shift].bitrev;
-        let mut xp1_idx = 0usize;
-        let mut xp2_idx = stride * (n2 - 1);
         for i in 0..n4 {
             let rev = bitrev[i];
-            let x1 = if xp1_idx < input.len() { input[xp1_idx] } else { 0.0 };
-            let x2 = if xp2_idx < input.len() { input[xp2_idx] } else { 0.0 };
+            let x1 = input[2 * i * stride];
+            let x2 = input[stride * (n2 - 1 - 2 * i)];
             let t0 = trig[i];
             let t1 = trig[n4 + i];
             let yr = x2 * t0 + x1 * t1;
             let yi = x1 * t0 - x2 * t1;
             output[yp_base + 2 * rev + 1] = yr;
             output[yp_base + 2 * rev] = yi;
-            xp1_idx += 2 * stride;
-            xp2_idx = xp2_idx.wrapping_sub(2 * stride);
         }
     }
 

@@ -225,8 +225,8 @@ fn kf_bfly2(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
         let n_groups = n / group_size;
         for i in 0..n_groups {
             let base = i * group_size;
+            let mut tw_idx = 0;
             for j in 0..m {
-                let tw_idx = (j * fstride) % n;
                 let idx0 = base + j;
                 let idx1 = base + j + m;
                 let t = cmul(fout[idx1], tw[tw_idx]);
@@ -236,6 +236,7 @@ fn kf_bfly2(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
                 };
                 fout[idx0].r += t.r;
                 fout[idx0].i += t.i;
+                tw_idx += fstride; if tw_idx >= n { tw_idx -= n; }
             }
         }
     }
@@ -275,11 +276,8 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
     } else {
         for i in 0..n_groups {
             let base = i * group_size;
+            let (mut tw1_idx, mut tw2_idx, mut tw3_idx) = (0, 0, 0);
             for j in 0..m {
-                let tw1_idx = (j * fstride) % n;
-                let tw2_idx = (2 * j * fstride) % n;
-                let tw3_idx = (3 * j * fstride) % n;
-
                 let a0 = fout[base + j];
                 let a1 = cmul(fout[base + j + m], tw[tw1_idx]);
                 let a2 = cmul(fout[base + j + 2 * m], tw[tw2_idx]);
@@ -300,6 +298,9 @@ fn kf_bfly4(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
                     r: scratch5.r - scratch4.i,
                     i: scratch5.i + scratch4.r,
                 };
+                tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
+                tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
+                tw3_idx += 3 * fstride; if tw3_idx >= n { tw3_idx -= n; }
             }
         }
     }
@@ -313,10 +314,8 @@ fn kf_bfly3(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 
     for i in 0..n_groups {
         let base = i * group_size;
+        let (mut tw1_idx, mut tw2_idx) = (0, 0);
         for j in 0..m {
-            let tw1_idx = (j * fstride) % n;
-            let tw2_idx = (2 * j * fstride) % n;
-
             let a0 = fout[base + j];
             let a1 = cmul(fout[base + j + m], tw[tw1_idx]);
             let a2 = cmul(fout[base + j + 2 * m], tw[tw2_idx]);
@@ -337,6 +336,9 @@ fn kf_bfly3(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 
             fout[base + j + m] = KissFftCpx { r: m_r - s_r, i: m_i - s_i };
             fout[base + j + 2 * m] = KissFftCpx { r: m_r + s_r, i: m_i + s_i };
+
+            tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
+            tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
         }
     }
 }
@@ -352,12 +354,8 @@ fn kf_bfly5(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 
     for i in 0..n_groups {
         let base = i * group_size;
+        let (mut tw1_idx, mut tw2_idx, mut tw3_idx, mut tw4_idx) = (0, 0, 0, 0);
         for j in 0..m {
-            let tw1_idx = (j * fstride) % n;
-            let tw2_idx = (2 * j * fstride) % n;
-            let tw3_idx = (3 * j * fstride) % n;
-            let tw4_idx = (4 * j * fstride) % n;
-
             let a0 = fout[base + j];
             let a1 = cmul(fout[base + j + m], tw[tw1_idx]);
             let a2 = cmul(fout[base + j + 2 * m], tw[tw2_idx]);
@@ -391,6 +389,11 @@ fn kf_bfly5(fout: &mut [KissFftCpx], n: usize, m: usize, fstride: usize, tw: &[K
 
             fout[base + j + 2 * m] = KissFftCpx { r: t3r - t4r, i: t3i - t4i };
             fout[base + j + 3 * m] = KissFftCpx { r: t3r + t4r, i: t3i + t4i };
+
+            tw1_idx += fstride; if tw1_idx >= n { tw1_idx -= n; }
+            tw2_idx += 2 * fstride; if tw2_idx >= n { tw2_idx -= n; }
+            tw3_idx += 3 * fstride; if tw3_idx >= n { tw3_idx -= n; }
+            tw4_idx += 4 * fstride; if tw4_idx >= n { tw4_idx -= n; }
         }
     }
 }

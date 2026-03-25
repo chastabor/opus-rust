@@ -229,6 +229,7 @@ pub fn pitch_downsample(x: &[&[f32]], x_lp: &mut [f32], len: usize, c: usize) {
 
 /// Cross-correlation for pitch search.
 /// Each xcorr[i] = inner_product(x, y[i..], len).
+/// Processes 4 lags at a time for cache efficiency (matches C xcorr_kernel pattern).
 pub fn celt_pitch_xcorr(
     x: &[f32],
     y: &[f32],
@@ -236,9 +237,43 @@ pub fn celt_pitch_xcorr(
     len: usize,
     max_pitch: usize,
 ) {
-    for i in 0..max_pitch {
-        xcorr[i] = celt_inner_prod(x, &y[i..], len);
+    let mut i = 0;
+    while i + 3 < max_pitch {
+        xcorr_kernel(x, &y[i..], &mut xcorr[i..i + 4], len);
+        i += 4;
     }
+    while i < max_pitch {
+        xcorr[i] = celt_inner_prod(x, &y[i..], len);
+        i += 1;
+    }
+}
+
+/// Compute 4 cross-correlations simultaneously.
+/// Reuses each x-value for all 4 lag offsets before advancing.
+#[inline]
+fn xcorr_kernel(x: &[f32], y: &[f32], xcorr: &mut [f32], len: usize) {
+    let (mut s0, mut s1, mut s2, mut s3) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    let mut j = 0;
+    while j + 3 < len {
+        let (x0, x1, x2, x3) = (x[j], x[j + 1], x[j + 2], x[j + 3]);
+        s0 += x0 * y[j]     + x1 * y[j + 1] + x2 * y[j + 2] + x3 * y[j + 3];
+        s1 += x0 * y[j + 1] + x1 * y[j + 2] + x2 * y[j + 3] + x3 * y[j + 4];
+        s2 += x0 * y[j + 2] + x1 * y[j + 3] + x2 * y[j + 4] + x3 * y[j + 5];
+        s3 += x0 * y[j + 3] + x1 * y[j + 4] + x2 * y[j + 5] + x3 * y[j + 6];
+        j += 4;
+    }
+    while j < len {
+        let xj = x[j];
+        s0 += xj * y[j];
+        s1 += xj * y[j + 1];
+        s2 += xj * y[j + 2];
+        s3 += xj * y[j + 3];
+        j += 1;
+    }
+    xcorr[0] = s0;
+    xcorr[1] = s1;
+    xcorr[2] = s2;
+    xcorr[3] = s3;
 }
 
 /// Find top-2 pitch candidates by normalized correlation.
