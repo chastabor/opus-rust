@@ -24,7 +24,6 @@ pub fn denormalise_bands(
     if downsample != 1 {
         bound = bound.min(n / downsample);
     }
-    let (start, end) = if silence { (0, 0) } else { (start, end) };
     if silence {
         for item in freq.iter_mut().take(n) {
             *item = 0.0;
@@ -129,11 +128,10 @@ pub fn anti_collapse(
 // =========================================================================
 pub fn haar1(x: &mut [f32], n0: usize, stride: usize) {
     let n0 = n0 >> 1;
-    let inv_sqrt2 = std::f32::consts::FRAC_1_SQRT_2;
     for i in 0..stride {
         for j in 0..n0 {
-            let tmp1 = inv_sqrt2 * x[stride * 2 * j + i];
-            let tmp2 = inv_sqrt2 * x[stride * (2 * j + 1) + i];
+            let tmp1 = x[stride * 2 * j + i] * std::f32::consts::FRAC_1_SQRT_2;
+            let tmp2 = x[stride * (2 * j + 1) + i] * std::f32::consts::FRAC_1_SQRT_2;
             x[stride * 2 * j + i] = tmp1 + tmp2;
             x[stride * (2 * j + 1) + i] = tmp1 - tmp2;
         }
@@ -188,10 +186,9 @@ fn deinterleave_hadamard(x: &mut [f32], n0: usize, stride: usize, hadamard: bool
 // =========================================================================
 #[allow(dead_code)]
 fn stereo_split(x: &mut [f32], y: &mut [f32], n: usize) {
-    let inv_sqrt2: f32 = std::f32::consts::FRAC_1_SQRT_2;
     for j in 0..n {
-        let l = inv_sqrt2 * x[j];
-        let r = inv_sqrt2 * y[j];
+        let l = x[j] * std::f32::consts::FRAC_1_SQRT_2;
+        let r = y[j] * std::f32::consts::FRAC_1_SQRT_2;
         x[j] = l + r;
         y[j] = r - l;
     }
