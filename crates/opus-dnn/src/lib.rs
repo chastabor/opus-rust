@@ -5,3 +5,4 @@ pub mod freq;
 pub mod pitchdnn;
 pub mod fargan;
 pub mod lpcnet;
+pub mod dred;

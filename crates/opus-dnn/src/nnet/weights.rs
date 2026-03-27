@@ -200,6 +200,14 @@ pub fn weight_output_dim(arrays: &[WeightArray], name: &str) -> Result<usize, We
     Ok(a.data.len() / 4)
 }
 
+/// Infer the input dimension of a float dense layer from its weight matrix size.
+/// weight_matrix_bytes = nb_inputs * nb_outputs * 4, so nb_inputs = bytes / (nb_outputs * 4).
+pub fn weight_input_dim(arrays: &[WeightArray], weights_name: &str, nb_outputs: usize) -> Result<usize, WeightError> {
+    let a = arrays.iter().find(|a| a.name == weights_name).ok_or(WeightError)?;
+    if nb_outputs == 0 { return Err(WeightError); }
+    Ok(a.data.len() / (nb_outputs * 4))
+}
+
 /// Initialize a LinearLayer from a WeightArray list.
 /// Matches C `linear_init` from parse_lpcnet_weights.c.
 pub fn linear_init(
