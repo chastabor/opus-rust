@@ -50,6 +50,7 @@ const C_SILK_200HZ_10K: &[u8] = &[
 
 const SAMPLE_RATE: i32 = 16000;
 const FRAME_SIZE: usize = 320; // 20ms at 16kHz
+const FRAME_SIZE_10MS: usize = 160; // 10ms at 16kHz
 const BITRATE: i32 = 16000;
 const COMPLEXITY: i32 = 5;
 const NUM_WARMUP_FRAMES: usize = 10;
@@ -89,10 +90,7 @@ fn generate_noise(amplitude: f32, num_samples: usize, seed: u32) -> Vec<f32> {
 /// Compute the RMS energy of a PCM buffer.
 use common::rms as rms_energy;
 
-/// Compute the total energy of a PCM buffer.
-fn total_energy(pcm: &[f32]) -> f64 {
-    pcm.iter().map(|&x| x as f64 * x as f64).sum()
-}
+use common::total_energy;
 
 // =========================================================================
 // Helper: encode N warmup frames + 1 final frame, return the last packet
@@ -108,25 +106,35 @@ fn create_silk_encoder() -> OpusEncoder {
     enc
 }
 
-/// Encode multiple frames of signal, returning all packets.
-fn encode_frames(
+/// Encode multiple frames of signal at the given frame size, returning all packets.
+fn encode_frames_with_size(
     enc: &mut OpusEncoder,
     generate_frame: &dyn Fn(usize) -> Vec<f32>,
     num_frames: usize,
+    frame_size: usize,
 ) -> Vec<Vec<u8>> {
     let mut packets = Vec::new();
     for frame_idx in 0..num_frames {
         let input = generate_frame(frame_idx);
-        assert_eq!(input.len(), FRAME_SIZE);
+        assert_eq!(input.len(), frame_size);
         let mut packet = vec![0u8; 1500];
         let nbytes = enc
-            .encode_float(&input, FRAME_SIZE as i32, &mut packet, 1500)
+            .encode_float(&input, frame_size as i32, &mut packet, 1500)
             .expect("Encode should succeed");
         assert!(nbytes > 0, "Encode should produce bytes");
         packet.truncate(nbytes as usize);
         packets.push(packet);
     }
     packets
+}
+
+/// Encode multiple 20ms frames of signal, returning all packets.
+fn encode_frames(
+    enc: &mut OpusEncoder,
+    generate_frame: &dyn Fn(usize) -> Vec<f32>,
+    num_frames: usize,
+) -> Vec<Vec<u8>> {
+    encode_frames_with_size(enc, generate_frame, num_frames, FRAME_SIZE)
 }
 
 // =========================================================================
@@ -357,18 +365,7 @@ fn test_voiced_vs_unvoiced_packets_differ() {
     println!("  300Hz vs noise: {diff_300_noise} differing bytes");
 }
 
-/// Count the number of bytes that differ between two slices.
-fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
-    let min_len = a.len().min(b.len());
-    let max_len = a.len().max(b.len());
-    let mut count = max_len - min_len; // extra bytes always differ
-    for i in 0..min_len {
-        if a[i] != b[i] {
-            count += 1;
-        }
-    }
-    count
-}
+use common::count_differing_bytes;
 
 /// Verify that two different voiced tones produce packets with different
 /// pitch-related content. Since SILK encodes pitch lag information, the
@@ -752,4 +749,125 @@ fn test_silk_tone_to_noise_transition() {
             assert!(sample.is_finite(), "Frame {frame_idx}: non-finite sample");
         }
     }
+}
+
+// =========================================================================
+// 10ms frame mode tests (2-subframe)
+// =========================================================================
+
+#[test]
+fn test_silk_pitch_200hz_roundtrip_10ms() {
+    let mut enc = create_silk_encoder();
+    let packets = encode_frames_with_size(
+        &mut enc,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE_10MS, frame_idx * FRAME_SIZE_10MS),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
+    let mut last_pcm = vec![0.0f32; FRAME_SIZE_10MS];
+    for pkt in &packets {
+        let mut pcm = vec![0.0f32; FRAME_SIZE_10MS];
+        let result = dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE_10MS as i32, false);
+        assert!(result.is_ok(), "10ms decode should succeed: {:?}", result);
+        last_pcm = pcm;
+    }
+
+    let energy = total_energy(&last_pcm);
+    assert!(
+        energy > 1e-6,
+        "10ms 200Hz tone should produce audible output after {NUM_WARMUP_FRAMES} frames, got energy {energy:.8}"
+    );
+}
+
+#[test]
+fn test_silk_pitch_silence_roundtrip_10ms() {
+    let mut enc = create_silk_encoder();
+    let packets = encode_frames_with_size(
+        &mut enc,
+        &|_| generate_silence(FRAME_SIZE_10MS),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
+    let mut last_pcm = vec![0.0f32; FRAME_SIZE_10MS];
+    for pkt in &packets {
+        let mut pcm = vec![0.0f32; FRAME_SIZE_10MS];
+        let result = dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE_10MS as i32, false);
+        assert!(result.is_ok(), "10ms decode should succeed: {:?}", result);
+        last_pcm = pcm;
+    }
+
+    let energy_rms = rms_energy(&last_pcm);
+    assert!(
+        energy_rms < 0.05,
+        "10ms silence should decode to near-zero energy, got RMS {energy_rms:.8}"
+    );
+}
+
+#[test]
+fn test_silk_pitch_noise_roundtrip_10ms() {
+    let mut enc = create_silk_encoder();
+    let packets = encode_frames_with_size(
+        &mut enc,
+        &|frame_idx| generate_noise(0.3, FRAME_SIZE_10MS, 12345 + frame_idx as u32 * 1000),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Mono).unwrap();
+    let mut last_pcm = vec![0.0f32; FRAME_SIZE_10MS];
+    for pkt in &packets {
+        let mut pcm = vec![0.0f32; FRAME_SIZE_10MS];
+        let result = dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE_10MS as i32, false);
+        assert!(result.is_ok(), "10ms decode should succeed: {:?}", result);
+        last_pcm = pcm;
+    }
+
+    let energy = total_energy(&last_pcm);
+    assert!(
+        energy > 1e-8,
+        "10ms noise should produce some decoded output, got energy {energy:.8}"
+    );
+}
+
+#[test]
+fn test_voiced_vs_unvoiced_packets_differ_10ms() {
+    let mut enc_200 = create_silk_encoder();
+    let packets_200 = encode_frames_with_size(
+        &mut enc_200,
+        &|frame_idx| generate_tone(200.0, 0.4, FRAME_SIZE_10MS, frame_idx * FRAME_SIZE_10MS),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let mut enc_noise = create_silk_encoder();
+    let packets_noise = encode_frames_with_size(
+        &mut enc_noise,
+        &|frame_idx| generate_noise(0.3, FRAME_SIZE_10MS, 12345 + frame_idx as u32 * 1000),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let pkt_200 = packets_200.last().unwrap();
+    let pkt_noise = packets_noise.last().unwrap();
+
+    assert!(!pkt_200.is_empty(), "10ms 200Hz packet should be non-empty");
+    assert!(
+        !pkt_noise.is_empty(),
+        "10ms noise packet should be non-empty"
+    );
+
+    assert_ne!(
+        pkt_200, pkt_noise,
+        "10ms 200Hz voiced packet should differ from noise packet"
+    );
+
+    let diff = count_differing_bytes(pkt_200, pkt_noise);
+    assert!(
+        diff > 1,
+        "10ms 200Hz vs noise should have multiple differing bytes, got {diff}"
+    );
 }

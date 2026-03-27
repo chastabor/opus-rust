@@ -13,7 +13,6 @@ use opus::{
 use opus_ffi::{COpusDecoder, COpusEncoder};
 
 const SAMPLE_RATE: i32 = 48000;
-const FRAME_SIZE: i32 = 960; // 20ms at 48kHz
 const N_WARMUP: usize = 5;
 const N_FRAMES: usize = N_WARMUP + 1;
 const MAX_PACKET: usize = 4000;
@@ -25,21 +24,17 @@ fn gen_silence(buf: &mut [f32]) {
 /// Generate N_FRAMES frames of test signal.
 fn generate_frames(cfg: &TestConfig) -> Vec<Vec<f32>> {
     let ch = i32::from(cfg.channels) as usize;
-    let samples_per_frame = FRAME_SIZE as usize * ch;
+    let frame_size = cfg.frame_size as usize;
+    let samples_per_frame = frame_size * ch;
     (0..N_FRAMES)
         .map(|frame| {
             let mut buf = vec![0.0f32; samples_per_frame];
-            let offset = frame * FRAME_SIZE as usize;
+            let offset = frame * frame_size;
             if cfg.freq_l == 0.0 && cfg.freq_r == 0.0 {
                 gen_silence(&mut buf);
             } else if cfg.channels == Channels::Stereo {
                 gen_stereo_sine(
-                    &mut buf,
-                    FRAME_SIZE as usize,
-                    offset,
-                    cfg.freq_l,
-                    cfg.freq_r,
-                    cfg.amp,
+                    &mut buf, frame_size, offset, cfg.freq_l, cfg.freq_r, cfg.amp,
                 );
             } else {
                 gen_sine(&mut buf, offset, cfg.freq_l, cfg.amp);
@@ -61,6 +56,8 @@ struct TestConfig {
     freq_l: f32,
     freq_r: f32,
     amp: f32,
+    /// Samples per frame at 48kHz (960 = 20ms, 480 = 10ms).
+    frame_size: i32,
     /// Max per-sample error for decode comparison (C enc → both decs).
     decode_threshold: f64,
     /// Max per-sample error for round-trip comparison.
@@ -94,15 +91,21 @@ fn compare_pcm(a: &[f32], b: &[f32]) -> (f64, f64) {
     (max_err, rms)
 }
 
-fn first_divergence(a: &[f32], b: &[f32], threshold: f64, channels: usize) -> String {
+fn first_divergence(
+    a: &[f32],
+    b: &[f32],
+    threshold: f64,
+    channels: usize,
+    frame_size: i32,
+) -> String {
     let n = a.len().min(b.len());
     for i in 0..n {
         let err = (a[i] as f64 - b[i] as f64).abs();
         if err > threshold {
             let start = i.saturating_sub(3);
             let end = (i + 4).min(n);
-            let sample_in_frame = (i / channels) % FRAME_SIZE as usize;
-            let frame_idx = (i / channels) / FRAME_SIZE as usize;
+            let sample_in_frame = (i / channels) % frame_size as usize;
+            let frame_idx = (i / channels) / frame_size as usize;
             let ch = i % channels;
             let mut s = format!(
                 "  First divergence at index {i} (frame {frame_idx}, sample {sample_in_frame}, ch {ch}):\n"
@@ -168,21 +171,21 @@ fn test_decode_comparison(cfg: &TestConfig) {
     for frame_pcm in &frames {
         let mut packet = vec![0u8; MAX_PACKET];
         let pkt_len = c_enc
-            .encode_float(frame_pcm, FRAME_SIZE, &mut packet)
+            .encode_float(frame_pcm, cfg.frame_size, &mut packet)
             .unwrap();
         let packet = &packet[..pkt_len as usize];
 
-        let mut c_out = vec![0.0f32; FRAME_SIZE as usize * ch];
+        let mut c_out = vec![0.0f32; cfg.frame_size as usize * ch];
         let c_samples = c_dec
-            .decode_float(Some(packet), &mut c_out, FRAME_SIZE, false)
+            .decode_float(Some(packet), &mut c_out, cfg.frame_size, false)
             .unwrap();
-        assert_eq!(c_samples, FRAME_SIZE);
+        assert_eq!(c_samples, cfg.frame_size);
 
-        let mut rust_out = vec![0.0f32; FRAME_SIZE as usize * ch];
+        let mut rust_out = vec![0.0f32; cfg.frame_size as usize * ch];
         let rust_samples = rust_dec
-            .decode_float(Some(packet), &mut rust_out, FRAME_SIZE, false)
+            .decode_float(Some(packet), &mut rust_out, cfg.frame_size, false)
             .unwrap();
-        assert_eq!(rust_samples, FRAME_SIZE);
+        assert_eq!(rust_samples, cfg.frame_size);
 
         // Check range coder state
         let c_range = c_dec.final_range();
@@ -211,7 +214,13 @@ fn test_decode_comparison(cfg: &TestConfig) {
         "{}: decode max error {max_err:.10} exceeds threshold {:.1e}\n{}",
         cfg.name,
         cfg.decode_threshold,
-        first_divergence(&all_c_pcm, &all_rust_pcm, cfg.decode_threshold, ch)
+        first_divergence(
+            &all_c_pcm,
+            &all_rust_pcm,
+            cfg.decode_threshold,
+            ch,
+            cfg.frame_size
+        )
     );
 }
 
@@ -236,12 +245,17 @@ fn test_encode_comparison(cfg: &TestConfig) {
     for frame_pcm in &frames {
         let mut c_packet = vec![0u8; MAX_PACKET];
         let c_len = c_enc
-            .encode_float(frame_pcm, FRAME_SIZE, &mut c_packet)
+            .encode_float(frame_pcm, cfg.frame_size, &mut c_packet)
             .unwrap();
 
         let mut rust_packet = vec![0u8; MAX_PACKET];
         let rust_len = rust_enc
-            .encode_float(frame_pcm, FRAME_SIZE, &mut rust_packet, MAX_PACKET as i32)
+            .encode_float(
+                frame_pcm,
+                cfg.frame_size,
+                &mut rust_packet,
+                MAX_PACKET as i32,
+            )
             .unwrap();
 
         packets_total += 1;
@@ -250,23 +264,23 @@ fn test_encode_comparison(cfg: &TestConfig) {
         }
 
         // Decode C packet
-        let mut c_decoded = vec![0.0f32; FRAME_SIZE as usize * ch];
+        let mut c_decoded = vec![0.0f32; cfg.frame_size as usize * ch];
         c_dec_for_c
             .decode_float(
                 Some(&c_packet[..c_len as usize]),
                 &mut c_decoded,
-                FRAME_SIZE,
+                cfg.frame_size,
                 false,
             )
             .unwrap();
         all_c_decoded.extend_from_slice(&c_decoded);
 
         // Decode Rust packet (may be invalid if Rust encoder diverges)
-        let mut rust_decoded = vec![0.0f32; FRAME_SIZE as usize * ch];
+        let mut rust_decoded = vec![0.0f32; cfg.frame_size as usize * ch];
         match c_dec_for_rust.decode_float(
             Some(&rust_packet[..rust_len as usize]),
             &mut rust_decoded,
-            FRAME_SIZE,
+            cfg.frame_size,
             false,
         ) {
             Ok(_) => {}
@@ -315,11 +329,16 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
     for frame_pcm in &frames {
         let mut packet = vec![0u8; MAX_PACKET];
         let len = c_enc
-            .encode_float(frame_pcm, FRAME_SIZE, &mut packet)
+            .encode_float(frame_pcm, cfg.frame_size, &mut packet)
             .unwrap();
-        let mut out = vec![0.0f32; FRAME_SIZE as usize * ch];
+        let mut out = vec![0.0f32; cfg.frame_size as usize * ch];
         c_dec
-            .decode_float(Some(&packet[..len as usize]), &mut out, FRAME_SIZE, false)
+            .decode_float(
+                Some(&packet[..len as usize]),
+                &mut out,
+                cfg.frame_size,
+                false,
+            )
             .unwrap();
         c_pcm.extend_from_slice(&out);
     }
@@ -333,10 +352,15 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
     for frame_pcm in &frames {
         let mut packet = vec![0u8; MAX_PACKET];
         let len = rust_enc
-            .encode_float(frame_pcm, FRAME_SIZE, &mut packet, MAX_PACKET as i32)
+            .encode_float(frame_pcm, cfg.frame_size, &mut packet, MAX_PACKET as i32)
             .unwrap();
-        let mut out = vec![0.0f32; FRAME_SIZE as usize * ch];
-        match rust_dec.decode_float(Some(&packet[..len as usize]), &mut out, FRAME_SIZE, false) {
+        let mut out = vec![0.0f32; cfg.frame_size as usize * ch];
+        match rust_dec.decode_float(
+            Some(&packet[..len as usize]),
+            &mut out,
+            cfg.frame_size,
+            false,
+        ) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!(
@@ -370,7 +394,13 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
         "{}: roundtrip max error {max_err:.10} exceeds threshold {:.1e}\n{}",
         cfg.name,
         cfg.roundtrip_threshold,
-        first_divergence(&c_pcm, &rust_pcm, cfg.roundtrip_threshold, ch)
+        first_divergence(
+            &c_pcm,
+            &rust_pcm,
+            cfg.roundtrip_threshold,
+            ch,
+            cfg.frame_size
+        )
     );
 }
 
@@ -378,7 +408,7 @@ fn test_roundtrip_comparison(cfg: &TestConfig) {
 
 fn configs() -> Vec<TestConfig> {
     vec![
-        // CELT mono
+        // CELT mono (20ms)
         TestConfig {
             name: "celt_silence",
             channels: Channels::Mono,
@@ -389,6 +419,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
+            frame_size: 960,
             decode_threshold: 1e-5,
             roundtrip_threshold: 2.0,
         },
@@ -402,6 +433,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 440.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
@@ -415,6 +447,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 1000.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
@@ -428,10 +461,11 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 300.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
-        // CELT stereo
+        // CELT stereo (20ms)
         TestConfig {
             name: "celt_stereo_silence",
             channels: Channels::Stereo,
@@ -442,6 +476,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
+            frame_size: 960,
             decode_threshold: 1e-5,
             roundtrip_threshold: 2.0,
         },
@@ -455,6 +490,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 440.0,
             freq_r: 880.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
@@ -468,6 +504,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 300.0,
             freq_r: 300.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
@@ -481,10 +518,11 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 1000.0,
             freq_r: 500.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
-        // SILK mono
+        // SILK mono (20ms)
         TestConfig {
             name: "silk_nb_silence",
             channels: Channels::Mono,
@@ -495,6 +533,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 0.0,
             freq_r: 0.0,
             amp: 0.0,
+            frame_size: 960,
             decode_threshold: 3.1e-5,
             roundtrip_threshold: 2.0,
         },
@@ -508,6 +547,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 200.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 3.1e-5,
             roundtrip_threshold: 2.0,
         },
@@ -521,6 +561,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 350.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 3.1e-5,
             roundtrip_threshold: 2.0,
         },
@@ -534,10 +575,11 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 500.0,
             freq_r: 0.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 3.1e-5,
             roundtrip_threshold: 2.0,
         },
-        // SILK stereo
+        // SILK stereo (20ms)
         TestConfig {
             name: "silk_stereo_wb",
             channels: Channels::Stereo,
@@ -548,6 +590,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 400.0,
             freq_r: 600.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 3e-3,
             roundtrip_threshold: 2.0,
         },
@@ -561,10 +604,11 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 200.0,
             freq_r: 300.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 3e-3,
             roundtrip_threshold: 2.0,
         },
-        // Hybrid stereo
+        // Hybrid stereo (20ms)
         TestConfig {
             name: "hybrid_stereo",
             channels: Channels::Stereo,
@@ -575,6 +619,7 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 200.0,
             freq_r: 1000.0,
             amp: 0.5,
+            frame_size: 960,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },
@@ -588,6 +633,111 @@ fn configs() -> Vec<TestConfig> {
             freq_l: 440.0,
             freq_r: 880.0,
             amp: 0.5,
+            frame_size: 960,
+            decode_threshold: 2.0,
+            roundtrip_threshold: 2.0,
+        },
+        // ── 10ms frame mode (480 samples at 48kHz) ──
+        // SILK mono 10ms
+        TestConfig {
+            name: "silk_nb_silence_10ms",
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
+            bitrate: 12000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 0.0,
+            freq_r: 0.0,
+            amp: 0.0,
+            frame_size: 480,
+            decode_threshold: 3.1e-5,
+            roundtrip_threshold: 2.0,
+        },
+        TestConfig {
+            name: "silk_nb_sine200_10ms",
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
+            bitrate: 12000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 200.0,
+            freq_r: 0.0,
+            amp: 0.5,
+            frame_size: 480,
+            decode_threshold: 3.1e-5,
+            roundtrip_threshold: 2.0,
+        },
+        TestConfig {
+            name: "silk_mb_sine350_10ms",
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Mediumband,
+            bitrate: 16000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 350.0,
+            freq_r: 0.0,
+            amp: 0.5,
+            frame_size: 480,
+            decode_threshold: 3.1e-5,
+            roundtrip_threshold: 2.0,
+        },
+        TestConfig {
+            name: "silk_wb_sine500_10ms",
+            channels: Channels::Mono,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Wideband,
+            bitrate: 20000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 500.0,
+            freq_r: 0.0,
+            amp: 0.5,
+            frame_size: 480,
+            // 10ms WB mode has slightly higher decode divergence than 20ms due to
+            // shorter pitch LPC window (14ms vs 24ms) amplifying rounding differences
+            decode_threshold: 5e-4,
+            roundtrip_threshold: 2.0,
+        },
+        // SILK stereo 10ms
+        TestConfig {
+            name: "silk_stereo_wb_10ms",
+            channels: Channels::Stereo,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Wideband,
+            bitrate: 32000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 400.0,
+            freq_r: 600.0,
+            amp: 0.5,
+            frame_size: 480,
+            decode_threshold: 3e-3,
+            roundtrip_threshold: 2.0,
+        },
+        TestConfig {
+            name: "silk_stereo_nb_10ms",
+            channels: Channels::Stereo,
+            application: Application::Voip,
+            max_bandwidth: Bandwidth::Narrowband,
+            bitrate: 20000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 200.0,
+            freq_r: 300.0,
+            amp: 0.5,
+            frame_size: 480,
+            decode_threshold: 3e-3,
+            roundtrip_threshold: 2.0,
+        },
+        // Hybrid 10ms
+        TestConfig {
+            name: "hybrid_stereo_10ms",
+            channels: Channels::Stereo,
+            application: Application::Audio,
+            max_bandwidth: Bandwidth::Superwideband,
+            bitrate: 32000,
+            force_channels: ForceChannels::Auto,
+            freq_l: 200.0,
+            freq_r: 1000.0,
+            amp: 0.5,
+            frame_size: 480,
             decode_threshold: 2.0,
             roundtrip_threshold: 2.0,
         },

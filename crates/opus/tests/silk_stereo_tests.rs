@@ -84,7 +84,9 @@ const C_STEREO_MONO_440HZ: &[u8] = &[
 
 const SAMPLE_RATE: i32 = 16000;
 const FRAME_SIZE: usize = 320; // 20ms at 16kHz
+const FRAME_SIZE_10MS: usize = 160; // 10ms at 16kHz
 const STEREO_FRAME: usize = FRAME_SIZE * 2; // interleaved L/R
+const STEREO_FRAME_10MS: usize = FRAME_SIZE_10MS * 2; // interleaved L/R, 10ms
 const BITRATE: i32 = 20000; // Low enough to trigger SILK/Hybrid mode for stereo
 const COMPLEXITY: i32 = 5;
 const NUM_WARMUP_FRAMES: usize = 10;
@@ -179,10 +181,7 @@ fn generate_mono_sine(
     buf
 }
 
-/// Compute total energy of a PCM buffer.
-fn total_energy(pcm: &[f32]) -> f64 {
-    pcm.iter().map(|&x| x as f64 * x as f64).sum()
-}
+use common::total_energy;
 
 /// Compute RMS energy of a PCM buffer.
 use common::rms as rms_energy;
@@ -197,18 +196,7 @@ fn right_channel(pcm: &[f32]) -> Vec<f32> {
     pcm.chunks(2).map(|c| c[1]).collect()
 }
 
-/// Count bytes that differ between two slices.
-fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
-    let min_len = a.len().min(b.len());
-    let max_len = a.len().max(b.len());
-    let mut count = max_len - min_len;
-    for i in 0..min_len {
-        if a[i] != b[i] {
-            count += 1;
-        }
-    }
-    count
-}
+use common::count_differing_bytes;
 
 // =========================================================================
 // Helper: create encoder, encode N frames, return all packets
@@ -234,24 +222,26 @@ fn create_mono_encoder() -> OpusEncoder {
     enc
 }
 
-/// Encode multiple stereo frames, returning all packets.
-fn encode_stereo_frames(
+/// Encode multiple stereo frames at the given frame size, returning all packets.
+fn encode_stereo_frames_with_size(
     enc: &mut OpusEncoder,
     generate_frame: &dyn Fn(usize) -> Vec<f32>,
     num_frames: usize,
+    frame_size: usize,
 ) -> Vec<Vec<u8>> {
+    let expected_len = frame_size * 2; // interleaved L/R
     let mut packets = Vec::new();
     for frame_idx in 0..num_frames {
         let input = generate_frame(frame_idx);
         assert_eq!(
             input.len(),
-            STEREO_FRAME,
+            expected_len,
             "Stereo frame must have {} samples",
-            STEREO_FRAME
+            expected_len
         );
         let mut packet = vec![0u8; 1500];
         let nbytes = enc
-            .encode_float(&input, FRAME_SIZE as i32, &mut packet, 1500)
+            .encode_float(&input, frame_size as i32, &mut packet, 1500)
             .expect("Stereo encode should succeed");
         assert!(
             nbytes > 0,
@@ -262,6 +252,15 @@ fn encode_stereo_frames(
         packets.push(packet);
     }
     packets
+}
+
+/// Encode multiple 20ms stereo frames, returning all packets.
+fn encode_stereo_frames(
+    enc: &mut OpusEncoder,
+    generate_frame: &dyn Fn(usize) -> Vec<f32>,
+    num_frames: usize,
+) -> Vec<Vec<u8>> {
+    encode_stereo_frames_with_size(enc, generate_frame, num_frames, FRAME_SIZE)
 }
 
 /// Encode multiple mono frames, returning all packets.
@@ -1053,6 +1052,109 @@ fn test_stereo_packet_sizes_stable() {
         assert!(
             ratio < 5.0,
             "Stereo packet sizes should be stable: min={min_sz} max={max_sz} ratio={ratio:.2}"
+        );
+    }
+}
+
+// =========================================================================
+// 10ms frame mode stereo tests
+// =========================================================================
+
+/// Test 10ms stereo encode-decode roundtrip: encode stereo 10ms frames,
+/// decode them, and verify the output has correct channel separation.
+#[test]
+fn test_stereo_encode_decode_roundtrip_10ms() {
+    let mut enc = create_stereo_encoder();
+    let packets = encode_stereo_frames_with_size(
+        &mut enc,
+        &|frame_idx| {
+            generate_stereo_sine(
+                440.0,
+                880.0,
+                0.4,
+                FRAME_SIZE_10MS,
+                frame_idx * FRAME_SIZE_10MS,
+            )
+        },
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    // Decode all packets
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
+    let mut all_pcm = Vec::new();
+    for pkt in &packets {
+        let mut pcm = vec![0.0f32; STEREO_FRAME_10MS];
+        let n = dec
+            .decode_float(Some(pkt), &mut pcm, FRAME_SIZE_10MS as i32, false)
+            .expect("10ms stereo decode should succeed");
+        assert_eq!(
+            n as usize, FRAME_SIZE_10MS,
+            "Should decode exactly one 10ms frame"
+        );
+        all_pcm.extend_from_slice(&pcm);
+    }
+
+    // Use last frame for steady-state energy check
+    let last_frame_start = all_pcm.len() - STEREO_FRAME_10MS;
+    let last_frame = &all_pcm[last_frame_start..];
+
+    let left = left_channel(last_frame);
+    let right = right_channel(last_frame);
+
+    let left_energy = total_energy(&left);
+    let right_energy = total_energy(&right);
+
+    eprintln!(
+        "10ms stereo roundtrip: left_energy={left_energy:.8}, right_energy={right_energy:.8}"
+    );
+
+    // Both channels should have non-trivial energy
+    assert!(
+        left_energy > 1e-6,
+        "10ms stereo left channel should have energy: {left_energy}"
+    );
+    assert!(
+        right_energy > 1e-6,
+        "10ms stereo right channel should have energy: {right_energy}"
+    );
+}
+
+/// Test 10ms stereo with left-only signal produces channel separation.
+#[test]
+fn test_stereo_left_only_10ms() {
+    let mut enc = create_stereo_encoder();
+    let packets = encode_stereo_frames_with_size(
+        &mut enc,
+        &|frame_idx| generate_left_only(440.0, 0.4, FRAME_SIZE_10MS, frame_idx * FRAME_SIZE_10MS),
+        NUM_WARMUP_FRAMES,
+        FRAME_SIZE_10MS,
+    );
+
+    let mut dec = OpusDecoder::new(SampleRate::Hz16000, Channels::Stereo).unwrap();
+    let mut last_pcm = vec![0.0f32; STEREO_FRAME_10MS];
+    for pkt in &packets {
+        let mut pcm = vec![0.0f32; STEREO_FRAME_10MS];
+        dec.decode_float(Some(pkt), &mut pcm, FRAME_SIZE_10MS as i32, false)
+            .expect("10ms stereo decode should succeed");
+        last_pcm = pcm;
+    }
+
+    let left_energy = total_energy(&left_channel(&last_pcm));
+    let right_energy = total_energy(&right_channel(&last_pcm));
+
+    eprintln!("10ms left-only: left_energy={left_energy:.8}, right_energy={right_energy:.8}");
+
+    // Left should have energy; right should be much quieter
+    assert!(
+        left_energy > 1e-6,
+        "10ms left-only: left channel should have energy"
+    );
+    // Allow some cross-talk from stereo encoding
+    if left_energy > 1e-4 {
+        assert!(
+            right_energy < left_energy,
+            "10ms left-only: right ({right_energy:.8}) should be less than left ({left_energy:.8})"
         );
     }
 }

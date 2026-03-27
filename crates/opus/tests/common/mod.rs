@@ -70,6 +70,25 @@ pub fn assert_f32_close(rust: f32, c: f32, tol: f32, name: &str) {
     );
 }
 
+/// Compute the total energy (sum of squares) of a float buffer.
+pub fn total_energy(buf: &[f32]) -> f64 {
+    buf.iter().map(|&x| x as f64 * x as f64).sum()
+}
+
+/// Count the number of bytes that differ between two slices.
+/// Bytes beyond the shorter slice's length count as differing.
+pub fn count_differing_bytes(a: &[u8], b: &[u8]) -> usize {
+    let min_len = a.len().min(b.len());
+    let max_len = a.len().max(b.len());
+    let mut count = max_len - min_len;
+    for i in 0..min_len {
+        if a[i] != b[i] {
+            count += 1;
+        }
+    }
+    count
+}
+
 /// Assert two f32 slices match within tolerance. Reports worst element.
 pub fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
     assert_eq!(
