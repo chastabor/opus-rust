@@ -192,6 +192,14 @@ fn bytes_to_i8_vec(data: &[u8]) -> Vec<i8> {
     data.iter().map(|&b| b as i8).collect()
 }
 
+/// Infer output dimension from a float bias array's byte size.
+/// Requires the array to be `WeightType::Float`.
+pub fn weight_output_dim(arrays: &[WeightArray], name: &str) -> Result<usize, WeightError> {
+    let a = arrays.iter().find(|a| a.name == name).ok_or(WeightError)?;
+    if a.weight_type != WeightType::Float { return Err(WeightError); }
+    Ok(a.data.len() / 4)
+}
+
 /// Initialize a LinearLayer from a WeightArray list.
 /// Matches C `linear_init` from parse_lpcnet_weights.c.
 pub fn linear_init(

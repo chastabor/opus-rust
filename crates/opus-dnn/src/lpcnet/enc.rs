@@ -187,7 +187,7 @@ pub fn compute_frame_features(st: &mut LpcnetEncState, input: &[f32]) {
 
     st.dnn_pitch = compute_pitchdnn(&mut st.pitchdnn, &st.if_features, &st.xcorr_features);
 
-    let pitch = (0.5 + 256.0 / 2.0f32.powf((1.0 / 60.0) * ((st.dnn_pitch + 1.5) * 60.0))).floor() as usize;
+    let pitch = pitch_period_from_dnn(st.dnn_pitch);
     let pitch = pitch.min(PITCH_MAX_PERIOD - 1).max(PITCH_MIN_PERIOD);
 
     let lp = &st.lp_buf;

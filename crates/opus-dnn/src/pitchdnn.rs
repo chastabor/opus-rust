@@ -1,7 +1,7 @@
-use crate::nnet::{Activation, Conv2dLayer, LinearLayer, WeightType};
+use crate::nnet::{Activation, Conv2dLayer, LinearLayer};
 use crate::nnet::conv2d::compute_conv2d;
 use crate::nnet::ops::{compute_generic_dense, compute_generic_gru};
-use crate::nnet::weights::{WeightError, conv2d_init, linear_init};
+use crate::nnet::weights::{WeightError, conv2d_init, linear_init, weight_output_dim};
 use crate::nnet::WeightArray;
 
 pub const PITCH_MIN_PERIOD: usize = 32;
@@ -10,6 +10,13 @@ pub const NB_XCORR_FEATURES: usize = PITCH_MAX_PERIOD - PITCH_MIN_PERIOD;
 
 pub const PITCH_IF_MAX_FREQ: usize = 30;
 pub const NB_IF_FEATURES: usize = 3 * PITCH_IF_MAX_FREQ - 2;
+
+/// Convert a log-scale DNN pitch value to an integer period in samples.
+/// Used by FARGAN and LPCNet encoder. Inverse of the pitch representation
+/// that PitchDNN produces.
+pub fn pitch_period_from_dnn(dnn_pitch: f32) -> usize {
+    (0.5 + 256.0 / 2.0f32.powf((1.0 / 60.0) * ((dnn_pitch + 1.5) * 60.0))).floor() as usize
+}
 
 /// Upper bounds on PitchDNN layer sizes for stack allocation.
 const MAX_IF_UP1_SIZE: usize = 256;
@@ -38,15 +45,6 @@ pub struct PitchDnnState {
     pub gru_state: Vec<f32>,
     pub xcorr_mem1: Vec<f32>,
     pub xcorr_mem2: Vec<f32>,
-}
-
-/// Infer output dimension from a float bias array's byte size.
-fn weight_output_dim(arrays: &[WeightArray], bias_name: &str) -> Result<usize, WeightError> {
-    let a = arrays.iter().find(|a| a.name == bias_name).ok_or(WeightError)?;
-    if a.weight_type != WeightType::Float {
-        return Err(WeightError);
-    }
-    Ok(a.data.len() / 4)
 }
 
 /// Initialize PitchDNN model from weight arrays.

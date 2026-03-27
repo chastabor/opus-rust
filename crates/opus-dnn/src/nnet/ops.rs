@@ -84,6 +84,24 @@ pub fn compute_glu(
     }
 }
 
+/// In-place GLU: data = data * sigmoid(W * data).
+/// Avoids the aliasing issue when caller wants output == input.
+pub fn compute_glu_inplace(
+    layer: &LinearLayer,
+    data: &mut [f32],
+) {
+    debug_assert_eq!(layer.nb_inputs, layer.nb_outputs);
+    let n = layer.nb_outputs;
+    debug_assert!(n <= MAX_INPUTS);
+
+    let mut act2 = [0.0f32; MAX_INPUTS];
+    compute_linear(layer, &mut act2[..n], data);
+    compute_activation(&mut act2[..n], Activation::Sigmoid);
+    for i in 0..n {
+        data[i] *= act2[i];
+    }
+}
+
 /// Gated activation: output = activation(first_half) * sigmoid(second_half).
 /// Matches C `compute_gated_activation` from nnet.c.
 pub fn compute_gated_activation(
