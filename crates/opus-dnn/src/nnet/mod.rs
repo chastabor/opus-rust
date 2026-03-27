@@ -2,6 +2,7 @@ pub mod activations;
 pub mod linear;
 pub mod conv2d;
 pub mod ops;
+pub mod weights;
 
 /// Activation function types matching C libopus ACTIVATION_* constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +109,5 @@ pub struct WeightArray {
     pub data: Vec<u8>,
 }
 
-/// Binary weight blob header (matches C `WeightHead`).
 pub const WEIGHT_BLOB_VERSION: i32 = 0;
 pub const WEIGHT_BLOCK_SIZE: i32 = 64;
