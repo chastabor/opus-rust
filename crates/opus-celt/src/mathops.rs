@@ -25,6 +25,12 @@ pub fn celt_log2(x: f32) -> f32 {
     x.log2()
 }
 
+/// log10(x) via log2. Matches C `celt_log10` macro from mathops.h.
+#[inline]
+pub fn celt_log10(x: f32) -> f32 {
+    std::f32::consts::LOG10_2 * celt_log2(x)
+}
+
 /// Float sqrt.
 #[inline]
 pub fn celt_sqrt(x: f32) -> f32 {
