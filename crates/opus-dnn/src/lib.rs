@@ -6,3 +6,5 @@ pub mod pitchdnn;
 pub mod fargan;
 pub mod lpcnet;
 pub mod dred;
+pub mod nndsp;
+pub mod osce;
