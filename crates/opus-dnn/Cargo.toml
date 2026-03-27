@@ -1,0 +1,23 @@
+[package]
+name = "opus-dnn"
+version = "1.0.0"
+edition = "2024"
+description = "DNN inference runtime for Opus audio codec (DRED, OSCE, deep PLC)"
+
+[features]
+default = ["dred", "osce", "deep-plc"]
+deep-plc = []
+dred = ["deep-plc"]
+osce = []
+
+[lints.rust]
+unsafe-code = "forbid"
+
+[lints.clippy]
+too-many-arguments = "allow"
+# Float constants must match C reference exactly for bit-identical output.
+excessive-precision = "allow"
+approx-constant = "allow"
+# Unrolled loops keep explicit `+ 0`, `* 1` to match C structure for cross-referencing.
+identity-op = "allow"
+manual-is-multiple-of = "allow"

@@ -3,6 +3,7 @@ members = [
     "crates/opus-range-coder",
     "crates/opus-celt",
     "crates/opus-silk",
+    "crates/opus-dnn",
     "crates/opus",
     "crates/opus-ffi",
 ]

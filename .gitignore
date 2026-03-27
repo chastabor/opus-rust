@@ -4,3 +4,6 @@ target/
 tests/gen_test_vectors
 tests/gen_ms_test_vectors
 tests/cwrs_validate
+
+# DNN model weights (downloaded at build time, not checked in)
+crates/opus-dnn/model-data/
