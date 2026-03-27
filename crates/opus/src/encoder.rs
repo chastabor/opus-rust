@@ -92,6 +92,9 @@ pub struct OpusEncoder {
     encoder_buffer: usize,
     /// Delay compensation in samples (C: st->delay_compensation = Fs/250 = 4ms).
     delay_compensation: usize,
+    /// DNN encoder state (DRED). None when DNN is not loaded or DRED is disabled.
+    #[cfg(feature = "dnn")]
+    pub(crate) dnn: Option<Box<crate::dnn_types::DnnEncoderState>>,
 }
 
 impl OpusEncoder {
@@ -145,6 +148,8 @@ impl OpusEncoder {
             delay_buffer: vec![0i16; (fs / 100) as usize * channels as usize],
             encoder_buffer: (fs / 100) as usize,
             delay_compensation: (fs / 250) as usize,
+            #[cfg(feature = "dnn")]
+            dnn: None,
         })
     }
 

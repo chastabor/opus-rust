@@ -1,4 +1,8 @@
 pub mod decoder;
+#[cfg(feature = "dnn")]
+pub mod dnn_decoder;
+#[cfg(feature = "dnn")]
+pub mod dnn_types;
 pub mod encoder;
 pub mod error;
 pub mod extensions;

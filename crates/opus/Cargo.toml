@@ -4,10 +4,15 @@ version = "2.0.3"
 edition = "2024"
 description = "Opus audio codec decoder in pure Rust"
 
+[features]
+default = []
+dnn = ["dep:opus-dnn"]
+
 [dependencies]
 opus-range-coder = { path = "../opus-range-coder" }
 opus-celt = { path = "../opus-celt" }
 opus-silk = { path = "../opus-silk" }
+opus-dnn = { path = "../opus-dnn", optional = true }
 
 [dev-dependencies]
 opus-ffi = { path = "../opus-ffi" }

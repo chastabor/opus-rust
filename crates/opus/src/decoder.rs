@@ -40,6 +40,9 @@ pub struct OpusDecoder {
     softclip_mem: [f32; 2],
     /// Final range coder state for testing/verification.
     pub range_final: u32,
+    /// DNN decoder state (DRED, PLC, OSCE). None when DNN is not loaded.
+    #[cfg(feature = "dnn")]
+    pub(crate) dnn: Option<Box<crate::dnn_types::DnnDecoderState>>,
 }
 
 impl OpusDecoder {
@@ -77,6 +80,8 @@ impl OpusDecoder {
             last_packet_duration: 0,
             softclip_mem: [0.0; 2],
             range_final: 0,
+            #[cfg(feature = "dnn")]
+            dnn: None,
         })
     }
 

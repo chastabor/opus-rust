@@ -44,7 +44,7 @@ pub struct LpcnetPlcState {
     pub enc: LpcnetEncState,
     pub loaded: bool,
 
-    pub fec: Vec<Vec<f32>>,
+    pub fec: Vec<f32>,
     pub analysis_gap: bool,
     pub fec_read_pos: usize,
     pub fec_fill_pos: usize,
@@ -104,7 +104,7 @@ pub fn lpcnet_plc_init(
         fargan: fargan_state,
         enc: enc_state,
         loaded: true,
-        fec: vec![vec![0.0; NB_FEATURES]; PLC_MAX_FEC],
+        fec: vec![0.0; PLC_MAX_FEC * NB_FEATURES],
         analysis_gap: true,
         fec_read_pos: 0,
         fec_fill_pos: 0,
@@ -126,7 +126,8 @@ pub fn lpcnet_plc_fec_add(st: &mut LpcnetPlcState, features: Option<&[f32]>) {
         None => { st.fec_skip += 1; }
         Some(f) => {
             debug_assert!(st.fec_fill_pos < PLC_MAX_FEC);
-            st.fec[st.fec_fill_pos][..NB_FEATURES].copy_from_slice(&f[..NB_FEATURES]);
+            let off = st.fec_fill_pos * NB_FEATURES;
+            st.fec[off..off + NB_FEATURES].copy_from_slice(&f[..NB_FEATURES]);
             st.fec_fill_pos += 1;
         }
     }
@@ -156,7 +157,8 @@ fn get_fec_or_pred(st: &mut LpcnetPlcState) -> bool {
     if st.fec_read_pos != st.fec_fill_pos && st.fec_skip == 0 {
         let mut plc_features = [0.0f32; 2 * NB_BANDS + NB_FEATURES + 1];
         let mut features = [0.0f32; NB_FEATURES];
-        features.copy_from_slice(&st.fec[st.fec_read_pos][..NB_FEATURES]);
+        let off = st.fec_read_pos * NB_FEATURES;
+        features.copy_from_slice(&st.fec[off..off + NB_FEATURES]);
         st.fec_read_pos += 1;
         // Update PLC state using FEC (without Burg features)
         plc_features[2 * NB_BANDS..2 * NB_BANDS + NB_FEATURES].copy_from_slice(&features);
