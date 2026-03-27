@@ -145,7 +145,6 @@ pub fn silk_find_ltp_flp(
 /// x_offset for the pitch lag access.
 ///
 /// Output: `ltp_res` has nb_subfr * (pre_length + subfr_length) samples.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_ltp_analysis_filter_flp(
     ltp_res: &mut [f32],
     x_buf: &[f32],                       // full signal buffer

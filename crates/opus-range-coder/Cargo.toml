@@ -5,3 +5,9 @@ edition = "2024"
 description = "Range coder for Opus audio codec"
 
 [dev-dependencies]
+
+[lints.rust]
+unsafe-code = "forbid"
+
+[lints.clippy]
+too-many-arguments = "allow"

@@ -62,7 +62,6 @@ fn silk_nlsf_vq(
 /// Port of silk_NLSF_del_dec_quant from silk/NLSF_del_dec_quant.c.
 /// Uses a multi-state trellis with bounded path tracking.
 /// Returns RD value in Q25.
-#[allow(clippy::too_many_arguments)]
 fn silk_nlsf_del_dec_quant(
     indices: &mut [i8],
     x_q10: &[i16],

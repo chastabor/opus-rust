@@ -8,7 +8,6 @@ use opus_range_coder::EcCtx;
 
 /// Encode side-information parameters to payload.
 /// Mirror of silk_decode_indices -- produces a bitstream the decoder can read.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_encode_indices(
     indices: &SideInfoIndices,
     enc: &mut EcCtx,

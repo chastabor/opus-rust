@@ -214,7 +214,6 @@ fn autocorrelation_with_scale(
 /// This is a faithful port of silk_noise_shape_analysis_FIX, simplified to
 /// use standard (non-warped) autocorrelation. The output parameters feed
 /// directly into silk_nsq.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_noise_shape_analysis(
     input: &[i16],
     pitch_lags: &[i32],

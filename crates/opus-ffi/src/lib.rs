@@ -664,7 +664,6 @@ pub fn c_silk_find_ltp_flp(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn c_silk_quant_ltp_gains(
     b_q14: &mut [i16],
     cbk_index: &mut [i8],
@@ -759,7 +758,6 @@ pub fn c_silk_nlsf2a_flp(a: &mut [f32], nlsf_q15: &[i16], order: usize) {
 /// `x` is the input signal with preceding samples.
 /// `b` must have length >= `LTP_ORDER * nb_subfr` (LTP coefficients per subframe).
 /// `pitch_l` and `inv_gains` must have length >= `nb_subfr`.
-#[allow(clippy::too_many_arguments)]
 pub fn c_silk_ltp_analysis_filter_flp(
     ltp_res: &mut [f32],
     x: &[f32],
@@ -1238,7 +1236,6 @@ pub fn c_remove_doubling(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn c_comb_filter(
     y: &mut [f32],
     x: &mut [f32],
@@ -1365,7 +1362,6 @@ pub fn c_normalise_bands(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn c_denormalise_bands(
     x: &[f32],
     freq: &mut [f32],
@@ -1407,7 +1403,6 @@ pub fn c_init_caps(cap: &mut [i32], lm: usize, c: usize) {
 // ── Energy quantization ──
 
 /// Encode coarse energy with C reference. Returns number of encoded bytes.
-#[allow(clippy::too_many_arguments)]
 pub fn c_encode_coarse_energy(
     start: usize,
     end: usize,
@@ -1512,7 +1507,6 @@ pub fn c_decode_fine_energy(
 }
 
 /// Encode energy finalise with C reference. Returns number of encoded bytes.
-#[allow(clippy::too_many_arguments)]
 pub fn c_encode_energy_finalise(
     start: usize,
     end: usize,
@@ -1541,7 +1535,6 @@ pub fn c_encode_energy_finalise(
 }
 
 /// Decode energy finalise with C reference.
-#[allow(clippy::too_many_arguments)]
 pub fn c_decode_energy_finalise(
     start: usize,
     end: usize,
@@ -1568,7 +1561,6 @@ pub fn c_decode_energy_finalise(
 }
 
 /// Anti-collapse with C reference.
-#[allow(clippy::too_many_arguments)]
 pub fn c_anti_collapse(
     x: &mut [f32],
     collapse_masks: &mut [u8],

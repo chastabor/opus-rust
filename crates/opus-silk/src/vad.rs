@@ -321,7 +321,6 @@ fn decimate_into_bands(
 ///
 /// `is_20ms_frame` and `is_10ms_frame` flags control frame-length-dependent
 /// adjustments that depend on knowledge of `fs_kHz`.
-#[allow(clippy::too_many_arguments)]
 fn silk_vad_compute(
     state: &mut VadState,
     sa_q8: &mut i32,
@@ -567,7 +566,6 @@ pub fn silk_vad_get_sa_q8(
 ///
 /// # Returns
 /// 0 on success
-#[allow(clippy::too_many_arguments)]
 pub fn silk_vad_get_sa_q8_ex(
     state: &mut VadState,
     sa_q8: &mut i32,

@@ -132,7 +132,6 @@ pub struct NoiseShapeResult {
 }
 
 /// Faithful port of silk_noise_shape_analysis_FLP (lines 147-350).
-#[allow(clippy::too_many_arguments)]
 pub fn silk_noise_shape_analysis_flp(
     // Signal: x points to x_frame, which has la_shape samples before the actual frame
     x: &[f32],

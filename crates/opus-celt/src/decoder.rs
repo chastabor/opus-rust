@@ -549,7 +549,6 @@ impl CeltDecoder {
 
     /// Synthesis: denormalize + IMDCT + overlap-add.
     /// Matches C celt_synthesis() for the normal mono/stereo case.
-    #[allow(clippy::too_many_arguments)]
     fn celt_synthesis(
         &mut self,
         mode: &CeltMode,

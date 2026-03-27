@@ -6,3 +6,9 @@ description = "CELT decoder for Opus audio codec"
 
 [dependencies]
 opus-range-coder = { path = "../opus-range-coder" }
+
+[lints.rust]
+unsafe-code = "forbid"
+
+[lints.clippy]
+too-many-arguments = "allow"

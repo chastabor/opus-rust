@@ -8,3 +8,6 @@ links = "opus_c_ref"
 [build-dependencies]
 cc = "1"
 cmake = "0.1"
+
+[lints.clippy]
+too-many-arguments = "allow"

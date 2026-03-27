@@ -62,7 +62,6 @@ pub fn init_caps(m: &CeltMode, cap: &mut [i32], lm: i32, c: i32) {
 }
 
 /// Compute bit allocation, returning the number of coded bands.
-#[allow(clippy::too_many_arguments)]
 pub fn clt_compute_allocation(
     m: &CeltMode,
     start: usize,
@@ -209,7 +208,7 @@ pub fn clt_compute_allocation(
     )
 }
 
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+#[allow(clippy::needless_range_loop)]
 fn interp_bits2pulses(
     m: &CeltMode,
     start: usize,
@@ -441,7 +440,6 @@ fn interp_bits2pulses(
 /// `intensity` and `dual_stereo` are passed as INPUT values to be encoded.
 /// `prev_coded_bands` is the last coded bands count from the previous frame.
 /// `signal_bandwidth` is the estimated signal bandwidth (band index).
-#[allow(clippy::too_many_arguments)]
 pub fn clt_compute_allocation_enc(
     m: &CeltMode,
     start: usize,
@@ -594,7 +592,7 @@ pub fn clt_compute_allocation_enc(
 
 /// Encoder version of interp_bits2pulses.
 /// Writes skip/intensity/dual_stereo decisions to the bitstream.
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+#[allow(clippy::needless_range_loop)]
 fn interp_bits2pulses_enc(
     m: &CeltMode,
     start: usize,

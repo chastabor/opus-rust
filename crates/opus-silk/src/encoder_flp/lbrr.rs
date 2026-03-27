@@ -51,7 +51,6 @@ impl LbrrState {
 /// redundancy. Uses a cloned NSQ state so the main encoder is unaffected.
 ///
 /// Called after process_gains and before the main NSQ.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_lbrr_encode_flp(
     lbrr: &mut LbrrState,
     nsq_state: &NsqState,      // main NSQ state (cloned, not modified)

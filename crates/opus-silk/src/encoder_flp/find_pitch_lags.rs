@@ -27,7 +27,6 @@ pub struct PitchLagsResult {
 ///
 /// `x` points to x_frame (start of analysis frame in x_buf).
 /// The function accesses x - ltp_mem_length for the LPC analysis.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_find_pitch_lags_flp(
     x_buf: &[f32], // full x_buf (includes ltp_mem + la_shape + frame)
     ltp_mem_length: usize,

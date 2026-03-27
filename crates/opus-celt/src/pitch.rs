@@ -5,7 +5,6 @@ use crate::tables::*;
 /// Comb filter for postfilter.
 /// Matches C celt.c comb_filter() for the float case.
 /// Operates in-place: y and x point to the same buffer at the same offset.
-#[allow(clippy::too_many_arguments)]
 pub fn comb_filter_inplace(
     buf: &mut [f32],
     offset: usize,
@@ -86,7 +85,6 @@ pub fn comb_filter_inplace(
 /// In C, this is called as `comb_filter(y_ptr, x_ptr, ...)` where x_ptr has history before it.
 /// In Rust, we use `(x_buf, x_off)` so that `x_buf[x_off - T1]` is valid (no negative indices).
 /// Similarly `(y_buf, y_off)` for the output.
-#[allow(clippy::too_many_arguments)]
 pub fn comb_filter(
     y_buf: &mut [f32],
     y_off: usize,

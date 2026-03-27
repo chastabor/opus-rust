@@ -62,7 +62,6 @@ struct SampleState {
 }
 
 /// Scale states for the del-dec NSQ (matching silk_nsq_del_dec_scale_states)
-#[allow(clippy::too_many_arguments)]
 fn silk_nsq_del_dec_scale_states(
     nsq: &mut NsqState,
     del_dec: &mut [DelDecState],
@@ -158,7 +157,6 @@ fn silk_nsq_del_dec_scale_states(
 ///
 /// `pulses_base` and `pxq_base` are absolute offsets into the full `pulses` / `nsq.xq` arrays
 /// for the current subframe. This allows negative-offset writes for the delayed commit.
-#[allow(clippy::too_many_arguments)]
 fn silk_noise_shape_quantizer_del_dec(
     nsq: &mut NsqState,
     del_dec: &mut [DelDecState],
@@ -580,7 +578,6 @@ fn silk_noise_shape_quantizer_del_dec(
 /// Performs noise-shaped quantization using a multi-hypothesis tree search
 /// that maintains several parallel quantization paths and selects the best
 /// one based on rate-distortion cost.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_nsq_del_dec(
     nsq: &mut NsqState,
     indices: &mut SideInfoIndices,

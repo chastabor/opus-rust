@@ -7,7 +7,6 @@ use opus_range_coder::EcCtx;
 // =========================================================================
 // denormalise_bands - matches C bands.c denormalise_bands() for float
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 pub fn denormalise_bands(
     m: &CeltMode,
     x: &[f32],
@@ -63,7 +62,6 @@ pub fn denormalise_bands(
 // =========================================================================
 // anti_collapse - matches C bands.c anti_collapse() for float decode path
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 pub fn anti_collapse(
     m: &CeltMode,
     x: &mut [f32],
@@ -237,7 +235,6 @@ fn compute_qn(n: usize, b: i32, offset: i32, pulse_cap: i32, stereo: bool) -> i3
 // compute_theta - decode stereo/split theta parameter
 // Matches C bands.c compute_theta() decode path
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 fn compute_theta(
     m: &CeltMode,
     band_idx: usize,
@@ -516,7 +513,6 @@ trait QuantMode {
 
     /// Compute/decode theta for stereo split.
     /// Decoder uses compute_theta (reads). Encoder uses compute_theta_enc (writes).
-    #[allow(clippy::too_many_arguments)]
     fn compute_theta_stereo(
         m: &CeltMode,
         band_idx: usize,
@@ -685,7 +681,6 @@ impl QuantMode for Encode {
         celt_udiv(itheta * 16384, qn)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn compute_theta_stereo(
         m: &CeltMode,
         band_idx: usize,
@@ -719,7 +714,6 @@ impl QuantMode for Encode {
 // =========================================================================
 // quant_partition_generic - unified encode/decode partition quantization
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 fn quant_partition_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -925,7 +919,6 @@ fn quant_partition_generic<M: QuantMode>(
 // =========================================================================
 // quant_band_generic - unified encode/decode band quantization
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 fn quant_band_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -1058,7 +1051,6 @@ fn quant_band_generic<M: QuantMode>(
 // =========================================================================
 // quant_band_stereo_generic - unified encode/decode stereo band quantization
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 fn quant_band_stereo_generic<M: QuantMode>(
     m: &CeltMode,
     band_idx: usize,
@@ -1275,7 +1267,6 @@ fn quant_band_stereo_generic<M: QuantMode>(
 // =========================================================================
 // quant_all_bands_generic - unified encode/decode all bands quantization
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 fn quant_all_bands_generic<M: QuantMode>(
     m: &CeltMode,
     start: usize,
@@ -1604,7 +1595,6 @@ fn quant_all_bands_generic<M: QuantMode>(
 // =========================================================================
 // Public API wrappers - decode path
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 pub fn quant_all_bands(
     m: &CeltMode,
     start: usize,
@@ -1862,7 +1852,6 @@ fn stereo_itheta(x: &[f32], y: &[f32], n: usize, _stereo: bool) -> i32 {
 }
 
 /// Encode-side compute_theta: compute and encode the split angle.
-#[allow(clippy::too_many_arguments)]
 fn compute_theta_enc(
     m: &CeltMode,
     band_idx: usize,
@@ -1972,7 +1961,6 @@ fn compute_theta_enc(
 // =========================================================================
 // Public API wrapper - encode path
 // =========================================================================
-#[allow(clippy::too_many_arguments)]
 pub fn quant_all_bands_enc(
     m: &CeltMode,
     start: usize,

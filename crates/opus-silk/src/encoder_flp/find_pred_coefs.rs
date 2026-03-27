@@ -34,7 +34,6 @@ pub struct PredCoefsResult {
 /// `x_frame_offset` is where x_frame starts in x_buf.
 /// `la_shape` is the lookback before x_frame for the actual frame data.
 /// The actual frame starts at `x_buf[x_frame_offset + la_shape]`.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_find_pred_coefs_flp(
     x_buf: &[f32],                    // I: full x_buf
     x_frame_offset: usize,            // I: offset of x_frame in x_buf

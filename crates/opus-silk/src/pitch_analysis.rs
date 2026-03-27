@@ -36,7 +36,6 @@ const SCRATCH_SIZE: usize = 22;
 ///   Stage 1: Coarse search at 4kHz with CSTRIDE_4KHZ candidates
 ///   Stage 2: Refinement at 8kHz with d_comp candidate expansion
 ///   Stage 3: Full-rate per-subframe refinement (only if fs_khz > 8)
-#[allow(clippy::too_many_arguments)]
 pub fn silk_pitch_analysis_core(
     frame_unscaled: &[i16], // Input signal
     pitch_out: &mut [i32],  // Output pitch lags per subframe [nb_subfr]
@@ -605,7 +604,6 @@ pub fn silk_pitch_analysis_core(
 ///
 /// For each subframe and each codebook entry, compute PE_NB_STAGE3_LAGS
 /// cross-correlation values spanning the lag search window [start_lag-2..start_lag+2].
-#[allow(clippy::too_many_arguments)]
 fn silk_p_ana_calc_corr_st3(
     cross_corr_st3: &mut [[i32; PE_NB_STAGE3_LAGS]],
     frame: &[i16],
@@ -685,7 +683,6 @@ fn silk_p_ana_calc_corr_st3(
 /// For each subframe and each codebook entry, compute PE_NB_STAGE3_LAGS
 /// energy values spanning the lag search window, using recursive energy
 /// computation.
-#[allow(clippy::too_many_arguments)]
 fn silk_p_ana_calc_energy_st3(
     energies_st3: &mut [[i32; PE_NB_STAGE3_LAGS]],
     frame: &[i16],
@@ -901,7 +898,6 @@ pub fn silk_find_pitch_contour(
 /// codebook (3 codebooks with 8/16/32 entries), find the best entry by minimizing
 /// prediction error. Select the codebook (per_index) and entry (ltp_index[k]) with
 /// lowest total error.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_find_ltp_params(
     ltp_index: &mut [i8],
     per_index: &mut i8,

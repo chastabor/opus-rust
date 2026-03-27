@@ -22,7 +22,6 @@ fn loss_distortion(
 }
 
 /// Encode coarse energy (single pass implementation).
-#[allow(clippy::too_many_arguments)]
 fn quant_coarse_energy_impl(
     m: &CeltMode,
     start: usize,
@@ -116,7 +115,6 @@ fn quant_coarse_energy_impl(
 }
 
 /// Encode coarse band energies (two-pass intra/inter).
-#[allow(clippy::too_many_arguments)]
 pub fn quant_coarse_energy(
     m: &CeltMode,
     start: usize,
@@ -232,7 +230,6 @@ pub fn quant_coarse_energy(
 }
 
 /// Encode fine energy bits.
-#[allow(clippy::too_many_arguments)]
 pub fn quant_fine_energy(
     m: &CeltMode,
     start: usize,
@@ -269,7 +266,6 @@ pub fn quant_fine_energy(
 }
 
 /// Encode energy finalise (use remaining bits).
-#[allow(clippy::too_many_arguments)]
 pub fn quant_energy_finalise_enc(
     m: &CeltMode,
     start: usize,
@@ -310,7 +306,6 @@ pub fn quant_energy_finalise_enc(
 }
 
 /// Unquantize coarse energy.
-#[allow(clippy::too_many_arguments)]
 pub fn unquant_coarse_energy(
     m: &CeltMode,
     start: usize,
@@ -391,7 +386,6 @@ pub fn unquant_fine_energy(
 }
 
 /// Unquantize energy finalise (use remaining bits).
-#[allow(clippy::too_many_arguments)]
 pub fn unquant_energy_finalise(
     m: &CeltMode,
     start: usize,

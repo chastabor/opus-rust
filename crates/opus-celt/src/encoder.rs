@@ -91,7 +91,6 @@ pub struct EncoderScratch {
 /// but since `coef[2] == 1.0` for 48 kHz this simplifies to:
 ///   `out[i] = pcm[i * cc] - mem;  mem = coef[0] * pcm[i * cc]`
 /// If `clip`, clamp the signal value to `[-65536, 65536]` before filtering.
-#[allow(clippy::too_many_arguments)]
 pub fn celt_preemphasis(
     pcm: &[f32],
     out: &mut [f32],
@@ -149,7 +148,6 @@ pub fn celt_preemphasis(
 /// `input` is `CC * (B*N + overlap)` samples, where each channel occupies
 /// a contiguous block of `B*N + overlap` samples.
 /// `freq` is `CC * B * N` (or `C * B * N` after downmix) frequency-domain output.
-#[allow(clippy::too_many_arguments)]
 fn compute_mdcts(
     mode: &CeltMode,
     short_blocks: i32,
@@ -264,7 +262,6 @@ fn tf_encode(
 
 /// Transient analysis: detect transients via forward/backward masking.
 /// Returns (is_transient, tf_estimate, weak_transient).
-#[allow(clippy::too_many_arguments)]
 fn transient_analysis(
     inp: &[f32],
     len: usize,
@@ -368,7 +365,6 @@ fn transient_analysis(
 
 /// Spreading decision: analyze spectral shape to determine spread mode.
 /// Port of bands.c spreading_decision().
-#[allow(clippy::too_many_arguments)]
 fn spreading_decision(
     m: &CeltMode,
     x: &[f32],
@@ -477,7 +473,6 @@ fn spreading_decision(
 }
 
 /// Alloc trim analysis: compute allocation trim from spectral tilt and stereo correlation.
-#[allow(clippy::too_many_arguments)]
 fn alloc_trim_analysis(
     m: &CeltMode,
     x: &[f32],
@@ -545,7 +540,6 @@ fn alloc_trim_analysis(
 }
 
 /// Dynamic allocation analysis: compute per-band boost offsets.
-#[allow(clippy::too_many_arguments)]
 fn dynalloc_analysis(
     band_log_e: &[f32],
     old_band_e: &[f32],
@@ -708,7 +702,6 @@ fn stereo_analysis(m: &CeltMode, x: &[f32], lm: i32, n0: usize) -> i32 {
 }
 
 /// VBR rate computation.
-#[allow(clippy::too_many_arguments)]
 fn compute_vbr(
     m: &CeltMode,
     base_target: i32,
@@ -781,7 +774,6 @@ fn compute_vbr(
 
 /// Run the prefilter: pitch search + comb filter to remove pitch periodicity.
 /// Returns (pf_on, pitch_index, gain, qg).
-#[allow(clippy::too_many_arguments)]
 fn run_prefilter(
     inp: &mut [f32],
     prefilter_mem: &mut [f32],

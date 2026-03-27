@@ -150,7 +150,6 @@ impl OpusProjectionEncoder {
     /// - `coupled_streams`: Number of coupled (stereo) streams
     /// - `mapping`: Channel mapping for the multistream encoder
     /// - `application`: Opus application type
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sample_rate: SampleRate,
         input_channels: usize,

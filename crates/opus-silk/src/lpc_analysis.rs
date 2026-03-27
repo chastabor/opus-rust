@@ -409,7 +409,6 @@ const FIND_LPC_COND_FAC_Q32: i32 = 42949;
 ///
 /// Computes LPC coefficients and residual energy from input signal,
 /// enforcing a maximum prediction gain via `min_inv_gain_q30`.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_burg_modified(
     res_nrg: &mut i32,     // O: Residual energy
     res_nrg_q: &mut i32,   // O: Residual energy Q value

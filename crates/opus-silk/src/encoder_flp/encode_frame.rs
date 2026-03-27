@@ -22,7 +22,6 @@ use crate::LA_SHAPE_MS;
 /// Port of silk_encode_frame_FLP (encode_frame_FLP.c).
 ///
 /// Returns the number of payload bytes written.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_encode_frame_flp(
     // Persistent encoder state
     x_buf: &mut [f32], // I/O: float analysis buffer (ltp_mem + la_shape + frame)

@@ -9,7 +9,6 @@ const MAX_SUM_LOG_GAIN_Q7: i32 = ((MAX_SUM_LOG_GAIN_DB / 6.0) * 128.0) as i32;
 
 /// Entropy-constrained matrix-weighted VQ for 5-element LTP vectors.
 /// Port of silk_VQ_WMat_EC_c (VQ_WMat_EC.c).
-#[allow(clippy::too_many_arguments)]
 fn silk_vq_wmat_ec(
     ind: &mut i8,
     res_nrg_q15: &mut i32,
@@ -99,7 +98,6 @@ fn silk_vq_wmat_ec(
 /// Quantize LTP gains (port of silk_quant_LTP_gains from quant_LTP_gains.c).
 ///
 /// Searches 3 codebooks with different rate/distortion tradeoffs.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_quant_ltp_gains(
     b_q14: &mut [i16; MAX_NB_SUBFR * LTP_ORDER],
     cbk_index: &mut [i8; MAX_NB_SUBFR],
@@ -200,7 +198,6 @@ pub fn silk_quant_ltp_gains(
 ///
 /// Converts float correlation matrices to Q17, calls the fixed-point quantizer,
 /// and converts results back to float.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_quant_ltp_gains_flp(
     b: &mut [f32; MAX_NB_SUBFR * LTP_ORDER], // O: quantized LTP gains (float)
     cbk_index: &mut [i8; MAX_NB_SUBFR],      // O: codebook indices

@@ -20,7 +20,6 @@ const LAMBDA_QUANT_OFFSET: f32 = 0.8;
 /// On input, `gains` contains the noise_shape gains (pre-floor).
 /// On output, `gains` contains the quantized gains (post-floor, post-quant).
 /// Returns lambda (rate-distortion tradeoff parameter).
-#[allow(clippy::too_many_arguments)]
 pub fn silk_process_gains_flp(
     gains: &mut [f32; MAX_NB_SUBFR], // I/O: per-subframe gains
     res_nrg: &[f32; MAX_NB_SUBFR],   // I: residual energy per subframe

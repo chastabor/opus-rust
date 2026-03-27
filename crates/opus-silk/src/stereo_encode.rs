@@ -204,7 +204,6 @@ pub fn silk_stereo_encode_mid_only(ps_range_enc: &mut EcCtx, mid_only_flag: i8) 
 /// * `to_mono` - True if this is the last frame before stereo->mono transition
 /// * `fs_khz` - Sample rate in kHz
 /// * `frame_length` - Number of samples per channel
-#[allow(clippy::too_many_arguments)]
 pub fn silk_stereo_lr_to_ms(
     state: &mut StereoEncState,
     x1: &mut [i16], // length = frame_length + 2

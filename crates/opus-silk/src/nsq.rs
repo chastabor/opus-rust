@@ -58,7 +58,6 @@ impl NsqState {
 }
 
 /// Scale states for the NSQ (matching silk_nsq_scale_states)
-#[allow(clippy::too_many_arguments)]
 fn silk_nsq_scale_states(
     nsq: &mut NsqState,
     x16: &[i16],
@@ -138,7 +137,6 @@ fn silk_nsq_scale_states(
 }
 
 /// Per-sample noise shape quantizer (matching silk_noise_shape_quantizer)
-#[allow(clippy::too_many_arguments)]
 fn silk_noise_shape_quantizer(
     nsq: &mut NsqState,
     signal_type: i32,
@@ -398,7 +396,6 @@ fn silk_noise_shape_quantizer(
 /// Port of silk_NSQ_c from silk/NSQ.c.
 /// Performs noise-shaped quantization of the input signal, producing
 /// quantized pulse signal and reconstructed signal.
-#[allow(clippy::too_many_arguments)]
 pub fn silk_nsq(
     nsq: &mut NsqState,
     indices: &mut SideInfoIndices,

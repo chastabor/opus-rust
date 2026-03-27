@@ -13,6 +13,12 @@ opus-silk = { path = "../opus-silk" }
 opus-ffi = { path = "../opus-ffi" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
+[lints.rust]
+unsafe-code = "forbid"
+
+[lints.clippy]
+too-many-arguments = "allow"
+
 [[bench]]
 name = "encode_decode"
 harness = false
