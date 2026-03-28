@@ -288,31 +288,54 @@ impl OpusDecoder {
             let mut silk_out_i16 = vec![0i16; silk_samples as usize];
             let mut silk_frame_size = 0i32;
 
+            // Construct OSCE post-filter if DNN is loaded, else no-op.
+            // Uses macro to avoid duplicating decode call for both ec paths.
+            macro_rules! silk_decode_with_filter {
+                ($ec:expr) => {{
+                    #[cfg(feature = "dnn")]
+                    {
+                        // Channel 0 is used for mono; stereo OSCE uses per-channel state
+                        if let Some(ref mut dnn) = self.dnn
+                            && dnn.osce.loaded
+                        {
+                            let mut pf = crate::dnn_decoder::OscePostFilter {
+                                model: &dnn.osce,
+                                feature_state: &mut dnn.osce_feature_state[0],
+                                lace_state: &mut dnn.osce_lace_state[0],
+                                nolace_state: &mut dnn.osce_nolace_state[0],
+                            };
+                            self.silk_dec.decode(
+                                &mut self.silk_control, lost_flag, first_frame,
+                                $ec, &mut silk_out_i16, &mut silk_frame_size, &mut pf,
+                            )
+                        } else {
+                            self.silk_dec.decode(
+                                &mut self.silk_control, lost_flag, first_frame,
+                                $ec, &mut silk_out_i16, &mut silk_frame_size,
+                                &mut opus_silk::decoder::NoPostFilter,
+                            )
+                        }
+                    }
+                    #[cfg(not(feature = "dnn"))]
+                    {
+                        self.silk_dec.decode(
+                            &mut self.silk_control, lost_flag, first_frame,
+                            $ec, &mut silk_out_i16, &mut silk_frame_size,
+                            &mut opus_silk::decoder::NoPostFilter,
+                        )
+                    }
+                }};
+            }
+
             if let Some(ref mut ec) = ec {
-                let silk_ret = self.silk_dec.decode(
-                    &mut self.silk_control,
-                    lost_flag,
-                    first_frame,
-                    ec,
-                    &mut silk_out_i16,
-                    &mut silk_frame_size,
-                );
+                let silk_ret = silk_decode_with_filter!(ec);
                 if silk_ret != 0 && !has_data {
-                    // PLC failure: fill with silence
                     silk_out_i16.fill(0);
                 }
             } else {
-                // PLC with no range coder - create a dummy one
                 let dummy_buf = [0u8; 2];
                 let mut dummy_ec = EcCtx::dec_init(&dummy_buf);
-                let silk_ret = self.silk_dec.decode(
-                    &mut self.silk_control,
-                    lost_flag,
-                    first_frame,
-                    &mut dummy_ec,
-                    &mut silk_out_i16,
-                    &mut silk_frame_size,
-                );
+                let silk_ret = silk_decode_with_filter!(&mut dummy_ec);
                 if silk_ret != 0 {
                     silk_out_i16.fill(0);
                 }

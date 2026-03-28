@@ -28,6 +28,27 @@ impl Default for SilkDecControl {
     }
 }
 
+/// Post-filter hook called after decode_core, before PLC/CNG.
+/// Allows the opus crate to inject OSCE enhancement without
+/// opus-silk depending on opus-dnn.
+pub trait SilkPostFilter {
+    fn enhance_frame(
+        &mut self,
+        p_out: &mut [i16],
+        channel: &ChannelState,
+        control: &DecoderControl,
+        num_bits: i32,
+    );
+}
+
+/// No-op post-filter (used when DNN/OSCE is not active).
+pub struct NoPostFilter;
+
+impl SilkPostFilter for NoPostFilter {
+    #[inline]
+    fn enhance_frame(&mut self, _: &mut [i16], _: &ChannelState, _: &DecoderControl, _: i32) {}
+}
+
 /// SILK Decoder super struct
 pub struct SilkDecoder {
     pub channel_state: [ChannelState; DECODER_NUM_CHANNELS],
@@ -71,6 +92,7 @@ impl SilkDecoder {
         ps_range_dec: &mut EcCtx,
         samples_out: &mut [i16],
         n_samples_out: &mut i32,
+        post_filter: &mut impl SilkPostFilter,
     ) -> i32 {
         let mut ret = 0i32;
         let mut decode_only_middle = false;
@@ -285,6 +307,7 @@ impl SilkDecoder {
                     &mut n_samples_out_dec,
                     lost_flag,
                     cond_coding,
+                    post_filter,
                 );
             } else {
                 samples_out1_n[2..2 + n_samples_out_dec as usize].fill(0);
@@ -387,6 +410,7 @@ fn silk_decode_frame(
     p_n: &mut i32,
     lost_flag: i32,
     cond_coding: i32,
+    post_filter: &mut impl SilkPostFilter,
 ) -> i32 {
     let l = ps_dec.frame_length as usize;
     let mut ps_dec_ctrl = DecoderControl::default();
@@ -395,6 +419,8 @@ fn silk_decode_frame(
         || (lost_flag == FLAG_DECODE_LBRR
             && ps_dec.lbrr_flags[ps_dec.n_frames_decoded as usize] == 1)
     {
+        let ec_start = ps_range_dec.tell();
+
         // Decode indices
         decode_indices::silk_decode_indices(
             ps_dec,
@@ -419,6 +445,11 @@ fn silk_decode_frame(
 
         // Run inverse NSQ
         decode_core::silk_decode_core(ps_dec, &ps_dec_ctrl, p_out, &pulses);
+
+        // OSCE post-filter: enhance decoded output before PLC/CNG
+        // Matches C: osce_enhance_frame() call in silk/decode_frame.c:113
+        let num_bits = ps_range_dec.tell() - ec_start;
+        post_filter.enhance_frame(p_out, ps_dec, &ps_dec_ctrl, num_bits);
 
         // Update output buffer
         let mv_len = (ps_dec.ltp_mem_length - ps_dec.frame_length) as usize;

@@ -32,9 +32,13 @@ pub struct DnnDecoderState {
     /// LPCNet PLC state (deep packet loss concealment).
     pub(crate) plc: opus_dnn::lpcnet::plc::LpcnetPlcState,
     /// OSCE model (speech enhancement).
-    /// TODO: Wire into SILK decoder post-processing path (requires opus-silk API changes).
-    #[allow(dead_code)]
     pub(crate) osce: opus_dnn::osce::structs::OsceModel,
+    /// Per-channel OSCE feature extraction state.
+    pub(crate) osce_feature_state: [opus_dnn::osce::structs::OsceFeatureState; 2],
+    /// Per-channel LACE processing state.
+    pub(crate) osce_lace_state: [Option<opus_dnn::osce::lace::LaceState>; 2],
+    /// Per-channel NoLACE processing state.
+    pub(crate) osce_nolace_state: [Option<opus_dnn::osce::nolace::NoLaceState>; 2],
 }
 
 impl DnnDecoderState {
@@ -53,6 +57,16 @@ impl DnnDecoderState {
             opus_dnn::dred::rdovae_dec::rdovae_dec_state_init(&rdovae_dec);
         let dred = opus_dnn::dred::decoder::OpusDred::new(latent_dim, state_dim);
 
+        // Initialize per-channel OSCE state from model dimensions
+        let osce_lace_state = [
+            osce.lace.as_ref().map(opus_dnn::osce::lace::lace_state_init),
+            osce.lace.as_ref().map(opus_dnn::osce::lace::lace_state_init),
+        ];
+        let osce_nolace_state = [
+            osce.nolace.as_ref().map(opus_dnn::osce::nolace::nolace_state_init),
+            osce.nolace.as_ref().map(opus_dnn::osce::nolace::nolace_state_init),
+        ];
+
         Ok(DnnDecoderState {
             loaded: true,
             dred,
@@ -61,6 +75,9 @@ impl DnnDecoderState {
             rdovae_dec_state,
             plc,
             osce,
+            osce_feature_state: Default::default(),
+            osce_lace_state,
+            osce_nolace_state,
         })
     }
 }

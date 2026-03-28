@@ -1775,6 +1775,7 @@ mod tests {
             &mut range_dec,
             &mut decoded,
             &mut n_samples_out,
+            &mut crate::decoder::NoPostFilter,
         );
 
         assert_eq!(ret, 0, "Decode should succeed on encoder output");
