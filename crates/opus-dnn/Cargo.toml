@@ -14,6 +14,13 @@ osce = []
 opus-celt = { path = "../opus-celt" }
 opus-range-coder = { path = "../opus-range-coder" }
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "dnn_bench"
+harness = false
+
 [lints.rust]
 unsafe-code = "forbid"
 
