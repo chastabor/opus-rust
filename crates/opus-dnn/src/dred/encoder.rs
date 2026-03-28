@@ -279,7 +279,7 @@ pub fn dred_encode_silk_frame(
     }
 
     // Encode latent pairs with voice activity tracking (C lines 346-373).
-    let mut ec_bak = ec.clone();
+    let mut ec_bak = ec.save_state();
     let mut dred_encoded = 0usize;
     let mut prev_active = false;
 
@@ -316,7 +316,7 @@ pub fn dred_encode_silk_frame(
         // This trims trailing silence from the bitstream (C lines 367-372).
         let active = dred_voice_active(activity_mem, i + latent_offset);
         if active || prev_active {
-            ec_bak = ec.clone();
+            ec_bak = ec.save_state();
             dred_encoded = i + 2;
         }
         prev_active = active;
@@ -330,7 +330,7 @@ pub fn dred_encode_silk_frame(
     }
 
     // Roll back to last voice-active checkpoint and finalize.
-    ec = ec_bak;
+    ec.restore_state(&ec_bak);
     let ec_buffer_fill = ((ec.tell() + 7) / 8) as u32;
     ec.enc_shrink(ec_buffer_fill);
     ec.enc_done();
