@@ -7,14 +7,9 @@ use crate::extensions::OpusExtensionData;
 const DRED_STAGE_DECODED: i32 = 1;
 
 /// Parse DRED data from a decoded Opus extension (ID 126).
-/// Extracts DRED latents from the extension payload and feeds
-/// decoded FEC features to the PLC system.
-///
-/// NOTE: The DRED entropy decoder (`dred_ec_decode`) is currently a stub
-/// that does not perform actual range decoding. Full implementation requires
-/// opus-range-coder laplace integration and the quantization statistics
-/// tables from the model weight data. Until then, this function is
-/// structurally complete but produces no decoded latents.
+/// Extracts DRED latents from the extension payload via range decoding,
+/// runs the RDOVAE decoder to recover FEC features, and feeds them
+/// to the PLC system for use during packet loss concealment.
 pub fn decoder_process_dred_extension(
     decoder: &mut OpusDecoder,
     extension: &OpusExtensionData,

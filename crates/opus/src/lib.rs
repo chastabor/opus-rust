@@ -2,6 +2,8 @@ pub mod decoder;
 #[cfg(feature = "dnn")]
 pub mod dnn_decoder;
 #[cfg(feature = "dnn")]
+pub mod dnn_silk_bridge;
+#[cfg(feature = "dnn")]
 pub mod dnn_types;
 pub mod encoder;
 pub mod error;

@@ -4,12 +4,14 @@ use super::*;
 use super::coding::compute_quantizer;
 
 /// DRED quantization statistics (loaded from dred_rdovae_stats_data).
-/// These tables are indexed by `q_level * dim` for per-element decoding.
+/// These tables are indexed by `q_level * dim` for per-element decoding/encoding.
 pub struct DredStats {
     pub state_quant_scales: Vec<u8>,
+    pub state_dead_zone: Vec<u8>,
     pub state_r: Vec<u8>,
     pub state_p0: Vec<u8>,
     pub latent_quant_scales: Vec<u8>,
+    pub latent_dead_zone: Vec<u8>,
     pub latent_r: Vec<u8>,
     pub latent_p0: Vec<u8>,
     pub state_dim: usize,
