@@ -458,6 +458,41 @@ impl OpusEncoder {
 
         let mut silk_bytes_used = 0i32;
 
+        // === DRED latent computation (before SILK encoding) ===
+        #[cfg(feature = "dnn")]
+        if let Some(ref mut dnn) = self.dnn
+            && dnn.dred_duration > 0
+        {
+            // DRED processes mono f32 PCM at the input sample rate.
+            // Downmix to mono if stereo.
+            let mono_pcm: Vec<f32> = if self.channels == 2 {
+                (0..frame_size as usize)
+                    .map(|i| 0.5 * (pcm[2 * i] + pcm[2 * i + 1]))
+                    .collect()
+            } else {
+                pcm[..frame_size as usize].to_vec()
+            };
+
+            opus_dnn::dred::encoder::dred_compute_latents(
+                &mut dnn.dred_enc,
+                &mono_pcm,
+                frame_size as usize,
+                self.delay_compensation,
+            );
+
+            // Update activity_mem: shift old entries left, insert new VAD decision.
+            // Resolution: 2.5ms frames (Fs/400). C: frame_size_400Hz = frame_size * 400 / Fs.
+            let frame_size_400hz = (frame_size * 400 / self.fs) as usize;
+            let mem_len = dnn.activity_mem.len();
+            if frame_size_400hz < mem_len {
+                dnn.activity_mem.copy_within(frame_size_400hz.., 0);
+                let activity = u8::from(self.silk_flp.speech_activity_q8 > 0);
+                for v in &mut dnn.activity_mem[mem_len - frame_size_400hz..] {
+                    *v = activity;
+                }
+            }
+        }
+
         // === SILK encoding ===
         if mode == Mode::SilkOnly as i32 || mode == Mode::Hybrid as i32 {
             // Determine SILK internal rate
@@ -828,6 +863,57 @@ impl OpusEncoder {
         if mode == Mode::SilkOnly as i32 {
             while ret > 2 && data[ret as usize - 1] == 0 {
                 ret -= 1;
+            }
+        }
+
+        // === DRED extension encoding ===
+        #[cfg(feature = "dnn")]
+        if let Some(ref mut dnn) = self.dnn
+            && dnn.dred_duration > 0
+            && dnn.dred_enc.latents_buffer_fill > 0
+        {
+            // Compute quantization parameters from bitrate (matching C: opus_encoder.c:707-727)
+            let bitrate_offset = if self.use_inband_fec { 20000 } else { 12000 };
+            let effective_br = (self.bitrate_bps - bitrate_offset).max(1);
+            let q0 = 15.min(4.max(51 - 3 * opus_celt::mathops::ec_ilog(effective_br as u32)));
+            let dq = if effective_br > 36000 { 3 } else { 5 };
+            let qmax = 15;
+
+            let max_chunks = dnn.dred_duration as usize;
+            let dred_space = (max_data_bytes as usize).saturating_sub(ret as usize);
+            let max_dred_bytes = dred_space.min(opus_dnn::dred::DRED_MAX_DATA_SIZE);
+
+            if max_dred_bytes >= opus_dnn::dred::DRED_MIN_BYTES {
+                let mut dred_buf = vec![0u8; max_dred_bytes];
+                let dred_bytes = opus_dnn::dred::encoder::dred_encode_silk_frame(
+                    &mut dnn.dred_enc,
+                    &mut dred_buf,
+                    max_chunks,
+                    max_dred_bytes,
+                    q0,
+                    dq,
+                    qmax,
+                    &dnn.activity_mem,
+                    &dnn.dred_stats,
+                );
+
+                if dred_bytes > 0 {
+                    let ext = crate::extensions::OpusExtensionData {
+                        id: opus_dnn::dred::DRED_EXTENSION_ID as i32,
+                        frame: 0,
+                        data: dred_buf[..dred_bytes].to_vec(),
+                    };
+                    let ext_space = (max_data_bytes as usize).saturating_sub(ret as usize);
+                    if ext_space > 0
+                        && let Ok(ext_bytes) = crate::extensions::opus_packet_extensions_generate(
+                            &mut data[ret as usize..],
+                            &[ext],
+                            1,
+                        )
+                    {
+                        ret += ext_bytes;
+                    }
+                }
             }
         }
 

@@ -65,9 +65,9 @@ pub fn load_decoder_dnn(
     let fargan_state = crate::fargan::fargan_state_init(fargan_model);
     let plc_state = crate::lpcnet::plc::lpcnet_plc_init(plc_model, fargan_state, enc_state);
 
-    // Init OSCE models
+    // Init OSCE models (reuse already-parsed arrays instead of re-parsing blob)
     let mut osce_model = crate::osce::structs::OsceModel::default();
-    let _ = crate::osce::osce_load_models(&mut osce_model, data, data.len());
+    crate::osce::osce_load_models_from_arrays(&mut osce_model, &arrays)?;
 
     Ok((rdovae_dec, plc_state, osce_model))
 }

@@ -120,6 +120,10 @@ pub struct ParsedPacket {
     /// For self-delimited packets in multistream, this tells you
     /// how far to advance to find the next stream's data.
     pub packet_offset: usize,
+    /// Offset where the padding/extension area begins (after all frame data).
+    pub padding_offset: usize,
+    /// Length of the padding/extension area in bytes.
+    pub padding_len: usize,
 }
 
 /// Parse an Opus packet into its constituent frames.
@@ -275,13 +279,17 @@ fn opus_packet_parse_impl(data: &[u8], self_delimited: bool) -> Result<ParsedPac
 
     // Advance past all frame data
     let total_frame_bytes: i32 = sizes.iter().map(|s| *s as i32).sum();
-    let packet_offset = (pos as i32 + total_frame_bytes + pad) as usize;
+    let padding_offset = (pos as i32 + total_frame_bytes) as usize;
+    let padding_len = pad as usize;
+    let packet_offset = padding_offset + padding_len;
 
     Ok(ParsedPacket {
         toc,
         frame_sizes: sizes,
         payload_offset,
         packet_offset,
+        padding_offset,
+        padding_len,
     })
 }
 

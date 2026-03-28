@@ -202,6 +202,20 @@ impl OpusDecoder {
             return Ok(audiosize);
         }
 
+        // DNN-based PLC: if we have DNN loaded and data is missing, try deep PLC
+        #[cfg(feature = "dnn")]
+        if !has_data && self.dnn.as_ref().is_some_and(|d| d.loaded) {
+            let n = (audiosize * self.channels) as usize;
+            let mut plc_i16 = vec![0i16; n];
+            if crate::dnn_decoder::decoder_plc_conceal(self, &mut plc_i16) {
+                for i in 0..n.min(pcm.len()) {
+                    pcm[i] = plc_i16[i] as f32 * (1.0 / 32768.0);
+                }
+                self.prev_mode = mode;
+                return Ok(audiosize);
+            }
+        }
+
         // For PLC with long frames, break into 20ms chunks
         if !has_data && audiosize > f20 {
             let mut remaining = audiosize;
@@ -472,6 +486,29 @@ impl OpusDecoder {
         let parsed = opus_packet_parse(data)?;
         let count = parsed.frame_sizes.len() as i32;
 
+        // Parse DRED extensions from packet padding area
+        #[cfg(feature = "dnn")]
+        if parsed.padding_len > 0 {
+            let pad_end = parsed.padding_offset + parsed.padding_len;
+            if pad_end <= data.len() {
+                let ext_data = &data[parsed.padding_offset..pad_end];
+                let mut nb_ext = 0i32;
+                let mut extensions = Vec::new();
+                if crate::extensions::opus_packet_extensions_parse(
+                    ext_data, &mut nb_ext, &mut extensions,
+                ).is_ok() {
+                    let frame_offset = 0i32; // DRED offset relative to current packet
+                    for ext in &extensions {
+                        if ext.id == opus_dnn::dred::DRED_EXTENSION_ID as i32 {
+                            crate::dnn_decoder::decoder_process_dred_extension(
+                                self, ext, frame_offset,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // FEC
         if decode_fec {
             if frame_size < packet_frame_size
@@ -527,6 +564,17 @@ impl OpusDecoder {
         }
 
         self.last_packet_duration = nb_samples;
+
+        // Update DNN PLC state with successfully decoded audio
+        #[cfg(feature = "dnn")]
+        if self.dnn.as_ref().is_some_and(|d| d.loaded) {
+            let total = nb_samples as usize * self.channels as usize;
+            let pcm_i16: Vec<i16> = pcm[..total]
+                .iter()
+                .map(|&s| (s * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+                .collect();
+            crate::dnn_decoder::decoder_plc_update(self, &pcm_i16);
+        }
 
         // Soft clipping
         opus_pcm_soft_clip(pcm, nb_samples, self.channels, &mut self.softclip_mem);

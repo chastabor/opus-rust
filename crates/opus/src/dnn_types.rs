@@ -32,6 +32,8 @@ pub struct DnnDecoderState {
     /// LPCNet PLC state (deep packet loss concealment).
     pub(crate) plc: opus_dnn::lpcnet::plc::LpcnetPlcState,
     /// OSCE model (speech enhancement).
+    /// TODO: Wire into SILK decoder post-processing path (requires opus-silk API changes).
+    #[allow(dead_code)]
     pub(crate) osce: opus_dnn::osce::structs::OsceModel,
 }
 
@@ -75,6 +77,9 @@ pub struct DnnEncoderState {
     pub(crate) dred_stats: opus_dnn::dred::decoder::DredStats,
     /// DRED duration in frames (0 = disabled).
     pub(crate) dred_duration: i32,
+    /// Per-2.5ms voice activity flags for DRED encoding.
+    /// Size: DRED_MAX_FRAMES * 4. Shifted left each frame, new entries appended.
+    pub(crate) activity_mem: Vec<u8>,
 }
 
 impl DnnEncoderState {
@@ -96,6 +101,7 @@ impl DnnEncoderState {
             dred_enc,
             dred_stats,
             dred_duration: 0,
+            activity_mem: vec![0u8; opus_dnn::dred::DRED_MAX_FRAMES * 4],
         })
     }
 }

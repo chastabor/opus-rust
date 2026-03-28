@@ -74,9 +74,7 @@ fn test_rdovae_gdense1_sparse_vs_c() {
     let mut c_sgemv = vec![0.0f32; nb_outputs];
     opus_ffi::c_sparse_sgemv8x4(&mut c_sgemv, fw, idx, nb_outputs, &input);
 
-    let max_sgemv_diff = rust_sgemv.iter().zip(&c_sgemv)
-        .map(|(r, c)| (r - c).abs())
-        .fold(0.0f32, f32::max);
+    let (max_sgemv_diff, _) = common::max_abs_diff(&rust_sgemv, &c_sgemv);
 
     eprintln!("  sparse_sgemv8x4 max_diff = {max_sgemv_diff:.6e}");
     eprintln!("  rust_sgemv[0..4] = {:?}", &rust_sgemv[..4.min(nb_outputs)]);
@@ -113,9 +111,7 @@ fn test_rdovae_enc_dense1_via_c_model_init() {
     let c_out = opus_ffi::c_rdovae_enc_dense1(&blob, &input)
         .expect("C enc_dense1 failed");
 
-    let max_diff = rust_out.iter().zip(&c_out)
-        .map(|(r, c)| (r - c).abs())
-        .fold(0.0f32, f32::max);
+    let (max_diff, _) = common::max_abs_diff(&rust_out, &c_out);
 
     eprintln!("RDOVAE enc_dense1 (C model init vs Rust model init):");
     eprintln!("  ni={nb_inputs}, no={nb_outputs}");
@@ -169,12 +165,8 @@ fn rdovae_encode_vs_c_helper(
         enc_blob, input, latent_dim, state_dim,
     ).expect("C RDOVAE encode failed");
 
-    let max_lat = rust_latents.iter().zip(&c_latents)
-        .map(|(r, c)| (r - c).abs())
-        .fold(0.0f32, f32::max);
-    let max_st = rust_state.iter().zip(&c_state)
-        .map(|(r, c)| (r - c).abs())
-        .fold(0.0f32, f32::max);
+    let (max_lat, _) = common::max_abs_diff(&rust_latents, &c_latents);
+    let (max_st, _) = common::max_abs_diff(&rust_state, &c_state);
 
     eprintln!("RDOVAE encode ({label} input):");
     eprintln!("  latent max_diff = {max_lat:.6}");
@@ -216,9 +208,7 @@ fn test_rdovae_enc_dense1_vs_c() {
     let mut c_out = vec![0.0f32; nb_outputs];
     opus_ffi::c_compute_linear(&mut c_out, fw, bias, nb_inputs, nb_outputs, &input);
 
-    let max_diff = rust_out.iter().zip(&c_out)
-        .map(|(r, c)| (r - c).abs())
-        .fold(0.0f32, f32::max);
+    let (max_diff, _) = common::max_abs_diff(&rust_out, &c_out);
 
     eprintln!("  enc_dense1 max_diff = {max_diff:.6e}");
     assert!(max_diff < 1e-4, "enc_dense1 (non-sparse) diff {max_diff} too large");

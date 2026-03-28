@@ -18,13 +18,21 @@ pub fn osce_load_models(
     _len: usize,
 ) -> Result<(), WeightError> {
     let arrays = parse_weights(data).ok_or(WeightError)?;
+    osce_load_models_from_arrays(model, &arrays)
+}
 
-    if let Ok(lace_model) = lace::init_lace(&arrays) {
+/// Load OSCE models from pre-parsed weight arrays.
+/// Avoids re-parsing the blob when arrays are already available.
+pub fn osce_load_models_from_arrays(
+    model: &mut OsceModel,
+    arrays: &[crate::nnet::WeightArray],
+) -> Result<(), WeightError> {
+    if let Ok(lace_model) = lace::init_lace(arrays) {
         model.lace = Some(lace_model);
         model.method = OSCE_METHOD_LACE;
     }
 
-    if let Ok(nolace_model) = nolace::init_nolace(&arrays) {
+    if let Ok(nolace_model) = nolace::init_nolace(arrays) {
         model.nolace = Some(nolace_model);
         model.method = OSCE_METHOD_NOLACE; // NoLACE preferred when both available
     }

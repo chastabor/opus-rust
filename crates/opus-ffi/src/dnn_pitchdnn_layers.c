@@ -5,7 +5,7 @@
 #include "nnet.h"
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
+
 
 /* Sparse float sgemv8x4: same as internal sparse_sgemv8x4 from vec.h.
    Exposed for direct Rust-vs-C comparison testing. */
@@ -60,12 +60,6 @@ void wrap_dense_tanh_from_blob(const void *blob, int blob_len,
         }
     }
 
-    fprintf(stderr, "  C dense_tanh: bias=%p, float_weights=%p, ni=%d, no=%d\n",
-            (void*)layer.bias, (void*)layer.float_weights, nb_inputs, nb_outputs);
-    if (layer.float_weights == NULL) {
-        fprintf(stderr, "  WARNING: float_weights not found for '%s'\n", weights_name);
-    }
-    fflush(stderr);
     compute_generic_dense(&layer, output, input, ACTIVATION_TANH, 0);
     free(list);
 }
