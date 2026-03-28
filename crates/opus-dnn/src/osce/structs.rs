@@ -1,4 +1,3 @@
-use crate::nndsp::{AdaConvState, AdaCombState, AdaShapeState};
 use super::config::*;
 
 /// OSCE feature extraction state. Matches C `OSCEFeatureState`.
@@ -39,58 +38,12 @@ impl Default for OsceBweFeatureState {
     }
 }
 
-/// NoLACE processing state. Matches C `NoLACEState`.
-pub struct NoLaceState {
-    pub feature_net_conv2_state: Vec<f32>,
-    pub feature_net_gru_state: Vec<f32>,
-    pub post_cf1_state: Vec<f32>,
-    pub post_cf2_state: Vec<f32>,
-    pub post_af1_state: Vec<f32>,
-    pub post_af2_state: Vec<f32>,
-    pub post_af3_state: Vec<f32>,
-    pub cf1_state: AdaCombState,
-    pub cf2_state: AdaCombState,
-    pub af1_state: AdaConvState,
-    pub af2_state: AdaConvState,
-    pub af3_state: AdaConvState,
-    pub af4_state: AdaConvState,
-    pub tdshape1_state: AdaShapeState,
-    pub tdshape2_state: AdaShapeState,
-    pub tdshape3_state: AdaShapeState,
-    pub preemph_mem: f32,
-    pub deemph_mem: f32,
-}
-
-impl NoLaceState {
-    pub fn new(conv2_state_size: usize, cond_dim: usize) -> Self {
-        NoLaceState {
-            feature_net_conv2_state: vec![0.0; conv2_state_size],
-            feature_net_gru_state: vec![0.0; cond_dim],
-            post_cf1_state: vec![0.0; cond_dim],
-            post_cf2_state: vec![0.0; cond_dim],
-            post_af1_state: vec![0.0; cond_dim],
-            post_af2_state: vec![0.0; cond_dim],
-            post_af3_state: vec![0.0; cond_dim],
-            cf1_state: AdaCombState::default(),
-            cf2_state: AdaCombState::default(),
-            af1_state: AdaConvState::default(),
-            af2_state: AdaConvState::default(),
-            af3_state: AdaConvState::default(),
-            af4_state: AdaConvState::default(),
-            tdshape1_state: AdaShapeState::default(),
-            tdshape2_state: AdaShapeState::default(),
-            tdshape3_state: AdaShapeState::default(),
-            preemph_mem: 0.0,
-            deemph_mem: 0.0,
-        }
-    }
-}
-
 /// OSCE model container. Matches C `OSCEModel`.
 pub struct OsceModel {
     pub loaded: bool,
     pub method: i32,
     pub lace: Option<super::lace::Lace>,
+    pub nolace: Option<super::nolace::NoLace>,
 }
 
 impl Default for OsceModel {
@@ -99,6 +52,7 @@ impl Default for OsceModel {
             loaded: false,
             method: OSCE_METHOD_NONE,
             lace: None,
+            nolace: None,
         }
     }
 }

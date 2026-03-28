@@ -1,7 +1,9 @@
+pub mod common;
 pub mod config;
 pub mod structs;
 pub mod features;
 pub mod lace;
+pub mod nolace;
 
 use crate::nnet::weights::{WeightError, parse_weights};
 use structs::OsceModel;
@@ -21,9 +23,10 @@ pub fn osce_load_models(
         model.method = OSCE_METHOD_LACE;
     }
 
-    // NoLACE and BBWENet loading would follow the same pattern.
-    // These require the auto-generated layer structs from nolace_data.h / bbwenet_data.h
-    // which will be defined when the weight codegen pipeline is implemented.
+    if let Ok(nolace_model) = nolace::init_nolace(&arrays) {
+        model.nolace = Some(nolace_model);
+        model.method = OSCE_METHOD_NOLACE; // NoLACE preferred when both available
+    }
 
     model.loaded = model.lace.is_some();
     Ok(())
@@ -47,6 +50,7 @@ pub fn osce_reset(model: &mut OsceModel, method: i32) {
 pub fn osce_enhance_frame(
     model: &OsceModel,
     lace_state: &mut Option<lace::LaceState>,
+    nolace_state: &mut Option<nolace::NoLaceState>,
     xq: &mut [f32],
     features: &[f32],
     numbits: &[f32; 2],
@@ -69,9 +73,15 @@ pub fn osce_enhance_frame(
             }
         }
         OSCE_METHOD_NOLACE => {
-            // NoLACE processing would be implemented here.
-            // It follows the same pattern as LACE but with more adaptive layers
-            // (4 AdaConv, 2 AdaComb, 3 AdaShape, plus post-processing convolutions).
+            if let (Some(nolace_model), Some(state)) = (&model.nolace, nolace_state.as_mut()) {
+                let mut output = [0.0f32; 4 * nolace::NOLACE_FRAME_SIZE];
+                let len = xq.len().min(output.len());
+                nolace::nolace_process_20ms_frame(
+                    nolace_model, state, &mut output, xq,
+                    features, numbits, periods,
+                );
+                xq[..len].copy_from_slice(&output[..len]);
+            }
         }
         _ => {}
     }
