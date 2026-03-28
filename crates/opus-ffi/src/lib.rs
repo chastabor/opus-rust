@@ -1656,3 +1656,77 @@ pub fn c_mdct_bench_backward(
         )
     }
 }
+
+// ============ DNN wrapper FFI declarations ============
+
+unsafe extern "C" {
+    pub fn wrap_compute_activation(output: *mut f32, input: *const f32, n: i32, activation: i32);
+    pub fn wrap_compute_linear(out: *mut f32, weights: *const f32, bias: *const f32,
+                               nb_inputs: i32, nb_outputs: i32, input: *const f32);
+    pub fn wrap_compute_linear_int8(out: *mut f32, weights: *const i8, bias: *const f32,
+                                    scale: *const f32, nb_inputs: i32, nb_outputs: i32,
+                                    input: *const f32);
+    pub fn wrap_compute_generic_dense(output: *mut f32, input: *const f32,
+                                      weights: *const f32, bias: *const f32,
+                                      nb_inputs: i32, nb_outputs: i32, activation: i32);
+    pub fn wrap_compute_generic_gru(state: *mut f32,
+                                    input_weights: *const f32, input_bias: *const f32,
+                                    recurrent_weights: *const f32, recurrent_bias: *const f32,
+                                    recurrent_diag: *const f32,
+                                    nb_inputs: i32, nb_neurons: i32,
+                                    input: *const f32);
+}
+
+/// Safe wrapper: compare C compute_activation vs Rust.
+pub fn c_compute_activation(output: &mut [f32], input: &[f32], activation: i32) {
+    let n = input.len() as i32;
+    unsafe {
+        wrap_compute_activation(output.as_mut_ptr(), input.as_ptr(), n, activation);
+    }
+}
+
+/// Safe wrapper: C compute_linear with float weights.
+pub fn c_compute_linear(out: &mut [f32], weights: &[f32], bias: &[f32],
+                        nb_inputs: usize, nb_outputs: usize, input: &[f32]) {
+    unsafe {
+        wrap_compute_linear(out.as_mut_ptr(), weights.as_ptr(), bias.as_ptr(),
+                           nb_inputs as i32, nb_outputs as i32, input.as_ptr());
+    }
+}
+
+/// Safe wrapper: C compute_linear with int8 quantized weights.
+pub fn c_compute_linear_int8(out: &mut [f32], weights: &[i8], bias: &[f32],
+                             scale: &[f32], nb_inputs: usize, nb_outputs: usize, input: &[f32]) {
+    unsafe {
+        wrap_compute_linear_int8(out.as_mut_ptr(), weights.as_ptr(), bias.as_ptr(),
+                                scale.as_ptr(), nb_inputs as i32, nb_outputs as i32, input.as_ptr());
+    }
+}
+
+/// Safe wrapper: C compute_generic_dense.
+pub fn c_compute_generic_dense(output: &mut [f32], input: &[f32],
+                               weights: &[f32], bias: &[f32],
+                               nb_inputs: usize, nb_outputs: usize, activation: i32) {
+    unsafe {
+        wrap_compute_generic_dense(output.as_mut_ptr(), input.as_ptr(),
+                                  weights.as_ptr(), bias.as_ptr(),
+                                  nb_inputs as i32, nb_outputs as i32, activation);
+    }
+}
+
+/// Safe wrapper: C compute_generic_gru.
+pub fn c_compute_generic_gru(state: &mut [f32],
+                             input_weights: &[f32], input_bias: &[f32],
+                             recurrent_weights: &[f32], recurrent_bias: &[f32],
+                             recurrent_diag: &[f32],
+                             nb_inputs: usize, nb_neurons: usize,
+                             input: &[f32]) {
+    unsafe {
+        wrap_compute_generic_gru(state.as_mut_ptr(),
+                                input_weights.as_ptr(), input_bias.as_ptr(),
+                                recurrent_weights.as_ptr(), recurrent_bias.as_ptr(),
+                                recurrent_diag.as_ptr(),
+                                nb_inputs as i32, nb_neurons as i32,
+                                input.as_ptr());
+    }
+}

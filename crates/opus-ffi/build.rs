@@ -43,11 +43,22 @@ fn main() {
 
     // Compile wrapper.c (non-variadic CTL shims) and celt_wrapper.c
     // (CELT internal function shims for cross-validation).
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    build
         .file(manifest_dir.join("src/wrapper.c"))
         .file(manifest_dir.join("src/celt_wrapper.c"))
         .include(&include_dir)
         .include(manifest_dir.join("opus-c/include"))
-        .include(manifest_dir.join("opus-c/celt"))
-        .compile("opus_wrapper");
+        .include(manifest_dir.join("opus-c/celt"));
+
+    // Add DNN wrapper when DNN is enabled.
+    if dnn_data_present {
+        build
+            .file(manifest_dir.join("src/dnn_wrapper.c"))
+            .include(manifest_dir.join("opus-c"))        // for celt/x86/x86cpu.h
+            .include(manifest_dir.join("opus-c/dnn"))
+            .include(manifest_dir.join("opus-c/silk"));   // for structs.h
+    }
+
+    build.compile("opus_wrapper");
 }
