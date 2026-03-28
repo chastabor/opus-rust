@@ -2,13 +2,30 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // Check if DNN weight data files are present (placed by opus-dnn build.rs).
+    let dnn_data_present = manifest_dir.join("opus-c/dnn/fargan_data.c").exists()
+        && manifest_dir.join("opus-c/dnn/pitchdnn_data.c").exists()
+        && manifest_dir.join("opus-c/dnn/plc_data.c").exists();
+
+    let dred_flag = if dnn_data_present { "ON" } else { "OFF" };
+    let osce_flag = if dnn_data_present { "ON" } else { "OFF" };
+
+    if dnn_data_present {
+        eprintln!("opus-ffi: DNN data files found, building with DRED+OSCE enabled");
+    } else {
+        eprintln!("opus-ffi: DNN data files not found, building without DNN features");
+        eprintln!("  (run `cargo build -p opus-dnn` first to download model weights)");
+    }
+
     // Build C libopus from the vendored submodule using cmake.
     let dst = cmake::Config::new("opus-c")
         .define("OPUS_BUILD_PROGRAMS", "OFF")
         .define("OPUS_BUILD_TESTING", "OFF")
         .define("BUILD_SHARED_LIBS", "OFF")
-        .define("OPUS_DRED", "OFF")
-        .define("OPUS_OSCE", "OFF")
+        .define("OPUS_DRED", dred_flag)
+        .define("OPUS_OSCE", osce_flag)
         // Enable custom modes to expose FFT alloc/free and MDCT init/clear.
         .define("OPUS_CUSTOM_MODES", "ON")
         // Note: keeping float build (default) for compatibility with correctness tests.
@@ -26,7 +43,6 @@ fn main() {
 
     // Compile wrapper.c (non-variadic CTL shims) and celt_wrapper.c
     // (CELT internal function shims for cross-validation).
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     cc::Build::new()
         .file(manifest_dir.join("src/wrapper.c"))
         .file(manifest_dir.join("src/celt_wrapper.c"))
