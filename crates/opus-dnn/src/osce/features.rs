@@ -82,9 +82,9 @@ const BAND_WEIGHTS_NOISY: [f32; 18] = [
 /// w[n] = sin(pi*(n+0.5)/320), symmetric.
 static OSCE_WINDOW: LazyLock<[f32; OSCE_SPEC_WINDOW_SIZE]> = LazyLock::new(|| {
     let mut w = [0.0f32; OSCE_SPEC_WINDOW_SIZE];
-    for n in 0..OSCE_SPEC_WINDOW_SIZE {
+    for (n, w_val) in w.iter_mut().enumerate() {
         let t = std::f64::consts::PI * (n as f64 + 0.5) / OSCE_SPEC_WINDOW_SIZE as f64;
-        w[n] = t.sin() as f32;
+        *w_val = t.sin() as f32;
     }
     w
 });
@@ -94,10 +94,10 @@ fn apply_filterbank(x_out: &mut [f32], x_in: &[f32], center_bins: &[usize], band
     x_out[0] = 0.0;
     for b in 0..num_bands - 1 {
         x_out[b + 1] = 0.0;
-        for i in center_bins[b]..center_bins[b + 1] {
+        for (i, x_val) in x_in.iter().enumerate().take(center_bins[b + 1]).skip(center_bins[b]) {
             let frac = (center_bins[b + 1] - i) as f32 / (center_bins[b + 1] - center_bins[b]) as f32;
-            x_out[b] += band_weights[b] * frac * x_in[i];
-            x_out[b + 1] += band_weights[b + 1] * (1.0 - frac) * x_in[i];
+            x_out[b] += band_weights[b] * frac * x_val;
+            x_out[b + 1] += band_weights[b + 1] * (1.0 - frac) * x_val;
         }
     }
     x_out[num_bands - 1] += band_weights[num_bands - 1] * x_in[center_bins[num_bands - 1]];
@@ -129,8 +129,8 @@ fn calculate_log_spectrum_from_lpc(spec: &mut [f32], a_q12: &[i16], lpc_order: u
     }
 
     apply_filterbank(spec, &inv_mag, &CENTER_BINS_CLEAN, &BAND_WEIGHTS_CLEAN, OSCE_CLEAN_SPEC_NUM_BANDS);
-    for i in 0..OSCE_CLEAN_SPEC_NUM_BANDS {
-        spec[i] = 0.3 * (spec[i] + 1e-9).ln();
+    for s in &mut spec[..OSCE_CLEAN_SPEC_NUM_BANDS] {
+        *s = 0.3 * (*s + 1e-9).ln();
     }
 }
 
@@ -151,8 +151,8 @@ fn calculate_cepstrum(cepstrum: &mut [f32], signal: &[f32]) {
     let mut spec_buf = [0.0f32; OSCE_SPEC_WINDOW_SIZE];
     apply_filterbank(&mut spec_buf[..OSCE_NOISY_SPEC_NUM_BANDS], &mag, &CENTER_BINS_NOISY, &BAND_WEIGHTS_NOISY, OSCE_NOISY_SPEC_NUM_BANDS);
 
-    for n in 0..OSCE_NOISY_SPEC_NUM_BANDS {
-        spec_buf[n] = (spec_buf[n] + 1e-9).ln();
+    for s in &mut spec_buf[..OSCE_NOISY_SPEC_NUM_BANDS] {
+        *s = (*s + 1e-9).ln();
     }
 
     let spec_input: [f32; NB_BANDS] = spec_buf[..NB_BANDS].try_into().unwrap();
@@ -166,7 +166,7 @@ fn calculate_cepstrum(cepstrum: &mut [f32], signal: &[f32]) {
 /// buffer (with history before it accessible via negative offsets).
 /// `frame_offset` is the index of the current frame within the full buffer.
 fn calculate_acorr(acorr: &mut [f32], full_buffer: &[f32], frame_offset: usize, lag: usize) {
-    for k_off in 0..5 {
+    for (k_off, ac) in acorr.iter_mut().enumerate().take(5) {
         let k = k_off as isize - 2;
         let mut xx = 0.0f32;
         let mut yy = 0.0f32;
@@ -183,7 +183,7 @@ fn calculate_acorr(acorr: &mut [f32], full_buffer: &[f32], frame_offset: usize, 
             yy += s_lag * s_lag;
             xy += s_n * s_lag;
         }
-        acorr[k_off] = xy / (xx * yy + 1e-9).sqrt();
+        *ac = xy / (xx * yy + 1e-9).sqrt();
     }
 }
 
@@ -233,7 +233,7 @@ pub fn osce_calculate_features(
         buffer[OSCE_FEATURES_MAX_HISTORY + n] = xq[n] as f32 / 32768.0;
     }
 
-    for k in 0..num_subframes {
+    for (k, period) in periods.iter_mut().enumerate().take(num_subframes) {
         let frame_start = OSCE_FEATURES_MAX_HISTORY + k * 80;
         let feat_base = k * OSCE_FEATURE_DIM;
 
@@ -270,7 +270,7 @@ pub fn osce_calculate_features(
         }
 
         // Pitch post-processing
-        periods[k] = pitch_postprocessing(state, input.pitch_lags[k], input.signal_type);
+        *period = pitch_postprocessing(state, input.pitch_lags[k], input.signal_type);
 
         // Autocorrelation around pitch lag (pass full buffer so negative lag offsets reach history)
         let acorr_off = feat_base + OSCE_ACORR_START;
@@ -278,7 +278,7 @@ pub fn osce_calculate_features(
             &mut features[acorr_off..acorr_off + OSCE_ACORR_LENGTH],
             &buffer,
             frame_start,
-            periods[k],
+            *period,
         );
 
         // LTP coefficients

@@ -5,7 +5,7 @@ use crate::nnet::ops::compute_generic_dense;
 /// Normalize kernel and apply per-channel gain.
 /// Matches C `scale_kernel` from nndsp.c.
 fn scale_kernel(kernel: &mut [f32], in_channels: usize, out_channels: usize, kernel_size: usize, gain: &[f32]) {
-    for oc in 0..out_channels {
+    for (oc, &g) in gain.iter().enumerate().take(out_channels) {
         let mut norm = 0.0f32;
         for ic in 0..in_channels {
             for k in 0..kernel_size {
@@ -17,7 +17,7 @@ fn scale_kernel(kernel: &mut [f32], in_channels: usize, out_channels: usize, ker
         for ic in 0..in_channels {
             for k in 0..kernel_size {
                 let idx = (oc * in_channels + ic) * kernel_size + k;
-                kernel[idx] *= norm * gain[oc];
+                kernel[idx] *= norm * g;
             }
         }
     }

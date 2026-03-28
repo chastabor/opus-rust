@@ -196,8 +196,8 @@ fn run_fargan_subframe(st: &mut FarganState, pcm: &mut [f32], cond: &[f32], peri
         if pos == PITCH_MAX_PERIOD { pos -= period; }
     }
     let mut prev = [0.0f32; FARGAN_SUBFRAME_SIZE];
-    for i in 0..FARGAN_SUBFRAME_SIZE {
-        prev[i] = (gain_1 * st.pitch_buf[PITCH_MAX_PERIOD - FARGAN_SUBFRAME_SIZE + i]).clamp(-1.0, 1.0);
+    for (i, prev_val) in prev.iter_mut().enumerate() {
+        *prev_val = (gain_1 * st.pitch_buf[PITCH_MAX_PERIOD - FARGAN_SUBFRAME_SIZE + i]).clamp(-1.0, 1.0);
     }
 
     // Build FWC0 input: [cond | pred | prev]

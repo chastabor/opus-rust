@@ -43,8 +43,8 @@ pub fn adashape_process_frame(
         mean += tenv[i];
     }
     mean /= tenv_size as f32;
-    for i in 0..tenv_size {
-        tenv[i] -= mean;
+    for t in &mut tenv[..tenv_size] {
+        *t -= mean;
     }
     tenv[tenv_size] = mean;
 

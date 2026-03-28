@@ -117,7 +117,7 @@ pub fn init_lace(arrays: &[WeightArray]) -> Result<Lace, WeightError> {
             hidden_dim,
             pitch_embed_dim,
             numbits_embed_dim,
-            pitch_max: pitch_max,
+            pitch_max,
             numbits_range_low: 50.0,
             numbits_range_high: 650.0,
             numbits_scales: [

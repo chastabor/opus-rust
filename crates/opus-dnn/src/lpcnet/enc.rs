@@ -103,14 +103,14 @@ pub fn compute_frame_features(st: &mut LpcnetEncState, input: &[f32]) {
     st.if_features[0] = ((1.0 / 64.0)
         * (10.0 * opus_celt::mathops::celt_log10(1e-15 + x_fft[0].r * x_fft[0].r) - 6.0))
         .clamp(-1.0, 1.0);
-    for i in 1..PITCH_IF_MAX_FREQ {
-        let prod_r = x_fft[i].r * st.prev_if[i].r + x_fft[i].i * st.prev_if[i].i;
-        let prod_i = x_fft[i].i * st.prev_if[i].r - x_fft[i].r * st.prev_if[i].i;
+    for (i, xf) in x_fft.iter().enumerate().take(PITCH_IF_MAX_FREQ).skip(1) {
+        let prod_r = xf.r * st.prev_if[i].r + xf.i * st.prev_if[i].i;
+        let prod_i = xf.i * st.prev_if[i].r - xf.r * st.prev_if[i].i;
         let norm_1 = 1.0 / (1e-15 + prod_r * prod_r + prod_i * prod_i).sqrt();
         st.if_features[3 * i - 2] = prod_r * norm_1;
         st.if_features[3 * i - 1] = prod_i * norm_1;
         st.if_features[3 * i] = ((1.0 / 64.0)
-            * (10.0 * opus_celt::mathops::celt_log10(1e-15 + x_fft[i].r * x_fft[i].r + x_fft[i].i * x_fft[i].i)
+            * (10.0 * opus_celt::mathops::celt_log10(1e-15 + xf.r * xf.r + xf.i * xf.i)
                 - 6.0))
             .clamp(-1.0, 1.0);
     }
@@ -181,14 +181,14 @@ pub fn compute_frame_features(st: &mut LpcnetEncState, input: &[f32]) {
         ener1 += buf[i + FRAME_SIZE] as f64 * buf[i + FRAME_SIZE] as f64
             - buf[i] as f64 * buf[i] as f64;
     }
-    for i in 0..PITCH_MAX_PERIOD - PITCH_MIN_PERIOD {
-        st.xcorr_features[i] /= ener_norm[i];
+    for (xf, en) in st.xcorr_features[..PITCH_MAX_PERIOD - PITCH_MIN_PERIOD].iter_mut().zip(ener_norm.iter()) {
+        *xf /= *en;
     }
 
     st.dnn_pitch = compute_pitchdnn(&mut st.pitchdnn, &st.if_features, &st.xcorr_features);
 
     let pitch = pitch_period_from_dnn(st.dnn_pitch);
-    let pitch = pitch.min(PITCH_MAX_PERIOD - 1).max(PITCH_MIN_PERIOD);
+    let pitch = pitch.clamp(PITCH_MIN_PERIOD, PITCH_MAX_PERIOD - 1);
 
     let lp = &st.lp_buf;
     let xx = opus_celt::mathops::celt_inner_prod(&lp[pm..], &lp[pm..], FRAME_SIZE);

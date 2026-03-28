@@ -141,6 +141,7 @@ const MAX_INPUTS: usize = 2048;
 /// Whether to use unsigned quantization (USE_SU_BIAS) for int8 matmul.
 /// - x86: uses unsigned (127 + round(127*x)), matching `vec_avx.h` / `dpbusds` semantics.
 /// - ARM: uses signed (round(127*x)), matching `vec_neon.h` / `sdot` semantics.
+///
 /// This is a compile-time constant matching the C `#ifdef USE_SU_BIAS` pattern.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 const USE_SU_BIAS: bool = true;

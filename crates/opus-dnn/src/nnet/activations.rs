@@ -62,7 +62,7 @@ fn lpcnet_exp2(x: f32) -> f32 {
 }
 
 fn lpcnet_exp(x: f32) -> f32 {
-    lpcnet_exp2(x * 1.44269504)
+    lpcnet_exp2(x * std::f32::consts::LOG2_E)
 }
 
 /// Rational tanh approximation matching C `tanh_approx`.

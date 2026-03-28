@@ -196,8 +196,8 @@ pub fn lpcnet_plc_update(st: &mut LpcnetPlcState, pcm: &[i16]) {
         st.predict_pos -= FRAME_SIZE;
     }
     st.pcm.copy_within(FRAME_SIZE.., 0);
-    for i in 0..FRAME_SIZE {
-        st.pcm[PLC_BUF_SIZE - FRAME_SIZE + i] = (1.0 / 32768.0) * pcm[i] as f32;
+    for (i, &p) in pcm.iter().enumerate().take(FRAME_SIZE) {
+        st.pcm[PLC_BUF_SIZE - FRAME_SIZE + i] = (1.0 / 32768.0) * p as f32;
     }
     st.loss_count = 0;
     st.blend = false;
@@ -214,8 +214,8 @@ pub fn lpcnet_plc_conceal(st: &mut LpcnetPlcState, pcm: &mut [i16]) {
         while st.analysis_pos + FRAME_SIZE <= PLC_BUF_SIZE {
             let mut x = [0.0f32; FRAME_SIZE];
             let mut plc_features = [0.0f32; 2 * NB_BANDS + NB_FEATURES + 1];
-            for i in 0..FRAME_SIZE {
-                x[i] = 32768.0 * st.pcm[st.analysis_pos + i];
+            for (i, x_val) in x.iter_mut().enumerate().take(FRAME_SIZE) {
+                *x_val = 32768.0 * st.pcm[st.analysis_pos + i];
             }
             burg_cepstral_analysis(&mut plc_features, &x);
             let x_copy = x;
@@ -280,8 +280,8 @@ pub fn lpcnet_plc_conceal(st: &mut LpcnetPlcState, pcm: &mut [i16]) {
     }
     st.predict_pos = PLC_BUF_SIZE;
     st.pcm.copy_within(FRAME_SIZE.., 0);
-    for i in 0..FRAME_SIZE {
-        st.pcm[PLC_BUF_SIZE - FRAME_SIZE + i] = (1.0 / 32768.0) * pcm[i] as f32;
+    for (i, &p) in pcm.iter().enumerate().take(FRAME_SIZE) {
+        st.pcm[PLC_BUF_SIZE - FRAME_SIZE + i] = (1.0 / 32768.0) * p as f32;
     }
     st.blend = true;
 }

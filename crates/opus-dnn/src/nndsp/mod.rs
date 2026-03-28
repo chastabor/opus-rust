@@ -80,7 +80,7 @@ impl Default for AdaShapeState {
 /// Compute overlap-add window (cosine half-window).
 /// Matches C `compute_overlap_window` from nndsp.c.
 pub fn compute_overlap_window(window: &mut [f32], overlap_size: usize) {
-    for i in 0..overlap_size {
-        window[i] = 0.5 + 0.5 * (std::f32::consts::PI * (i as f32 + 0.5) / overlap_size as f32).cos();
+    for (i, w) in window[..overlap_size].iter_mut().enumerate() {
+        *w = 0.5 + 0.5 * (std::f32::consts::PI * (i as f32 + 0.5) / overlap_size as f32).cos();
     }
 }

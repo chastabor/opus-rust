@@ -111,7 +111,7 @@ pub fn compute_gated_activation(
     activation: Activation,
 ) {
     let n = layer.nb_outputs;
-    debug_assert!(n % 2 == 0);
+    debug_assert!(n.is_multiple_of(2));
     debug_assert!(n <= MAX_INPUTS);
     let half = n / 2;
 

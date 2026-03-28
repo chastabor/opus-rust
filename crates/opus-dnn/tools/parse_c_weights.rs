@@ -118,12 +118,12 @@ fn extract_weight_table(source: &str, table_name: &str) -> Vec<(String, i32, usi
     let mut type_macros: HashMap<String, String> = HashMap::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("#define WEIGHTS_") {
-            if let Some(type_pos) = rest.find("_TYPE ") {
-                let macro_name = format!("WEIGHTS_{}", &rest[..type_pos + 5]);
-                let type_val = rest[type_pos + 6..].trim().to_string();
-                type_macros.insert(macro_name, type_val);
-            }
+        if let Some(rest) = trimmed.strip_prefix("#define WEIGHTS_")
+            && let Some(type_pos) = rest.find("_TYPE ")
+        {
+            let macro_name = format!("WEIGHTS_{}", &rest[..type_pos + 5]);
+            let type_val = rest[type_pos + 6..].trim().to_string();
+            type_macros.insert(macro_name, type_val);
         }
     }
 
@@ -188,7 +188,7 @@ pub fn write_blob(output_path: &str, arrays: &HashMap<String, (i32, Vec<u8>)>,
         };
 
         let size = data.len() as i32;
-        let block_size = ((data.len() + WEIGHT_BLOCK_SIZE - 1) / WEIGHT_BLOCK_SIZE) * WEIGHT_BLOCK_SIZE;
+        let block_size = data.len().div_ceil(WEIGHT_BLOCK_SIZE) * WEIGHT_BLOCK_SIZE;
 
         // Write 64-byte header
         let mut header = [0u8; WEIGHT_BLOCK_SIZE];

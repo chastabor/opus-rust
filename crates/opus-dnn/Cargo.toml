@@ -28,11 +28,3 @@ unsafe-code = "forbid"
 too-many-arguments = "allow"
 # Float constants must match C reference exactly for bit-identical output.
 excessive-precision = "allow"
-approx-constant = "allow"
-# Unrolled loops keep explicit `+ 0`, `* 1` to match C structure for cross-referencing.
-identity-op = "allow"
-manual-is-multiple-of = "allow"
-# Indexed loops match C structure for cross-referencing.
-needless-range-loop = "allow"
-# Clamp patterns in ported code match C min/max idioms.
-manual-clamp = "allow"

@@ -4,12 +4,12 @@ use crate::nnet::ops::compute_generic_dense;
 
 fn scale_kernel_1d(kernel: &mut [f32], kernel_size: usize, gain: f32) {
     let mut norm = 0.0f32;
-    for k in 0..kernel_size {
-        norm += kernel[k] * kernel[k];
+    for k in &kernel[..kernel_size] {
+        norm += k * k;
     }
     norm = 1.0 / (1e-6 + norm.sqrt());
-    for k in 0..kernel_size {
-        kernel[k] *= norm * gain;
+    for k in &mut kernel[..kernel_size] {
+        *k *= norm * gain;
     }
 }
 
