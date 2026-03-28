@@ -4,6 +4,8 @@
 //! They provide CTL-like configuration and the public API surface
 //! for DNN features in the Opus encoder and decoder.
 
+use crate::error::OpusError;
+
 /// CTL request IDs for DNN features, matching C opus_defines.h.
 pub const OPUS_SET_DRED_DURATION_REQUEST: i32 = 4050;
 pub const OPUS_GET_DRED_DURATION_REQUEST: i32 = 4051;
@@ -33,6 +35,34 @@ pub struct DnnDecoderState {
     pub(crate) osce: opus_dnn::osce::structs::OsceModel,
 }
 
+impl DnnDecoderState {
+    /// Load decoder DNN state from a binary weight blob.
+    ///
+    /// Parses the blob to initialize all decoder DNN components:
+    /// RDOVAE decoder, DRED stats, PLC (FARGAN + PitchDNN), and OSCE.
+    pub fn from_blob(data: &[u8]) -> Result<Self, OpusError> {
+        let (rdovae_dec, plc, osce) =
+            opus_dnn::load::load_decoder_dnn(data).map_err(|_| OpusError::BadArg)?;
+
+        let dred_stats = opus_dnn::dred::stats::init_dred_stats();
+        let latent_dim = rdovae_dec.latent_dim;
+        let state_dim = rdovae_dec.state_dim;
+        let rdovae_dec_state =
+            opus_dnn::dred::rdovae_dec::rdovae_dec_state_init(&rdovae_dec);
+        let dred = opus_dnn::dred::decoder::OpusDred::new(latent_dim, state_dim);
+
+        Ok(DnnDecoderState {
+            loaded: true,
+            dred,
+            dred_stats,
+            rdovae_dec,
+            rdovae_dec_state,
+            plc,
+            osce,
+        })
+    }
+}
+
 /// DNN encoder state, wrapping the opus-dnn DRED encoder.
 ///
 /// Stored as `Option` in `OpusEncoder` — `None` when DRED is disabled.
@@ -41,6 +71,31 @@ pub struct DnnEncoderState {
     pub(crate) loaded: bool,
     /// DRED encoder state (latent computation + encoding).
     pub(crate) dred_enc: opus_dnn::dred::encoder::DredEnc,
+    /// DRED quantization statistics (for encoding latents).
+    pub(crate) dred_stats: opus_dnn::dred::decoder::DredStats,
     /// DRED duration in frames (0 = disabled).
     pub(crate) dred_duration: i32,
+}
+
+impl DnnEncoderState {
+    /// Load encoder DNN state from a binary weight blob.
+    ///
+    /// Parses the blob to initialize the RDOVAE encoder and PitchDNN.
+    /// DRED duration defaults to 0 (disabled); call `set_dred_duration`
+    /// on the encoder to enable DRED after loading.
+    pub fn from_blob(data: &[u8]) -> Result<Self, OpusError> {
+        let (rdovae_enc, lpcnet_enc_state) =
+            opus_dnn::load::load_encoder_dnn(data).map_err(|_| OpusError::BadArg)?;
+
+        let dred_enc =
+            opus_dnn::dred::encoder::dred_encoder_init(rdovae_enc, lpcnet_enc_state);
+        let dred_stats = opus_dnn::dred::stats::init_dred_stats();
+
+        Ok(DnnEncoderState {
+            loaded: true,
+            dred_enc,
+            dred_stats,
+            dred_duration: 0,
+        })
+    }
 }

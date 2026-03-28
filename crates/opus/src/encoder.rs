@@ -260,6 +260,53 @@ impl OpusEncoder {
         self.fs
     }
 
+    /// Load DNN models from a binary weight blob and enable DRED support.
+    ///
+    /// The blob must contain at minimum the RDOVAE encoder and PitchDNN
+    /// weights. This is equivalent to the C `OPUS_SET_DNN_BLOB` CTL.
+    ///
+    /// After loading, DRED is not yet active — call [`set_dred_duration`]
+    /// with a non-zero value to start encoding DRED redundancy.
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn load_dnn(&mut self, data: &[u8]) -> Result<(), OpusError> {
+        let state = crate::dnn_types::DnnEncoderState::from_blob(data)?;
+        self.dnn = Some(Box::new(state));
+        Ok(())
+    }
+
+    /// Set the DRED duration in frames (0 = disabled).
+    ///
+    /// Controls how many frames of deep redundancy are encoded per packet.
+    /// The DNN models must be loaded first via [`load_dnn`].
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn set_dred_duration(&mut self, frames: i32) {
+        if let Some(ref mut dnn) = self.dnn {
+            dnn.dred_duration = frames.max(0);
+        }
+    }
+
+    /// Get the current DRED duration in frames.
+    ///
+    /// Returns 0 if DNN is not loaded or DRED is disabled.
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn dred_duration(&self) -> i32 {
+        self.dnn.as_ref().map_or(0, |dnn| dnn.dred_duration)
+    }
+
+    /// Returns whether DNN models are loaded and ready.
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn dnn_loaded(&self) -> bool {
+        self.dnn.as_ref().is_some_and(|dnn| dnn.loaded)
+    }
+
     /// Decide the encoding mode based on bitrate, application, bandwidth, and frame size.
     fn decide_mode(&self, frame_size: i32) -> (i32, i32) {
         let frame_duration_ms = frame_size * 1000 / self.fs;

@@ -5,9 +5,13 @@ implementing the CELT (voice), SILK (audio) and Opus hybrid audio streaming
 library. Only safe rust code has been utlized and as of version 2 the API
 enforces valid configurations through Rust enums.
 
-At this time the DNN (for noice reduction) has not been implemented. At this
-time the stable 2.0.2 is being utilized for personal projects and may see
-more optimizations. Opening this up to the public and royalty free [Licensing](/COPYING)
+As of version 2.1 the optional `dnn` feature enables DNN-based enhancements
+ported from libopus 1.6: **DRED** (Deep REDundancy) for resilient encoding,
+**deep PLC** (FARGAN + PitchDNN) for packet loss concealment, and **OSCE**
+(LACE/NoLACE) for speech enhancement. DNN weights are loaded at runtime via
+`load_dnn()` — see the DNN section below.
+
+Opening this up to the public and royalty free [Licensing](/COPYING)
 is included here and is based off the original xiph opus repository.
 
 
@@ -23,6 +27,39 @@ is included here and is based off the original xiph opus repository.
 | SampleRate | Hz8000, Hz12000, Hz16000, Hz24000, Hz48000 | raw i32 fs param |
 | Channels | Mono, Stereo | raw i32 channels param |
 | ForceChannels | Auto, Mono, Stereo | raw i32 (-1/1/2) |
+
+
+## DNN Features (optional)
+
+Enable the `dnn` feature to access DRED, deep PLC, and OSCE:
+
+```toml
+[dependencies]
+opus = { path = "crates/opus", features = ["dnn"] }
+```
+
+Load DNN weights at runtime from the binary blob (same format as C libopus
+`OPUS_SET_DNN_BLOB`):
+
+```rust
+use opus::{OpusEncoder, OpusDecoder, SampleRate, Channels, Application};
+
+// Encoder: load weights and enable DRED
+let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
+enc.load_dnn(&weight_blob)?;
+enc.set_dred_duration(10); // 10 frames of deep redundancy
+
+// Decoder: load weights for deep PLC + OSCE
+let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono)?;
+dec.load_dnn(&weight_blob)?;
+```
+
+| Method | Available on | Description |
+| ------ | ------------ | ----------- |
+| `load_dnn(&[u8])` | Encoder, Decoder | Load DNN model weights from binary blob |
+| `set_dred_duration(i32)` | Encoder | Set DRED redundancy frames (0 = disabled) |
+| `dred_duration()` | Encoder | Query current DRED duration |
+| `dnn_loaded()` | Encoder, Decoder | Check if DNN models are loaded |
 
 
 ## Tests and Benchmarks

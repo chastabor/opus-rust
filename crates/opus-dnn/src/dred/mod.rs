@@ -3,6 +3,7 @@ pub mod rdovae_enc;
 pub mod rdovae_dec;
 pub mod encoder;
 pub mod decoder;
+pub mod stats;
 
 use crate::lpcnet::enc::NB_TOTAL_FEATURES;
 

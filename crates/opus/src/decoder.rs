@@ -127,6 +127,33 @@ impl OpusDecoder {
         self.decode_gain
     }
 
+    /// Load DNN models from a binary weight blob and enable DNN-enhanced decoding.
+    ///
+    /// The blob must contain the RDOVAE decoder, PLC (FARGAN + PitchDNN),
+    /// and optionally OSCE (LACE/NoLACE) weights. This is equivalent to
+    /// the C `OPUS_SET_DNN_BLOB` CTL.
+    ///
+    /// Once loaded, the decoder will automatically:
+    /// - Parse DRED extensions (ID 126) from incoming packets
+    /// - Use deep PLC (FARGAN) for packet loss concealment
+    /// - Apply OSCE speech enhancement when available
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn load_dnn(&mut self, data: &[u8]) -> Result<(), OpusError> {
+        let state = crate::dnn_types::DnnDecoderState::from_blob(data)?;
+        self.dnn = Some(Box::new(state));
+        Ok(())
+    }
+
+    /// Returns whether DNN models are loaded and ready.
+    ///
+    /// Requires the `dnn` feature.
+    #[cfg(feature = "dnn")]
+    pub fn dnn_loaded(&self) -> bool {
+        self.dnn.as_ref().is_some_and(|dnn| dnn.loaded)
+    }
+
     /// Decode a single Opus frame.
     fn decode_frame(
         &mut self,

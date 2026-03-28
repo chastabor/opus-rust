@@ -8,3 +8,4 @@ pub mod lpcnet;
 pub mod dred;
 pub mod nndsp;
 pub mod osce;
+pub mod load;
