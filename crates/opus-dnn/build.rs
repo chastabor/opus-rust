@@ -31,7 +31,8 @@ fn main() {
     let extracted_marker = model_data_dir.join(".extracted");
 
     if extracted_marker.exists() {
-        // Already downloaded and extracted.
+        // Already downloaded and extracted — just ensure combined blob exists.
+        generate_combined_blob(&model_data_dir.join("blobs"));
         println!("cargo:rerun-if-changed=build.rs");
         println!("cargo:rerun-if-changed=tools/parse_c_weights.rs");
         return;
@@ -118,7 +119,7 @@ fn main() {
 
     // Parse C data files and generate binary weight blobs (pure Rust, no C compiler needed).
     let blobs_dir = model_data_dir.join("blobs");
-    if !blobs_dir.join("fargan.bin").exists() {
+    if !blobs_dir.join("fargan.bin").exists() || !blobs_dir.join("opus_dnn.blob").exists() {
         fs::create_dir_all(&blobs_dir).expect("failed to create blobs dir");
         let dnn_dir = model_data_dir.join("dnn");
 
@@ -149,6 +150,8 @@ fn main() {
                     }
                 }
             }
+
+            generate_combined_blob(&blobs_dir);
         }
     }
 
@@ -158,6 +161,42 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=tools/parse_c_weights.rs");
+}
+
+/// Concatenate individual model blobs into a single `opus_dnn.blob`.
+///
+/// The blob format is self-describing — each weight array record has a 64-byte
+/// header with `"wght"` magic and a name field — so concatenation produces a
+/// valid multi-model blob. Applications pass this single file to `load_dnn()`.
+fn generate_combined_blob(blobs_dir: &Path) {
+    let combined_path = blobs_dir.join("opus_dnn.blob");
+    if combined_path.exists() {
+        return;
+    }
+    let blob_order = [
+        "rdovae_enc.bin",
+        "rdovae_dec.bin",
+        "pitchdnn.bin",
+        "plcmodel.bin",
+        "fargan.bin",
+        "lace.bin",
+        "nolace.bin",
+        "bbwenet.bin",
+    ];
+    let mut combined = Vec::new();
+    for name in &blob_order {
+        let path = blobs_dir.join(name);
+        if let Ok(data) = fs::read(&path) {
+            combined.extend_from_slice(&data);
+        }
+    }
+    if !combined.is_empty() {
+        fs::write(&combined_path, &combined).expect("failed to write opus_dnn.blob");
+        eprintln!(
+            "  Combined blob: opus_dnn.blob ({:.1} MB)",
+            combined.len() as f64 / 1_048_576.0
+        );
+    }
 }
 
 fn which_exists(cmd: &str) -> bool {

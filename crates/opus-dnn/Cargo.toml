@@ -3,6 +3,7 @@ name = "opus-dnn"
 version = "1.0.0"
 edition = "2024"
 description = "DNN inference runtime for Opus audio codec (DRED, OSCE, deep PLC)"
+license = "BSD-3-Clause"
 
 [features]
 default = ["dred", "osce", "deep-plc"]

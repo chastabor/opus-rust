@@ -1,18 +1,21 @@
 # Opus Rust
 
-This is a Rust port of [opus v1.6](https://github.com/xiph/opus) C repository,
-implementing the CELT (voice), SILK (audio) and Opus hybrid audio streaming
-library. Only safe rust code has been utlized and as of version 2 the API
-enforces valid configurations through Rust enums.
+A pure-Rust implementation of the [Opus audio codec](https://github.com/xiph/opus)
+(v1.6), covering SILK (speech), CELT (audio), and hybrid modes. All library
+code is safe Rust — no `unsafe` blocks outside the optional FFI test crate.
+The API enforces valid configurations through Rust enums.
 
-As of version 2.1 the optional `dnn` feature enables DNN-based enhancements
-ported from libopus 1.6: **DRED** (Deep REDundancy) for resilient encoding,
-**deep PLC** (FARGAN + PitchDNN) for packet loss concealment, and **OSCE**
-(LACE/NoLACE) for speech enhancement. DNN weights are loaded at runtime via
-`load_dnn()` — see the DNN section below.
+## Features
 
-Opening this up to the public and royalty free [Licensing](/COPYING)
-is included here and is based off the original xiph opus repository.
+| Feature | Description | Status |
+| ------- | ----------- | ------ |
+| SILK encoder/decoder | Narrowband–wideband speech (8–16 kHz) | Stable |
+| CELT encoder/decoder | Fullband audio (48 kHz) | Stable |
+| Hybrid mode | SILK + CELT combined | Stable |
+| Multistream | Surround / multi-channel via repacketizer | Stable |
+| **DRED** | Deep REDundancy — resilient encoding against packet loss | `dnn` feature |
+| **Deep PLC** | FARGAN + PitchDNN packet-loss concealment | `dnn` feature |
+| **OSCE** | LACE/NoLACE speech enhancement (post-filter) | `dnn` feature |
 
 
 ## Encoder/Decoder API Enums
@@ -29,6 +32,23 @@ is included here and is based off the original xiph opus repository.
 | ForceChannels | Auto, Mono, Stereo | raw i32 (-1/1/2) |
 
 
+## Quick Start
+
+```rust
+use opus::{OpusEncoder, OpusDecoder, SampleRate, Channels, Application};
+
+// Encode
+let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
+let mut packet = vec![0u8; 4000];
+let len = enc.encode_float(&pcm_input, 960, &mut packet, 4000)?;
+
+// Decode
+let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono)?;
+let mut pcm_output = vec![0.0f32; 960];
+let samples = dec.decode_float(Some(&packet[..len as usize]), &mut pcm_output, 960, false)?;
+```
+
+
 ## DNN Features (optional)
 
 Enable the `dnn` feature to access DRED, deep PLC, and OSCE:
@@ -38,21 +58,59 @@ Enable the `dnn` feature to access DRED, deep PLC, and OSCE:
 opus = { path = "crates/opus", features = ["dnn"] }
 ```
 
-Load DNN weights at runtime from the binary blob (same format as C libopus
-`OPUS_SET_DNN_BLOB`):
+### Weight Blob
+
+The DNN models require a runtime weight blob (~16 MB). When the `opus-dnn`
+crate builds for the first time it downloads the official weights from
+xiph.org, converts them to the binary blob format, and produces a single
+combined file at:
+
+```
+crates/opus-dnn/model-data/blobs/opus_dnn.blob
+```
+
+This is the same format as C libopus `OPUS_SET_DNN_BLOB`. The blob is
+self-describing — each weight array carries a 64-byte header with its name
+— so both encoder and decoder can load the same file and each will extract
+only the weights it needs.
+
+### Loading Weights
 
 ```rust
 use opus::{OpusEncoder, OpusDecoder, SampleRate, Channels, Application};
 
-// Encoder: load weights and enable DRED
-let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
-enc.load_dnn(&weight_blob)?;
-enc.set_dred_duration(10); // 10 frames of deep redundancy
+// Load the combined weight blob (built automatically by opus-dnn)
+let weights = std::fs::read("crates/opus-dnn/model-data/blobs/opus_dnn.blob")?;
 
-// Decoder: load weights for deep PLC + OSCE
+// --- Encoder: DRED ---
+let mut enc = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
+enc.load_dnn(&weights)?;
+enc.set_dred_duration(10); // 10 frames of deep redundancy per packet
+
+// --- Decoder: DRED + deep PLC + OSCE ---
 let mut dec = OpusDecoder::new(SampleRate::Hz48000, Channels::Mono)?;
-dec.load_dnn(&weight_blob)?;
+dec.load_dnn(&weights)?;
+// DRED extensions are parsed automatically from incoming packets.
+// Deep PLC activates on packet loss. OSCE enhances SILK output at 16 kHz.
 ```
+
+For embedded or no-std environments you can embed the blob at compile time:
+
+```rust
+const WEIGHTS: &[u8] = include_bytes!("path/to/opus_dnn.blob");
+enc.load_dnn(WEIGHTS)?;
+```
+
+### How It Works
+
+| Component | When it runs | What it does |
+| --------- | ------------ | ------------ |
+| **DRED encoder** | Every frame (when `dred_duration > 0`) | Extracts latent features via RDOVAE, appends as Opus extension 126 |
+| **DRED decoder** | On packet arrival (if extension present) | Decodes latents, feeds FEC features to PLC |
+| **Deep PLC** | On packet loss | FARGAN neural vocoder synthesizes concealment audio |
+| **OSCE** | After SILK decode (16 kHz, 20 ms frames) | LACE or NoLACE post-filter enhances speech quality |
+
+### API Reference
 
 | Method | Available on | Description |
 | ------ | ------------ | ----------- |
@@ -64,17 +122,35 @@ dec.load_dnn(&weight_blob)?;
 
 ## Tests and Benchmarks
 
-Test for correctness to C version:
+```bash
+# Correctness against C reference
+cargo test -p opus --test correctness_vs_c
 
-`cargo test -p opus --test correctness_vs_c`
+# Full test suite (requires C submodule: git submodule update --init)
+cargo test -p opus
+
+# DNN model tests (requires dnn feature + weights)
+cargo test -p opus --features dnn
+
+# Benchmarks (Rust vs C reference)
+cargo bench -p opus
+```
 
 
-Test overall opus features
+## Project Structure
 
-`cargo test -p opus`
+```
+crates/
+  opus/              Main facade — encoder, decoder, multistream, repacketizer
+  opus-silk/         SILK codec — decoder + float encoder
+  opus-celt/         CELT codec — decoder + encoder
+  opus-range-coder/  Arithmetic entropy coder shared by SILK and CELT
+  opus-dnn/          DNN models — DRED, FARGAN, PitchDNN, OSCE (LACE/NoLACE)
+  opus-ffi/          C libopus FFI bindings (unsafe, for testing only)
+```
 
 
-Benchmark both Rust implementation and C Reference
+## License
 
-`cargo bench -p opus`
+Royalty-free — see [COPYING](/COPYING), based on the original xiph/opus license.
 
