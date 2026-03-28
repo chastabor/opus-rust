@@ -56,6 +56,7 @@ fn main() {
         build
             .file(manifest_dir.join("src/dnn_wrapper.c"))
             .file(manifest_dir.join("src/dnn_model_wrapper.c"))
+            .file(manifest_dir.join("src/dnn_pitchdnn_layers.c"))
             .include(manifest_dir.join("opus-c"))        // for celt/x86/x86cpu.h
             .include(manifest_dir.join("opus-c/dnn"))
             .include(manifest_dir.join("opus-c/silk"));   // for structs.h

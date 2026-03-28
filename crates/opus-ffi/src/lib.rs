@@ -1731,6 +1731,40 @@ pub fn c_compute_generic_gru(state: &mut [f32],
     }
 }
 
+// ============ DNN activation + layer comparison FFI declarations ============
+
+unsafe extern "C" {
+    fn wrap_sparse_sgemv8x4(out: *mut f32, w: *const f32, idx: *const i32,
+                             rows: i32, x: *const f32);
+    fn wrap_dense_tanh_from_blob(blob: *const u8, blob_len: i32,
+                                  bias_name: *const u8, weights_name: *const u8,
+                                  output: *mut f32, input: *const f32,
+                                  nb_inputs: i32, nb_outputs: i32);
+}
+
+/// Sparse float sgemv8x4 via C.
+pub fn c_sparse_sgemv8x4(out: &mut [f32], w: &[f32], idx: &[i32], rows: usize, x: &[f32]) {
+    unsafe {
+        wrap_sparse_sgemv8x4(out.as_mut_ptr(), w.as_ptr(), idx.as_ptr(), rows as i32, x.as_ptr());
+    }
+}
+
+/// Compute dense+tanh from a weight blob via C.
+pub fn c_dense_tanh_from_blob(blob: &[u8], bias_name: &str, weights_name: &str,
+                               output: &mut [f32], input: &[f32],
+                               nb_inputs: usize, nb_outputs: usize) {
+    let bias_cstr = std::ffi::CString::new(bias_name).unwrap();
+    let weights_cstr = std::ffi::CString::new(weights_name).unwrap();
+    unsafe {
+        wrap_dense_tanh_from_blob(
+            blob.as_ptr(), blob.len() as i32,
+            bias_cstr.as_ptr() as *const u8, weights_cstr.as_ptr() as *const u8,
+            output.as_mut_ptr(), input.as_ptr(),
+            nb_inputs as i32, nb_outputs as i32,
+        );
+    }
+}
+
 // ============ DNN model-level wrapper FFI declarations ============
 
 unsafe extern "C" {
@@ -1740,6 +1774,9 @@ unsafe extern "C" {
                                 if_features_seq: *const f32, xcorr_features_seq: *const f32,
                                 nb_if_features: i32, nb_xcorr_features: i32,
                                 n_steps: i32) -> f32;
+    fn wrap_rdovae_enc_dense1_only(blob: *const u8, blob_len: i32,
+                                    output: *mut f32, output_size: *mut i32,
+                                    input: *const f32) -> i32;
     fn wrap_rdovae_encode_dframe(blob: *const u8, blob_len: i32,
                                  latents: *mut f32, initial_state: *mut f32,
                                  input: *const f32) -> i32;
@@ -1776,6 +1813,22 @@ pub fn c_pitchdnn_multi_step(blob: &[u8], if_features_seq: &[f32], xcorr_feature
                                  if_features_seq.as_ptr(), xcorr_features_seq.as_ptr(),
                                  nb_if_features as i32, nb_xcorr_features as i32,
                                  n_steps as i32)
+    }
+}
+
+/// RDOVAE: run only enc_dense1 + tanh through C. Returns output vector.
+pub fn c_rdovae_enc_dense1(blob: &[u8], input: &[f32]) -> Result<Vec<f32>, i32> {
+    let mut output = vec![0.0f32; 256];
+    let mut size = 0i32;
+    let ret = unsafe {
+        wrap_rdovae_enc_dense1_only(blob.as_ptr(), blob.len() as i32,
+                                     output.as_mut_ptr(), &mut size, input.as_ptr())
+    };
+    if ret == 0 {
+        output.truncate(size as usize);
+        Ok(output)
+    } else {
+        Err(ret)
     }
 }
 

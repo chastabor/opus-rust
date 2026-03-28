@@ -119,3 +119,32 @@ pub fn assert_f32_slice_close(rust: &[f32], c: &[f32], tol: f32, name: &str) {
         tol
     );
 }
+
+// ============ DNN test utilities ============
+
+/// Simple LCG for reproducible DNN test data. Returns values in [-1.0, 1.0).
+pub fn lcg_f32(seed: &mut u32) -> f32 {
+    *seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+    ((*seed >> 16) as f32 / 32768.0) - 1.0
+}
+
+/// Generate a reproducible random f32 vector using LCG.
+pub fn gen_random_vec(n: usize, seed: &mut u32) -> Vec<f32> {
+    (0..n).map(|_| lcg_f32(seed)).collect()
+}
+
+/// Load a DNN weight blob from the opus-dnn model-data/blobs directory.
+/// Returns None if the file doesn't exist (e.g., weights not downloaded).
+pub fn load_dnn_blob(name: &str) -> Option<Vec<u8>> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../opus-dnn/model-data/blobs")
+        .join(name);
+    std::fs::read(&path).ok()
+}
+
+/// Compute the max absolute difference between two slices, returning (max_diff, index).
+pub fn max_abs_diff(a: &[f32], b: &[f32]) -> (f32, usize) {
+    a.iter().zip(b).enumerate()
+        .map(|(i, (x, y))| ((x - y).abs(), i))
+        .fold((0.0f32, 0), |(md, mi), (d, i)| if d > md { (d, i) } else { (md, mi) })
+}

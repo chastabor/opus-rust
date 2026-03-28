@@ -9,33 +9,11 @@
 
 mod common;
 
-use std::path::PathBuf;
-
-fn dnn_blobs_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../opus-dnn/model-data/blobs")
-}
-
-fn load_blob(name: &str) -> Option<Vec<u8>> {
-    let path = dnn_blobs_dir().join(name);
-    std::fs::read(&path).ok()
-}
-
-/// Simple LCG for reproducible test data.
-fn lcg_f32(seed: &mut u32) -> f32 {
-    *seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-    ((*seed >> 16) as f32 / 32768.0) - 1.0
-}
-
-fn gen_random_vec(n: usize, seed: &mut u32) -> Vec<f32> {
-    (0..n).map(|_| lcg_f32(seed)).collect()
-}
-
 // ============ PitchDNN Tests ============
 
 #[test]
 fn test_pitchdnn_single_step_vs_c() {
-    let Some(blob) = load_blob("pitchdnn.bin") else {
+    let Some(blob) = common::load_dnn_blob("pitchdnn.bin") else {
         eprintln!("Skipping: pitchdnn.bin not found");
         return;
     };
@@ -45,8 +23,8 @@ fn test_pitchdnn_single_step_vs_c() {
     let mut state = opus_dnn::pitchdnn::pitchdnn_state_init(model);
 
     let mut seed = 42u32;
-    let if_features = gen_random_vec(opus_dnn::pitchdnn::NB_IF_FEATURES, &mut seed);
-    let xcorr_features = gen_random_vec(opus_dnn::pitchdnn::NB_XCORR_FEATURES, &mut seed);
+    let if_features = common::gen_random_vec(opus_dnn::pitchdnn::NB_IF_FEATURES, &mut seed);
+    let xcorr_features = common::gen_random_vec(opus_dnn::pitchdnn::NB_XCORR_FEATURES, &mut seed);
 
     // Rust
     let rust_result = opus_dnn::pitchdnn::compute_pitchdnn(&mut state, &if_features, &xcorr_features);
@@ -57,14 +35,14 @@ fn test_pitchdnn_single_step_vs_c() {
     let diff = (rust_result - c_result).abs();
     eprintln!("PitchDNN single-step: rust={rust_result:.6}, c={c_result:.6}, diff={diff:.6}");
     assert!(
-        diff < 0.5,
+        diff < 1e-3,
         "PitchDNN single-step mismatch: rust={rust_result}, c={c_result}, diff={diff}"
     );
 }
 
 #[test]
 fn test_pitchdnn_multi_step_vs_c() {
-    let Some(blob) = load_blob("pitchdnn.bin") else {
+    let Some(blob) = common::load_dnn_blob("pitchdnn.bin") else {
         eprintln!("Skipping: pitchdnn.bin not found");
         return;
     };
@@ -74,8 +52,8 @@ fn test_pitchdnn_multi_step_vs_c() {
     let nb_xcorr = opus_dnn::pitchdnn::NB_XCORR_FEATURES;
 
     let mut seed = 123u32;
-    let if_seq = gen_random_vec(n_steps * nb_if, &mut seed);
-    let xcorr_seq = gen_random_vec(n_steps * nb_xcorr, &mut seed);
+    let if_seq = common::gen_random_vec(n_steps * nb_if, &mut seed);
+    let xcorr_seq = common::gen_random_vec(n_steps * nb_xcorr, &mut seed);
 
     // Rust
     let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
@@ -99,7 +77,7 @@ fn test_pitchdnn_multi_step_vs_c() {
     let diff = (rust_result - c_result).abs();
     eprintln!("PitchDNN multi-step ({n_steps}): rust={rust_result:.6}, c={c_result:.6}, diff={diff:.6}");
     assert!(
-        diff < 1.0,
+        diff < 1e-3,
         "PitchDNN multi-step mismatch after {n_steps} steps: rust={rust_result}, c={c_result}, diff={diff}"
     );
 }
@@ -108,7 +86,7 @@ fn test_pitchdnn_multi_step_vs_c() {
 
 #[test]
 fn test_rdovae_encode_single_frame_vs_c() {
-    let Some(enc_blob) = load_blob("rdovae_enc.bin") else {
+    let Some(enc_blob) = common::load_dnn_blob("rdovae_enc.bin") else {
         eprintln!("Skipping: rdovae_enc.bin not found");
         return;
     };
@@ -122,7 +100,7 @@ fn test_rdovae_encode_single_frame_vs_c() {
 
     // Generate input (2*DRED_NUM_FEATURES = 40 per the C model)
     let mut seed = 77u32;
-    let input = gen_random_vec(input_dim, &mut seed);
+    let input = common::gen_random_vec(input_dim, &mut seed);
 
     // Rust
     let mut rust_latents = vec![0.0f32; latent_dim];
@@ -146,15 +124,13 @@ fn test_rdovae_encode_single_frame_vs_c() {
     eprintln!("RDOVAE encode: latent max_diff={max_lat_diff:.4}, state max_diff={max_st_diff:.4}");
     eprintln!("  latent_dim={latent_dim}, state_dim={state_dim}, input_dim={input_dim}");
 
-    // TODO: RDOVAE encoder has large divergences due to sparse weight indexing
-    // (weights_idx path). Tighten once sparse linear is validated at the layer level.
-    common::assert_f32_slice_close(&rust_latents, &c_latents, 50.0, "rdovae_enc latents");
-    common::assert_f32_slice_close(&rust_state, &c_state, 210.0, "rdovae_enc initial_state");
+    common::assert_f32_slice_close(&rust_latents, &c_latents, 0.01, "rdovae_enc latents");
+    common::assert_f32_slice_close(&rust_state, &c_state, 0.01, "rdovae_enc initial_state");
 }
 
 #[test]
 fn test_rdovae_decode_vs_c() {
-    let Some(dec_blob) = load_blob("rdovae_dec.bin") else {
+    let Some(dec_blob) = common::load_dnn_blob("rdovae_dec.bin") else {
         eprintln!("Skipping: rdovae_dec.bin not found");
         return;
     };
@@ -168,8 +144,8 @@ fn test_rdovae_decode_vs_c() {
 
     let mut seed = 99u32;
     // Small synthetic state and latents (scaled small for stability)
-    let state: Vec<f32> = gen_random_vec(state_dim, &mut seed).iter().map(|x| x * 0.1).collect();
-    let latents: Vec<f32> = gen_random_vec(latent_dim + 1, &mut seed).iter().map(|x| x * 0.1).collect();
+    let state: Vec<f32> = common::gen_random_vec(state_dim, &mut seed).iter().map(|x| x * 0.1).collect();
+    let latents: Vec<f32> = common::gen_random_vec(latent_dim + 1, &mut seed).iter().map(|x| x * 0.1).collect();
     let nb_latents = 1;
 
     // Rust decode
@@ -194,11 +170,10 @@ fn test_rdovae_decode_vs_c() {
         eprintln!("RDOVAE decode: max_diff={max_diff:.4} over {compare_len} features");
         eprintln!("  state_dim={state_dim}, latent_dim={latent_dim}, output_dim={output_dim}");
 
-        // TODO: RDOVAE decoder divergence cascades from encoder sparse weight issues.
         common::assert_f32_slice_close(
             &rust_features[..compare_len],
             &c_features[..compare_len],
-            15.0,
+            0.01,
             "rdovae_dec features",
         );
     }
@@ -212,7 +187,7 @@ const FARGAN_NB_FEATURES: usize = 20;
 /// Test ONLY the C FARGAN path (no Rust fargan code).
 #[test]
 fn test_fargan_c_only() {
-    let Some(blob) = load_blob("fargan.bin") else {
+    let Some(blob) = common::load_dnn_blob("fargan.bin") else {
         eprintln!("Skipping: fargan.bin not found");
         return;
     };
@@ -236,7 +211,7 @@ fn test_fargan_c_only() {
 
 #[test]
 fn test_fargan_single_frame_vs_c() {
-    let Some(blob) = load_blob("fargan.bin") else {
+    let Some(blob) = common::load_dnn_blob("fargan.bin") else {
         eprintln!("Skipping: fargan.bin not found");
         return;
     };
@@ -247,9 +222,9 @@ fn test_fargan_single_frame_vs_c() {
 
     let mut seed = 55u32;
     // Continuity data: 320 PCM samples + 5 frames of features
-    let cont_pcm = gen_random_vec(FARGAN_CONT_SAMPLES, &mut seed);
-    let cont_features = gen_random_vec(5 * FARGAN_NB_FEATURES, &mut seed);
-    let features = gen_random_vec(FARGAN_NB_FEATURES, &mut seed);
+    let cont_pcm = common::gen_random_vec(FARGAN_CONT_SAMPLES, &mut seed);
+    let cont_features = common::gen_random_vec(5 * FARGAN_NB_FEATURES, &mut seed);
+    let features = common::gen_random_vec(FARGAN_NB_FEATURES, &mut seed);
 
     // Rust: init continuity, then synthesize
     opus_dnn::fargan::fargan_cont(&mut state, &cont_pcm, &cont_features);
@@ -265,12 +240,12 @@ fn test_fargan_single_frame_vs_c() {
         .fold(0.0f32, f32::max);
     eprintln!("FARGAN single frame: max_diff={max_diff:.6}");
 
-    common::assert_f32_slice_close(&rust_pcm, &c_pcm, 0.5, "fargan single frame PCM");
+    common::assert_f32_slice_close(&rust_pcm, &c_pcm, 1e-3, "fargan single frame PCM");
 }
 
 #[test]
 fn test_fargan_multi_frame_vs_c() {
-    let Some(blob) = load_blob("fargan.bin") else {
+    let Some(blob) = common::load_dnn_blob("fargan.bin") else {
         eprintln!("Skipping: fargan.bin not found");
         return;
     };
@@ -279,9 +254,9 @@ fn test_fargan_multi_frame_vs_c() {
     let nb_features = FARGAN_NB_FEATURES;
 
     let mut seed = 77u32;
-    let cont_pcm = gen_random_vec(FARGAN_CONT_SAMPLES, &mut seed);
-    let cont_features = gen_random_vec(5 * nb_features, &mut seed);
-    let features_seq = gen_random_vec(n_frames * nb_features, &mut seed);
+    let cont_pcm = common::gen_random_vec(FARGAN_CONT_SAMPLES, &mut seed);
+    let cont_features = common::gen_random_vec(5 * nb_features, &mut seed);
+    let features_seq = common::gen_random_vec(n_frames * nb_features, &mut seed);
 
     // Rust
     let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
@@ -314,5 +289,5 @@ fn test_fargan_multi_frame_vs_c() {
         eprintln!("FARGAN frame {i}: max_diff={max_diff:.6}");
     }
 
-    common::assert_f32_slice_close(&rust_pcm, &c_pcm, 1.0, "fargan multi-frame PCM");
+    common::assert_f32_slice_close(&rust_pcm, &c_pcm, 1e-3, "fargan multi-frame PCM");
 }

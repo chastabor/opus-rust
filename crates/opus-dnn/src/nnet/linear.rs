@@ -295,10 +295,11 @@ pub fn compute_linear(layer: &LinearLayer, out: &mut [f32], input: &[f32]) {
         }
     }
 
-    // Select bias: on USE_SU_BIAS architectures (x86), use subias for int8 layers to
-    // compensate for the unsigned quantization offset. On ARM (signed quantization),
-    // always use regular bias. Mirrors the C `#ifdef USE_SU_BIAS` pointer reassignment.
-    let effective_bias = if USE_SU_BIAS && layer.weights.is_some() {
+    // Select bias: on USE_SU_BIAS architectures (x86), use subias instead of bias
+    // ONLY when the int8 path was actually used (not when float_weights took priority).
+    // Mirrors C: the `#ifdef USE_SU_BIAS` reassignment is inside the int8 branch only.
+    let used_int8_path = layer.float_weights.is_none() && layer.weights.is_some();
+    let effective_bias = if USE_SU_BIAS && used_int8_path {
         layer.subias.as_deref().or(layer.bias.as_deref())
     } else {
         layer.bias.as_deref()

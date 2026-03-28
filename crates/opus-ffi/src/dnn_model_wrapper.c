@@ -75,6 +75,28 @@ int wrap_rdovae_encode_dframe(const void *blob, int blob_len,
     return 0;
 }
 
+/* Encode one frame, but only run through enc_dense1 and return its output.
+   This isolates the first layer for debugging. */
+int wrap_rdovae_enc_dense1_only(const void *blob, int blob_len,
+                                 float *output, int *output_size,
+                                 const float *input) {
+    WeightArray *arrays = NULL;
+    int ret = parse_weights(&arrays, blob, blob_len);
+    if (ret < 0 || arrays == NULL) return -1;
+
+    RDOVAEEnc model;
+    if (init_rdovaeenc(&model, arrays) != 0) {
+        free(arrays);
+        return -2;
+    }
+
+    *output_size = model.enc_dense1.nb_outputs;
+    compute_generic_dense(&model.enc_dense1, output, input, ACTIVATION_TANH, 0);
+
+    free(arrays);
+    return 0;
+}
+
 /* ============ RDOVAE Decoder ============ */
 
 /* Decode latents through the RDOVAE decoder.
