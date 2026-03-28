@@ -329,7 +329,6 @@ pub fn dred_encode_silk_frame(
         return 0;
     }
 
-    // Roll back to last voice-active checkpoint and finalize.
     ec.restore_state(&ec_bak);
     let ec_buffer_fill = ((ec.tell() + 7) / 8) as u32;
     ec.enc_shrink(ec_buffer_fill);

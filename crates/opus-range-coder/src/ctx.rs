@@ -56,6 +56,38 @@ pub struct EcCtx {
     pub error: i32,
 }
 
+/// Lightweight snapshot of EcCtx scalar fields.
+/// Matches C semantics where `ec_bak = ec_encoder` copies only the struct
+/// scalars and shares the same buffer pointer. No heap allocation.
+#[derive(Clone, Copy)]
+pub struct EcSnapshot {
+    pub storage: u32,
+    pub end_offs: u32,
+    pub end_window: u32,
+    pub nend_bits: i32,
+    pub nbits_total: i32,
+    pub offs: u32,
+    pub rng: u32,
+    pub val: u32,
+    pub ext: u32,
+    pub rem: i32,
+    pub error: i32,
+}
+
+impl EcSnapshot {
+    /// Returns the number of bits "used" at the time of the snapshot.
+    #[inline]
+    pub fn tell(&self) -> i32 {
+        ec_tell_impl(self.nbits_total, self.rng)
+    }
+}
+
+/// Compute bits used from nbits_total and rng. Shared by EcCtx and EcSnapshot.
+#[inline]
+fn ec_tell_impl(nbits_total: i32, rng: u32) -> i32 {
+    nbits_total - ec_ilog(rng) as i32
+}
+
 impl Default for EcCtx {
     fn default() -> Self {
         Self::new()
@@ -101,7 +133,7 @@ impl EcCtx {
     /// Returns the number of bits "used" by the encoded or decoded symbols so far.
     #[inline]
     pub fn tell(&self) -> i32 {
-        self.nbits_total - ec_ilog(self.rng) as i32
+        ec_tell_impl(self.nbits_total, self.rng)
     }
 
     /// Returns the number of bits "used" scaled by 2^BITRES (1/8th bit precision).
@@ -115,17 +147,47 @@ impl EcCtx {
         nbits.wrapping_sub(l_total)
     }
 
-    /// Save the current encoder state (for two-pass encoding).
-    pub fn save_state(&self) -> EcCtx {
-        self.clone()
+    /// Save a lightweight snapshot of the encoder/decoder state.
+    /// Only copies scalar fields (44 bytes). No heap allocation.
+    /// The buffer is shared — the caller must not modify the buffer
+    /// beyond the snapshot's `offs` position after restoring.
+    ///
+    /// This matches C semantics where `ec_bak = ec_encoder` is a
+    /// shallow struct copy sharing the same `buf` pointer.
+    #[inline]
+    pub fn save_state(&self) -> EcSnapshot {
+        EcSnapshot {
+            storage: self.storage,
+            end_offs: self.end_offs,
+            end_window: self.end_window,
+            nend_bits: self.nend_bits,
+            nbits_total: self.nbits_total,
+            offs: self.offs,
+            rng: self.rng,
+            val: self.val,
+            ext: self.ext,
+            rem: self.rem,
+            error: self.error,
+        }
     }
 
-    /// Restore a previously saved encoder state.
-    pub fn restore_state(&mut self, saved: &EcCtx) {
-        // Restore all fields except keep the current buf capacity
-        let saved_buf = saved.buf.clone();
-        *self = saved.clone();
-        self.buf = saved_buf;
+    /// Restore a previously saved snapshot.
+    /// Rolls back the encoder/decoder scalar state without touching the buffer.
+    /// Buffer contents written before the snapshot are preserved; bytes written
+    /// after the snapshot position may be overwritten by subsequent encoding.
+    #[inline]
+    pub fn restore_state(&mut self, saved: &EcSnapshot) {
+        self.storage = saved.storage;
+        self.end_offs = saved.end_offs;
+        self.end_window = saved.end_window;
+        self.nend_bits = saved.nend_bits;
+        self.nbits_total = saved.nbits_total;
+        self.offs = saved.offs;
+        self.rng = saved.rng;
+        self.val = saved.val;
+        self.ext = saved.ext;
+        self.rem = saved.rem;
+        self.error = saved.error;
     }
 }
 
@@ -151,5 +213,26 @@ mod tests {
         assert_eq!(ec_ilog(255), 8);
         assert_eq!(ec_ilog(256), 9);
         assert_eq!(ec_ilog(0xFFFFFFFF), 32);
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip() {
+        let mut ctx = EcCtx::new();
+        ctx.offs = 42;
+        ctx.rng = 12345;
+        ctx.nbits_total = 100;
+        ctx.rem = 7;
+
+        let snap = ctx.save_state();
+        ctx.offs = 99;
+        ctx.rng = 0;
+        ctx.nbits_total = 999;
+        ctx.rem = -1;
+
+        ctx.restore_state(&snap);
+        assert_eq!(ctx.offs, 42);
+        assert_eq!(ctx.rng, 12345);
+        assert_eq!(ctx.nbits_total, 100);
+        assert_eq!(ctx.rem, 7);
     }
 }
