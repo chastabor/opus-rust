@@ -52,10 +52,10 @@ pub fn init_rdovae_enc(arrays: &[WeightArray]) -> Result<RdovaeEnc, WeightError>
         let conv_out = dim(&format!("enc_conv{n}_bias"))?;
 
         let stage = EncStage {
-            gru_input: linear_init(arrays, Some(&format!("enc_gru{n}_input_bias")), None, Some(&format!("enc_gru{n}_input_weights")), None, None, None, input_size, gru_3n)?,
-            gru_recurrent: linear_init(arrays, Some(&format!("enc_gru{n}_recurrent_bias")), Some(&format!("enc_gru{n}_recurrent_weights")), None, None, Some(&format!("enc_gru{n}_recurrent_diag")), None, gru_out, gru_3n)?,
-            conv_dense: linear_init(arrays, Some(&format!("enc_conv_dense{n}_bias")), None, Some(&format!("enc_conv_dense{n}_weights")), None, None, None, input_size + gru_out, conv_dense_out)?,
-            conv: linear_init(arrays, Some(&format!("enc_conv{n}_bias")), None, Some(&format!("enc_conv{n}_weights")), None, None, None, if n == 1 { conv_dense_out } else { 2 * conv_dense_out }, conv_out)?,
+            gru_input: linear_init(arrays, Some(&format!("enc_gru{n}_input_bias")), Some(&format!("enc_gru{n}_input_weights")), Some(&format!("enc_gru{n}_input_weights")), Some(&format!("enc_gru{n}_input_weights_idx")), None, Some(&format!("enc_gru{n}_input_scale")), input_size, gru_3n)?,
+            gru_recurrent: linear_init(arrays, Some(&format!("enc_gru{n}_recurrent_bias")), Some(&format!("enc_gru{n}_recurrent_weights")), Some(&format!("enc_gru{n}_recurrent_weights")), None, None, Some(&format!("enc_gru{n}_recurrent_scale")), gru_out, gru_3n)?,
+            conv_dense: linear_init(arrays, Some(&format!("enc_conv_dense{n}_bias")), Some(&format!("enc_conv_dense{n}_weights")), Some(&format!("enc_conv_dense{n}_weights")), Some(&format!("enc_conv_dense{n}_weights_idx")), None, Some(&format!("enc_conv_dense{n}_scale")), input_size + gru_out, conv_dense_out)?,
+            conv: linear_init(arrays, Some(&format!("enc_conv{n}_bias")), Some(&format!("enc_conv{n}_weights")), Some(&format!("enc_conv{n}_weights")), None, None, Some(&format!("enc_conv{n}_scale")), 2 * conv_dense_out, conv_out)?,
         };
         // Accumulated output size: input + gru_out + conv_out
         Ok((stage, input_size + gru_out + conv_out))
@@ -68,11 +68,11 @@ pub fn init_rdovae_enc(arrays: &[WeightArray]) -> Result<RdovaeEnc, WeightError>
     let (s5, acc5) = init_stage(arrays, 5, acc4)?;
 
     Ok(RdovaeEnc {
-        enc_dense1: linear_init(arrays, Some("enc_dense1_bias"), None, Some("enc_dense1_weights"), None, None, None, 2 * super::DRED_NUM_FEATURES, dense1_out)?,
+        enc_dense1: linear_init(arrays, Some("enc_dense1_bias"), None, Some("enc_dense1_weights"), None, None, None, 40, dense1_out)?,
         stages: [s1, s2, s3, s4, s5],
-        enc_zdense: linear_init(arrays, Some("enc_zdense_bias"), None, Some("enc_zdense_weights"), None, None, None, acc5, zdense_out)?,
-        gdense1: linear_init(arrays, Some("gdense1_bias"), None, Some("gdense1_weights"), None, None, None, acc5, gdense1_out)?,
-        gdense2: linear_init(arrays, Some("gdense2_bias"), None, Some("gdense2_weights"), None, None, None, gdense1_out, gdense2_out)?,
+        enc_zdense: linear_init(arrays, Some("enc_zdense_bias"), Some("enc_zdense_weights"), Some("enc_zdense_weights"), None, None, Some("enc_zdense_scale"), acc5, zdense_out)?,
+        gdense1: linear_init(arrays, Some("gdense1_bias"), Some("gdense1_weights"), Some("gdense1_weights"), Some("gdense1_weights_idx"), None, Some("gdense1_scale"), acc5, gdense1_out)?,
+        gdense2: linear_init(arrays, Some("gdense2_bias"), Some("gdense2_weights"), Some("gdense2_weights"), None, None, Some("gdense2_scale"), gdense1_out, gdense2_out)?,
         latent_dim: zdense_out,
         state_dim: gdense2_out,
     })

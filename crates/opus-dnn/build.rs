@@ -8,10 +8,15 @@
 //! - Rust runtime loading via parse_weights + model init functions
 //! - FFI comparison tests that need both C and Rust models loaded
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+include!("tools/parse_c_weights.rs");
+
 
 const MODEL_HASH: &str = "a5177ec6fb7d15058e99e57029746100121f68e4890b1467d4094aa336b6013e";
 const MODEL_URL: &str = "https://media.xiph.org/opus/models";
@@ -28,6 +33,7 @@ fn main() {
     if extracted_marker.exists() {
         // Already downloaded and extracted.
         println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rerun-if-changed=tools/parse_c_weights.rs");
         return;
     }
 
@@ -110,11 +116,48 @@ fn main() {
         }
     }
 
+    // Parse C data files and generate binary weight blobs (pure Rust, no C compiler needed).
+    let blobs_dir = model_data_dir.join("blobs");
+    if !blobs_dir.join("fargan.bin").exists() {
+        fs::create_dir_all(&blobs_dir).expect("failed to create blobs dir");
+        let dnn_dir = model_data_dir.join("dnn");
+
+        if dnn_dir.exists() {
+            let models = [
+                ("pitchdnn_data.c", "pitchdnn.bin", "pitchdnn_arrays"),
+                ("plc_data.c", "plcmodel.bin", "plcmodel_arrays"),
+                ("fargan_data.c", "fargan.bin", "fargan_arrays"),
+                ("lace_data.c", "lace.bin", "lacelayers_arrays"),
+                ("nolace_data.c", "nolace.bin", "nolacelayers_arrays"),
+                ("dred_rdovae_enc_data.c", "rdovae_enc.bin", "rdovaeenc_arrays"),
+                ("dred_rdovae_dec_data.c", "rdovae_dec.bin", "rdovaedec_arrays"),
+                ("bbwenet_data.c", "bbwenet.bin", "bbwenetlayers_arrays"),
+            ];
+
+            eprintln!("Generating binary weight blobs from C data files (pure Rust)...");
+            for (c_file, bin_file, table_name) in &models {
+                let c_path = dnn_dir.join(c_file);
+                let bin_path = blobs_dir.join(bin_file);
+                if c_path.exists() {
+                    match convert_c_to_blob(
+                        c_path.to_str().unwrap(),
+                        bin_path.to_str().unwrap(),
+                        table_name,
+                    ) {
+                        Ok(count) => eprintln!("  {} -> {} ({} arrays)", c_file, bin_file, count),
+                        Err(e) => eprintln!("  Warning: failed to convert {}: {}", c_file, e),
+                    }
+                }
+            }
+        }
+    }
+
     // Write marker.
     fs::write(&extracted_marker, MODEL_HASH).expect("failed to write marker");
     eprintln!("Model data ready at {}", model_data_dir.display());
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=tools/parse_c_weights.rs");
 }
 
 fn which_exists(cmd: &str) -> bool {

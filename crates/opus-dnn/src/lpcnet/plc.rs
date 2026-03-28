@@ -73,10 +73,10 @@ pub fn init_plcmodel(arrays: &[WeightArray]) -> Result<PlcModel, WeightError> {
 
     Ok(PlcModel {
         plc_dense_in: linear_init(arrays, Some("plc_dense_in_bias"), None, Some("plc_dense_in_weights"), None, None, None, dense_in_in, dense_in_out)?,
-        plc_gru1_input: linear_init(arrays, Some("plc_gru1_input_bias"), None, Some("plc_gru1_input_weights"), None, None, None, dense_in_out, gru1_3n)?,
-        plc_gru1_recurrent: linear_init(arrays, Some("plc_gru1_recurrent_bias"), Some("plc_gru1_recurrent_weights"), None, None, Some("plc_gru1_recurrent_diag"), None, gru1_out, gru1_3n)?,
-        plc_gru2_input: linear_init(arrays, Some("plc_gru2_input_bias"), None, Some("plc_gru2_input_weights"), None, None, None, gru1_out, gru2_3n)?,
-        plc_gru2_recurrent: linear_init(arrays, Some("plc_gru2_recurrent_bias"), Some("plc_gru2_recurrent_weights"), None, None, Some("plc_gru2_recurrent_diag"), None, gru2_out, gru2_3n)?,
+        plc_gru1_input: linear_init(arrays, Some("plc_gru1_input_bias"), Some("plc_gru1_input_weights"), Some("plc_gru1_input_weights"), None, None, Some("plc_gru1_input_scale"), dense_in_out, gru1_3n)?,
+        plc_gru1_recurrent: linear_init(arrays, Some("plc_gru1_recurrent_bias"), Some("plc_gru1_recurrent_weights"), Some("plc_gru1_recurrent_weights"), None, None, Some("plc_gru1_recurrent_scale"), gru1_out, gru1_3n)?,
+        plc_gru2_input: linear_init(arrays, Some("plc_gru2_input_bias"), Some("plc_gru2_input_weights"), Some("plc_gru2_input_weights"), None, None, Some("plc_gru2_input_scale"), gru1_out, gru2_3n)?,
+        plc_gru2_recurrent: linear_init(arrays, Some("plc_gru2_recurrent_bias"), Some("plc_gru2_recurrent_weights"), Some("plc_gru2_recurrent_weights"), None, None, Some("plc_gru2_recurrent_scale"), gru2_out, gru2_3n)?,
         plc_dense_out: linear_init(arrays, Some("plc_dense_out_bias"), None, Some("plc_dense_out_weights"), None, None, None, gru2_out, dense_out_size)?,
     })
 }

@@ -1,6 +1,6 @@
 use crate::nnet::{Activation, LinearLayer, WeightArray};
 use crate::nnet::ops::{compute_generic_dense, compute_generic_gru, compute_generic_conv1d};
-use crate::nnet::weights::{WeightError, linear_init, weight_output_dim};
+use crate::nnet::weights::{WeightError, linear_init};
 use crate::nndsp::{AdaConvState, AdaShapeState, compute_overlap_window};
 use crate::nndsp::adaconv::adaconv_process_frame;
 use crate::nndsp::adashape::adashape_process_frame;
@@ -101,37 +101,52 @@ pub struct BbwenetState {
 
 /// Initialize BBWENet model from weight arrays.
 pub fn init_bbwenet(arrays: &[WeightArray]) -> Result<Bbwenet, WeightError> {
-    let dim = |name: &str| weight_output_dim(arrays, name);
-    let conv1_out = dim("bbwenet_fnet_conv1_bias")?;
-    let conv2_out = dim("bbwenet_fnet_conv2_bias")?;
-    let gru_3n = dim("bbwenet_fnet_gru_input_bias")?;
-    let gru_out = gru_3n / 3;
-
-    let l = |bias: &str, weights: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
+    // Float-only layer: bias + float weights, no int8/scale.
+    // Matches C: linear_init(_, bias, NULL, NULL, float, NULL, NULL, NULL, ni, no)
+    let lf = |bias: &str, weights: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
         linear_init(arrays, Some(bias), None, Some(weights), None, None, None, ni, no)
     };
-    let lg = |bias: &str, weights: &str, diag: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
-        linear_init(arrays, Some(bias), Some(weights), None, None, Some(diag), None, ni, no)
+    // Int8 layer: bias + int8 weights (subias, float companion, and scale are auto-loaded).
+    // Matches C: linear_init(_, bias, subias, int8, float, NULL, NULL, scale, ni, no)
+    let li = |bias: &str, weights: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
+        linear_init(arrays, Some(bias), Some(weights), None, None, None, None, ni, no)
     };
 
     let layers = BbwenetLayers {
-        fnet_conv1: l("bbwenet_fnet_conv1_bias", "bbwenet_fnet_conv1_weights", BBWENET_FEATURE_DIM * 3, conv1_out)?,
-        fnet_conv2: l("bbwenet_fnet_conv2_bias", "bbwenet_fnet_conv2_weights", conv1_out * 3, conv2_out)?,
-        fnet_gru_input: l("bbwenet_fnet_gru_input_bias", "bbwenet_fnet_gru_input_weights", conv2_out, gru_3n)?,
-        fnet_gru_recurrent: lg("bbwenet_fnet_gru_recurrent_bias", "bbwenet_fnet_gru_recurrent_weights", "bbwenet_fnet_gru_recurrent_diag", gru_out, gru_3n)?,
-        fnet_tconv: l("bbwenet_fnet_tconv_bias", "bbwenet_fnet_tconv_weights", gru_out, 2 * BBWENET_COND_DIM)?,
-        tdshape1_alpha1_f: l("bbwenet_tdshape1_alpha1_f_bias", "bbwenet_tdshape1_alpha1_f_weights", BBWENET_COND_DIM, dim("bbwenet_tdshape1_alpha1_f_bias")?)?,
-        tdshape1_alpha1_t: l("bbwenet_tdshape1_alpha1_t_bias", "bbwenet_tdshape1_alpha1_t_weights", 21, dim("bbwenet_tdshape1_alpha1_t_bias")?)?,
-        tdshape1_alpha2: l("bbwenet_tdshape1_alpha2_bias", "bbwenet_tdshape1_alpha2_weights", dim("bbwenet_tdshape1_alpha2_bias")?, dim("bbwenet_tdshape1_alpha2_bias")?)?,
-        tdshape2_alpha1_f: l("bbwenet_tdshape2_alpha1_f_bias", "bbwenet_tdshape2_alpha1_f_weights", BBWENET_COND_DIM, dim("bbwenet_tdshape2_alpha1_f_bias")?)?,
-        tdshape2_alpha1_t: l("bbwenet_tdshape2_alpha1_t_bias", "bbwenet_tdshape2_alpha1_t_weights", 21, dim("bbwenet_tdshape2_alpha1_t_bias")?)?,
-        tdshape2_alpha2: l("bbwenet_tdshape2_alpha2_bias", "bbwenet_tdshape2_alpha2_weights", dim("bbwenet_tdshape2_alpha2_bias")?, dim("bbwenet_tdshape2_alpha2_bias")?)?,
-        af1_kernel: l("bbwenet_af1_kernel_bias", "bbwenet_af1_kernel_weights", BBWENET_COND_DIM, dim("bbwenet_af1_kernel_bias")?)?,
-        af1_gain: l("bbwenet_af1_gain_bias", "bbwenet_af1_gain_weights", BBWENET_COND_DIM, AF1_OUT_CH)?,
-        af2_kernel: l("bbwenet_af2_kernel_bias", "bbwenet_af2_kernel_weights", BBWENET_COND_DIM, dim("bbwenet_af2_kernel_bias")?)?,
-        af2_gain: l("bbwenet_af2_gain_bias", "bbwenet_af2_gain_weights", BBWENET_COND_DIM, AF2_OUT_CH)?,
-        af3_kernel: l("bbwenet_af3_kernel_bias", "bbwenet_af3_kernel_weights", BBWENET_COND_DIM, dim("bbwenet_af3_kernel_bias")?)?,
-        af3_gain: l("bbwenet_af3_gain_bias", "bbwenet_af3_gain_weights", BBWENET_COND_DIM, AF3_OUT_CH)?,
+        // C: linear_init(bbwenet_fnet_conv1, bias, NULL, NULL, float, NULL, NULL, NULL, 342, 128)
+        fnet_conv1: lf("bbwenet_fnet_conv1_bias", "bbwenet_fnet_conv1_weights", 342, 128)?,
+        // C: linear_init(bbwenet_fnet_conv2, bias, subias, int8, float, NULL, NULL, scale, 384, 128)
+        fnet_conv2: li("bbwenet_fnet_conv2_bias", "bbwenet_fnet_conv2_weights", 384, 128)?,
+        // C: linear_init(bbwenet_fnet_gru_input, bias, subias, int8, float, NULL, NULL, scale, 128, 384)
+        fnet_gru_input: li("bbwenet_fnet_gru_input_bias", "bbwenet_fnet_gru_input_weights", 128, 384)?,
+        // C: linear_init(bbwenet_fnet_gru_recurrent, bias, subias, int8, float, NULL, NULL, scale, 128, 384)
+        fnet_gru_recurrent: li("bbwenet_fnet_gru_recurrent_bias", "bbwenet_fnet_gru_recurrent_weights", 128, 384)?,
+        // C: linear_init(bbwenet_fnet_tconv, bias, subias, int8, float, NULL, NULL, scale, 128, 256)
+        fnet_tconv: li("bbwenet_fnet_tconv_bias", "bbwenet_fnet_tconv_weights", 128, 256)?,
+        // C: linear_init(bbwenet_tdshape1_alpha1_f, bias, subias, int8, float, NULL, NULL, scale, 256, 80)
+        tdshape1_alpha1_f: li("bbwenet_tdshape1_alpha1_f_bias", "bbwenet_tdshape1_alpha1_f_weights", 256, 80)?,
+        // C: linear_init(bbwenet_tdshape1_alpha1_t, bias, NULL, NULL, float, NULL, NULL, NULL, 42, 80)
+        tdshape1_alpha1_t: lf("bbwenet_tdshape1_alpha1_t_bias", "bbwenet_tdshape1_alpha1_t_weights", 42, 80)?,
+        // C: linear_init(bbwenet_tdshape1_alpha2, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 80)
+        tdshape1_alpha2: lf("bbwenet_tdshape1_alpha2_bias", "bbwenet_tdshape1_alpha2_weights", 160, 80)?,
+        // C: linear_init(bbwenet_tdshape2_alpha1_f, bias, subias, int8, float, NULL, NULL, scale, 256, 120)
+        tdshape2_alpha1_f: li("bbwenet_tdshape2_alpha1_f_bias", "bbwenet_tdshape2_alpha1_f_weights", 256, 120)?,
+        // C: linear_init(bbwenet_tdshape2_alpha1_t, bias, NULL, NULL, float, NULL, NULL, NULL, 42, 120)
+        tdshape2_alpha1_t: lf("bbwenet_tdshape2_alpha1_t_bias", "bbwenet_tdshape2_alpha1_t_weights", 42, 120)?,
+        // C: linear_init(bbwenet_tdshape2_alpha2, bias, NULL, NULL, float, NULL, NULL, NULL, 240, 120)
+        tdshape2_alpha2: lf("bbwenet_tdshape2_alpha2_bias", "bbwenet_tdshape2_alpha2_weights", 240, 120)?,
+        // C: linear_init(bbwenet_af1_kernel, bias, subias, int8, float, NULL, NULL, scale, 128, 48)
+        af1_kernel: li("bbwenet_af1_kernel_bias", "bbwenet_af1_kernel_weights", 128, 48)?,
+        // C: linear_init(bbwenet_af1_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 128, 3)
+        af1_gain: lf("bbwenet_af1_gain_bias", "bbwenet_af1_gain_weights", 128, 3)?,
+        // C: linear_init(bbwenet_af2_kernel, bias, subias, int8, float, NULL, NULL, scale, 128, 288)
+        af2_kernel: li("bbwenet_af2_kernel_bias", "bbwenet_af2_kernel_weights", 128, 288)?,
+        // C: linear_init(bbwenet_af2_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 128, 3)
+        af2_gain: lf("bbwenet_af2_gain_bias", "bbwenet_af2_gain_weights", 128, 3)?,
+        // C: linear_init(bbwenet_af3_kernel, bias, subias, int8, float, NULL, NULL, scale, 128, 48)
+        af3_kernel: li("bbwenet_af3_kernel_bias", "bbwenet_af3_kernel_weights", 128, 48)?,
+        // C: linear_init(bbwenet_af3_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 128, 1)
+        af3_gain: lf("bbwenet_af3_gain_bias", "bbwenet_af3_gain_weights", 128, 1)?,
     };
 
     let mut window16 = [0.0f32; AF1_OVERLAP_SIZE];

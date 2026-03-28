@@ -221,6 +221,80 @@ fn bench_dense_with_activation(c: &mut Criterion) {
     group.finish();
 }
 
+// ============ Model loading + inference with actual weights ============
+
+fn blobs_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("model-data/blobs")
+}
+
+fn load_blob(name: &str) -> Option<Vec<opus_dnn::nnet::WeightArray>> {
+    let path = blobs_dir().join(name);
+    let data = std::fs::read(&path).ok()?;
+    opus_dnn::nnet::weights::parse_weights(&data)
+}
+
+fn bench_model_weights(c: &mut Criterion) {
+    let mut group = c.benchmark_group("model_weights");
+
+    // PitchDNN: load weights + init + inference
+    if let Some(arrays) = load_blob("pitchdnn.bin") {
+        if let Ok(model) = opus_dnn::pitchdnn::init_pitchdnn(&arrays) {
+            let gru_n = model.gru_1_recurrent.nb_inputs;
+            let mut state = opus_dnn::pitchdnn::PitchDnnState {
+                model,
+                gru_state: vec![0.0f32; gru_n],
+                xcorr_mem1: vec![0.0f32; (opus_dnn::pitchdnn::NB_XCORR_FEATURES + 2) * 16],
+                xcorr_mem2: vec![0.0f32; (opus_dnn::pitchdnn::NB_XCORR_FEATURES + 2) * 16],
+            };
+            let mut rng = Rng::new(42);
+            let if_features = rng.vec_f32(opus_dnn::pitchdnn::NB_IF_FEATURES);
+            let xcorr_features = rng.vec_f32(opus_dnn::pitchdnn::NB_XCORR_FEATURES);
+            group.bench_function("pitchdnn_compute", |b| {
+                b.iter(|| opus_dnn::pitchdnn::compute_pitchdnn(&mut state, &if_features, &xcorr_features));
+            });
+        }
+    }
+
+    // FARGAN: linear layers with actual int8 weights
+    if let Some(arrays) = load_blob("fargan.bin") {
+        if let Ok(model) = opus_dnn::fargan::init_fargan(&arrays) {
+            let mut rng = Rng::new(99);
+            // Benchmark the conditioning network dense layer
+            let cond_in = model.cond_net_fconv1.nb_inputs;
+            let cond_out = model.cond_net_fconv1.nb_outputs;
+            let input = rng.vec_f32(cond_in);
+            group.bench_function("fargan_cond_fconv1_int8", |b| {
+                let mut out = vec![0.0f32; cond_out];
+                b.iter(|| compute_linear(&model.cond_net_fconv1, &mut out, &input));
+            });
+        }
+    }
+
+    // LACE: load + init
+    if let Some(arrays) = load_blob("lace.bin") {
+        group.bench_function("lace_init", |b| {
+            b.iter(|| opus_dnn::osce::lace::init_lace(&arrays).unwrap());
+        });
+    }
+
+    // Weight parsing benchmark (measures deserialization throughput)
+    let pitchdnn_path = blobs_dir().join("pitchdnn.bin");
+    if let Ok(data) = std::fs::read(&pitchdnn_path) {
+        group.bench_function("parse_weights_pitchdnn", |b| {
+            b.iter(|| opus_dnn::nnet::weights::parse_weights(&data).unwrap());
+        });
+    }
+
+    let fargan_path = blobs_dir().join("fargan.bin");
+    if let Ok(data) = std::fs::read(&fargan_path) {
+        group.bench_function("parse_weights_fargan", |b| {
+            b.iter(|| opus_dnn::nnet::weights::parse_weights(&data).unwrap());
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_activations,
@@ -229,5 +303,6 @@ criterion_group!(
     bench_glu,
     bench_conv1d,
     bench_dense_with_activation,
+    bench_model_weights,
 );
 criterion_main!(benches);

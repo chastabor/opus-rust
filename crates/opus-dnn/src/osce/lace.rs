@@ -80,26 +80,29 @@ pub fn init_lace(arrays: &[WeightArray]) -> Result<Lace, WeightError> {
     let pitch_embed_dim = dim("lace_pitch_embedding_bias")?;
     let numbits_embed_dim = 8;
     let feat_in = OSCE_FEATURE_DIM + pitch_embed_dim + 2 * numbits_embed_dim;
-    let fnet_conv2_in = 4 * hidden_dim;
+    // Conv2 uses kernel_size=2 over 4*hidden_dim frames.
+    let conv2_out = dim("lace_fnet_conv2_bias")?;
 
     let cf1_kernel_size = dim("lace_cf1_kernel_bias")?;
     let cf2_kernel_size = dim("lace_cf2_kernel_bias")?;
     let af1_kernel_size = dim("lace_af1_kernel_bias")?;
 
+    // Dimensions match C `init_lacelayers` from lace_data.c.
+    let pitch_max = 300;
     let layers = LaceLayers {
-        pitch_embedding: linear_init(arrays, Some("lace_pitch_embedding_bias"), None, Some("lace_pitch_embedding_weights"), None, None, None, 1, pitch_embed_dim)?,
+        pitch_embedding: linear_init(arrays, Some("lace_pitch_embedding_bias"), None, Some("lace_pitch_embedding_weights"), None, None, None, pitch_max + 1, pitch_embed_dim)?,
         fnet_conv1: linear_init(arrays, Some("lace_fnet_conv1_bias"), None, Some("lace_fnet_conv1_weights"), None, None, None, feat_in, hidden_dim)?,
-        fnet_conv2: linear_init(arrays, Some("lace_fnet_conv2_bias"), None, Some("lace_fnet_conv2_weights"), None, None, None, fnet_conv2_in, dim("lace_fnet_conv2_bias")?)?,
-        fnet_tconv: linear_init(arrays, Some("lace_fnet_tconv_bias"), None, Some("lace_fnet_tconv_weights"), None, None, None, dim("lace_fnet_conv2_bias")?, 4 * cond_dim)?,
-        fnet_gru_input: linear_init(arrays, Some("lace_fnet_gru_input_bias"), None, Some("lace_fnet_gru_input_weights"), None, None, None, cond_dim, 3 * cond_dim)?,
-        fnet_gru_recurrent: linear_init(arrays, Some("lace_fnet_gru_recurrent_bias"), Some("lace_fnet_gru_recurrent_weights"), None, None, Some("lace_fnet_gru_recurrent_diag"), None, cond_dim, 3 * cond_dim)?,
-        cf1_kernel: linear_init(arrays, Some("lace_cf1_kernel_bias"), None, Some("lace_cf1_kernel_weights"), None, None, None, cond_dim, cf1_kernel_size)?,
+        fnet_conv2: linear_init(arrays, Some("lace_fnet_conv2_bias"), Some("lace_fnet_conv2_weights"), Some("lace_fnet_conv2_weights"), None, None, Some("lace_fnet_conv2_scale"), 2 * 4 * hidden_dim, conv2_out)?,
+        fnet_tconv: linear_init(arrays, Some("lace_fnet_tconv_bias"), Some("lace_fnet_tconv_weights"), Some("lace_fnet_tconv_weights"), None, None, Some("lace_fnet_tconv_scale"), conv2_out, 4 * cond_dim)?,
+        fnet_gru_input: linear_init(arrays, Some("lace_fnet_gru_input_bias"), Some("lace_fnet_gru_input_weights"), Some("lace_fnet_gru_input_weights"), None, None, Some("lace_fnet_gru_input_scale"), cond_dim, 3 * cond_dim)?,
+        fnet_gru_recurrent: linear_init(arrays, Some("lace_fnet_gru_recurrent_bias"), Some("lace_fnet_gru_recurrent_weights"), Some("lace_fnet_gru_recurrent_weights"), None, None, Some("lace_fnet_gru_recurrent_scale"), cond_dim, 3 * cond_dim)?,
+        cf1_kernel: linear_init(arrays, Some("lace_cf1_kernel_bias"), Some("lace_cf1_kernel_weights"), Some("lace_cf1_kernel_weights"), None, None, Some("lace_cf1_kernel_scale"), cond_dim, cf1_kernel_size)?,
         cf1_gain: linear_init(arrays, Some("lace_cf1_gain_bias"), None, Some("lace_cf1_gain_weights"), None, None, None, cond_dim, 1)?,
         cf1_global_gain: linear_init(arrays, Some("lace_cf1_global_gain_bias"), None, Some("lace_cf1_global_gain_weights"), None, None, None, cond_dim, 1)?,
-        cf2_kernel: linear_init(arrays, Some("lace_cf2_kernel_bias"), None, Some("lace_cf2_kernel_weights"), None, None, None, cond_dim, cf2_kernel_size)?,
+        cf2_kernel: linear_init(arrays, Some("lace_cf2_kernel_bias"), Some("lace_cf2_kernel_weights"), Some("lace_cf2_kernel_weights"), None, None, Some("lace_cf2_kernel_scale"), cond_dim, cf2_kernel_size)?,
         cf2_gain: linear_init(arrays, Some("lace_cf2_gain_bias"), None, Some("lace_cf2_gain_weights"), None, None, None, cond_dim, 1)?,
         cf2_global_gain: linear_init(arrays, Some("lace_cf2_global_gain_bias"), None, Some("lace_cf2_global_gain_weights"), None, None, None, cond_dim, 1)?,
-        af1_kernel: linear_init(arrays, Some("lace_af1_kernel_bias"), None, Some("lace_af1_kernel_weights"), None, None, None, cond_dim, af1_kernel_size)?,
+        af1_kernel: linear_init(arrays, Some("lace_af1_kernel_bias"), Some("lace_af1_kernel_weights"), Some("lace_af1_kernel_weights"), None, None, Some("lace_af1_kernel_scale"), cond_dim, af1_kernel_size)?,
         af1_gain: linear_init(arrays, Some("lace_af1_gain_bias"), None, Some("lace_af1_gain_weights"), None, None, None, cond_dim, 1)?,
     };
 
@@ -114,7 +117,7 @@ pub fn init_lace(arrays: &[WeightArray]) -> Result<Lace, WeightError> {
             hidden_dim,
             pitch_embed_dim,
             numbits_embed_dim,
-            pitch_max: 255,
+            pitch_max: pitch_max,
             numbits_range_low: 50.0,
             numbits_range_high: 650.0,
             numbits_scales: [

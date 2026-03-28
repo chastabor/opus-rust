@@ -46,6 +46,7 @@ pub fn init_rdovae_dec(arrays: &[WeightArray]) -> Result<RdovaeDec, WeightError>
     let hidden_init_out = dim("dec_hidden_init_bias")?;
     let gru_init_out = dim("dec_gru_init_bias")?;
     let dense1_out = dim("dec_dense1_bias")?;
+    let output_out = dim("dec_output_bias")?;
 
     fn init_stage(arrays: &[WeightArray], n: usize, input_size: usize) -> Result<(DecStage, usize, usize), WeightError> {
         let dim = |name: &str| weight_output_dim(arrays, name);
@@ -55,11 +56,11 @@ pub fn init_rdovae_dec(arrays: &[WeightArray]) -> Result<RdovaeDec, WeightError>
         let conv_out = dim(&format!("dec_conv{n}_bias"))?;
 
         let stage = DecStage {
-            gru_input: linear_init(arrays, Some(&format!("dec_gru{n}_input_bias")), None, Some(&format!("dec_gru{n}_input_weights")), None, None, None, input_size, gru_3n)?,
-            gru_recurrent: linear_init(arrays, Some(&format!("dec_gru{n}_recurrent_bias")), Some(&format!("dec_gru{n}_recurrent_weights")), None, None, Some(&format!("dec_gru{n}_recurrent_diag")), None, gru_out, gru_3n)?,
-            glu: linear_init(arrays, Some(&format!("dec_glu{n}_bias")), None, Some(&format!("dec_glu{n}_weights")), None, None, None, gru_out, gru_out)?,
-            conv_dense: linear_init(arrays, Some(&format!("dec_conv_dense{n}_bias")), None, Some(&format!("dec_conv_dense{n}_weights")), None, None, None, input_size + gru_out, conv_dense_out)?,
-            conv: linear_init(arrays, Some(&format!("dec_conv{n}_bias")), None, Some(&format!("dec_conv{n}_weights")), None, None, None, conv_dense_out, conv_out)?,
+            gru_input: linear_init(arrays, Some(&format!("dec_gru{n}_input_bias")), Some(&format!("dec_gru{n}_input_weights")), Some(&format!("dec_gru{n}_input_weights")), Some(&format!("dec_gru{n}_input_weights_idx")), None, Some(&format!("dec_gru{n}_input_scale")), input_size, gru_3n)?,
+            gru_recurrent: linear_init(arrays, Some(&format!("dec_gru{n}_recurrent_bias")), Some(&format!("dec_gru{n}_recurrent_weights")), Some(&format!("dec_gru{n}_recurrent_weights")), None, None, Some(&format!("dec_gru{n}_recurrent_scale")), gru_out, gru_3n)?,
+            glu: linear_init(arrays, Some(&format!("dec_glu{n}_bias")), Some(&format!("dec_glu{n}_weights")), Some(&format!("dec_glu{n}_weights")), None, None, Some(&format!("dec_glu{n}_scale")), gru_out, gru_out)?,
+            conv_dense: linear_init(arrays, Some(&format!("dec_conv_dense{n}_bias")), Some(&format!("dec_conv_dense{n}_weights")), Some(&format!("dec_conv_dense{n}_weights")), Some(&format!("dec_conv_dense{n}_weights_idx")), None, Some(&format!("dec_conv_dense{n}_scale")), input_size + gru_out, conv_dense_out)?,
+            conv: linear_init(arrays, Some(&format!("dec_conv{n}_bias")), Some(&format!("dec_conv{n}_weights")), Some(&format!("dec_conv{n}_weights")), None, None, Some(&format!("dec_conv{n}_scale")), 2 * conv_dense_out, conv_out)?,
         };
         Ok((stage, input_size + gru_out + conv_out, gru_out))
     }
@@ -75,10 +76,10 @@ pub fn init_rdovae_dec(arrays: &[WeightArray]) -> Result<RdovaeDec, WeightError>
 
     Ok(RdovaeDec {
         dec_hidden_init: linear_init(arrays, Some("dec_hidden_init_bias"), None, Some("dec_hidden_init_weights"), None, None, None, actual_state_dim, hidden_init_out)?,
-        dec_gru_init: linear_init(arrays, Some("dec_gru_init_bias"), None, Some("dec_gru_init_weights"), None, None, None, hidden_init_out, gru_init_out)?,
+        dec_gru_init: linear_init(arrays, Some("dec_gru_init_bias"), Some("dec_gru_init_weights"), Some("dec_gru_init_weights"), Some("dec_gru_init_weights_idx"), None, Some("dec_gru_init_scale"), hidden_init_out, gru_init_out)?,
         dec_dense1: linear_init(arrays, Some("dec_dense1_bias"), None, Some("dec_dense1_weights"), None, None, None, actual_latent_dim, dense1_out)?,
         stages: [s1, s2, s3, s4, s5],
-        dec_output: linear_init(arrays, Some("dec_output_bias"), None, Some("dec_output_weights"), None, None, None, acc5, 4 * DRED_NUM_FEATURES)?,
+        dec_output: linear_init(arrays, Some("dec_output_bias"), Some("dec_output_weights"), Some("dec_output_weights"), Some("dec_output_weights_idx"), None, Some("dec_output_scale"), acc5, output_out)?,
         gru_sizes: [g1, g2, g3, g4, g5],
         latent_dim: actual_latent_dim,
         state_dim: actual_state_dim,

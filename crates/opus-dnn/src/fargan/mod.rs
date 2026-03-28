@@ -1,7 +1,7 @@
 use crate::freq::NB_BANDS;
 use crate::nnet::{Activation, LinearLayer, WeightArray};
 use crate::nnet::ops::{compute_generic_dense, compute_generic_gru, compute_glu, compute_glu_inplace, compute_generic_conv1d};
-use crate::nnet::weights::{WeightError, linear_init, weight_output_dim};
+use crate::nnet::weights::{WeightError, linear_init};
 
 use crate::pitchdnn::{PITCH_MAX_PERIOD, pitch_period_from_dnn};
 
@@ -66,45 +66,50 @@ pub struct FarganState {
 }
 
 /// Initialize FARGAN model from weight arrays.
+/// Dimensions match C `fargan_init` from fargan_data.c exactly.
 pub fn init_fargan(arrays: &[WeightArray]) -> Result<Fargan, WeightError> {
-    let dim = |name| weight_output_dim(arrays, name);
-    let pembed_out = dim("cond_net_pembed_bias")?;
-    let fdense1_out = dim("cond_net_fdense1_bias")?;
-    let fconv1_out = dim("cond_net_fconv1_bias")?;
-    let fdense2_out = dim("cond_net_fdense2_bias")?;
-    let fwc0_out = dim("sig_net_fwc0_conv_bias")?;
-    let gru1_3n = dim("sig_net_gru1_input_bias")?;
-    let gru1_out = gru1_3n / 3;
-    let gru2_3n = dim("sig_net_gru2_input_bias")?;
-    let gru2_out = gru2_3n / 3;
-    let gru3_3n = dim("sig_net_gru3_input_bias")?;
-    let gru3_out = gru3_3n / 3;
-    let skip_out = dim("sig_net_skip_dense_bias")?;
-
-    let cond_size = fdense2_out / FARGAN_NB_SUBFRAMES;
-    let sig_input_size = cond_size + 2 * FARGAN_SUBFRAME_SIZE + 4;
-
     Ok(Fargan {
-        cond_net_pembed: linear_init(arrays, Some("cond_net_pembed_bias"), None, Some("cond_net_pembed_weights"), None, None, None, 1, pembed_out)?,
-        cond_net_fdense1: linear_init(arrays, Some("cond_net_fdense1_bias"), None, Some("cond_net_fdense1_weights"), None, None, None, NB_FEATURES + pembed_out, fdense1_out)?,
-        cond_net_fconv1: linear_init(arrays, Some("cond_net_fconv1_bias"), None, Some("cond_net_fconv1_weights"), None, None, None, 2 * fdense1_out, fconv1_out)?,
-        cond_net_fdense2: linear_init(arrays, Some("cond_net_fdense2_bias"), None, Some("cond_net_fdense2_weights"), None, None, None, fconv1_out, fdense2_out)?,
-        sig_net_cond_gain_dense: linear_init(arrays, Some("sig_net_cond_gain_dense_bias"), None, Some("sig_net_cond_gain_dense_weights"), None, None, None, cond_size, 1)?,
-        sig_net_fwc0_conv: linear_init(arrays, Some("sig_net_fwc0_conv_bias"), None, Some("sig_net_fwc0_conv_weights"), None, None, None, 2 * sig_input_size, fwc0_out)?,
-        sig_net_fwc0_glu_gate: linear_init(arrays, Some("sig_net_fwc0_glu_gate_bias"), None, Some("sig_net_fwc0_glu_gate_weights"), None, None, None, fwc0_out, fwc0_out)?,
-        sig_net_gain_dense_out: linear_init(arrays, Some("sig_net_gain_dense_out_bias"), None, Some("sig_net_gain_dense_out_weights"), None, None, None, fwc0_out, 4)?,
-        sig_net_gru1_input: linear_init(arrays, Some("sig_net_gru1_input_bias"), None, Some("sig_net_gru1_input_weights"), None, None, None, fwc0_out + 2 * FARGAN_SUBFRAME_SIZE, gru1_3n)?,
-        sig_net_gru1_recurrent: linear_init(arrays, Some("sig_net_gru1_recurrent_bias"), Some("sig_net_gru1_recurrent_weights"), None, None, Some("sig_net_gru1_recurrent_diag"), None, gru1_out, gru1_3n)?,
-        sig_net_gru1_glu_gate: linear_init(arrays, Some("sig_net_gru1_glu_gate_bias"), None, Some("sig_net_gru1_glu_gate_weights"), None, None, None, gru1_out, gru1_out)?,
-        sig_net_gru2_input: linear_init(arrays, Some("sig_net_gru2_input_bias"), None, Some("sig_net_gru2_input_weights"), None, None, None, gru1_out + 2 * FARGAN_SUBFRAME_SIZE, gru2_3n)?,
-        sig_net_gru2_recurrent: linear_init(arrays, Some("sig_net_gru2_recurrent_bias"), Some("sig_net_gru2_recurrent_weights"), None, None, Some("sig_net_gru2_recurrent_diag"), None, gru2_out, gru2_3n)?,
-        sig_net_gru2_glu_gate: linear_init(arrays, Some("sig_net_gru2_glu_gate_bias"), None, Some("sig_net_gru2_glu_gate_weights"), None, None, None, gru2_out, gru2_out)?,
-        sig_net_gru3_input: linear_init(arrays, Some("sig_net_gru3_input_bias"), None, Some("sig_net_gru3_input_weights"), None, None, None, gru2_out + 2 * FARGAN_SUBFRAME_SIZE, gru3_3n)?,
-        sig_net_gru3_recurrent: linear_init(arrays, Some("sig_net_gru3_recurrent_bias"), Some("sig_net_gru3_recurrent_weights"), None, None, Some("sig_net_gru3_recurrent_diag"), None, gru3_out, gru3_3n)?,
-        sig_net_gru3_glu_gate: linear_init(arrays, Some("sig_net_gru3_glu_gate_bias"), None, Some("sig_net_gru3_glu_gate_weights"), None, None, None, gru3_out, gru3_out)?,
-        sig_net_skip_dense: linear_init(arrays, Some("sig_net_skip_dense_bias"), None, Some("sig_net_skip_dense_weights"), None, None, None, gru1_out + gru2_out + gru3_out + fwc0_out + 2 * FARGAN_SUBFRAME_SIZE, skip_out)?,
-        sig_net_skip_glu_gate: linear_init(arrays, Some("sig_net_skip_glu_gate_bias"), None, Some("sig_net_skip_glu_gate_weights"), None, None, None, skip_out, skip_out)?,
-        sig_net_sig_dense_out: linear_init(arrays, Some("sig_net_sig_dense_out_bias"), None, Some("sig_net_sig_dense_out_weights"), None, None, None, skip_out, FARGAN_SUBFRAME_SIZE)?,
+        // linear_init(arrays, bias, weights_int8, float_weights, weights_idx, diag, scale, nb_inputs, nb_outputs)
+        // C: linear_init(&model->cond_net_pembed, ..., 224, 12)
+        cond_net_pembed: linear_init(arrays, Some("cond_net_pembed_bias"), None, Some("cond_net_pembed_weights"), None, None, None, 224, 12)?,
+        // C: linear_init(&model->cond_net_fdense1, ..., 32, 64)
+        cond_net_fdense1: linear_init(arrays, Some("cond_net_fdense1_bias"), None, Some("cond_net_fdense1_weights"), None, None, None, 32, 64)?,
+        // C: linear_init(&model->cond_net_fconv1, ..., int8+scale, 192, 128)
+        cond_net_fconv1: linear_init(arrays, Some("cond_net_fconv1_bias"), Some("cond_net_fconv1_weights"), Some("cond_net_fconv1_weights"), None, None, Some("cond_net_fconv1_scale"), 192, 128)?,
+        // C: linear_init(&model->cond_net_fdense2, ..., int8+scale, 128, 320)
+        cond_net_fdense2: linear_init(arrays, Some("cond_net_fdense2_bias"), Some("cond_net_fdense2_weights"), Some("cond_net_fdense2_weights"), None, None, Some("cond_net_fdense2_scale"), 128, 320)?,
+        // C: linear_init(&model->sig_net_cond_gain_dense, ..., 80, 1)
+        sig_net_cond_gain_dense: linear_init(arrays, Some("sig_net_cond_gain_dense_bias"), None, Some("sig_net_cond_gain_dense_weights"), None, None, None, 80, 1)?,
+        // C: linear_init(&model->sig_net_fwc0_conv, ..., int8+scale, 328, 192)
+        sig_net_fwc0_conv: linear_init(arrays, Some("sig_net_fwc0_conv_bias"), Some("sig_net_fwc0_conv_weights"), Some("sig_net_fwc0_conv_weights"), None, None, Some("sig_net_fwc0_conv_scale"), 328, 192)?,
+        // C: linear_init(&model->sig_net_fwc0_glu_gate, ..., int8+scale, 192, 192)
+        sig_net_fwc0_glu_gate: linear_init(arrays, Some("sig_net_fwc0_glu_gate_bias"), Some("sig_net_fwc0_glu_gate_weights"), Some("sig_net_fwc0_glu_gate_weights"), None, None, Some("sig_net_fwc0_glu_gate_scale"), 192, 192)?,
+        // C: linear_init(&model->sig_net_gain_dense_out, ..., 192, 4)
+        sig_net_gain_dense_out: linear_init(arrays, Some("sig_net_gain_dense_out_bias"), None, Some("sig_net_gain_dense_out_weights"), None, None, None, 192, 4)?,
+        // C: linear_init(&model->sig_net_gru1_input, ..., bias=NULL, int8+scale, 272, 480)
+        sig_net_gru1_input: linear_init(arrays, None, Some("sig_net_gru1_input_weights"), Some("sig_net_gru1_input_weights"), None, None, Some("sig_net_gru1_input_scale"), 272, 480)?,
+        // C: linear_init(&model->sig_net_gru1_recurrent, ..., bias=NULL, int8+scale, 160, 480)
+        sig_net_gru1_recurrent: linear_init(arrays, None, Some("sig_net_gru1_recurrent_weights"), Some("sig_net_gru1_recurrent_weights"), None, None, Some("sig_net_gru1_recurrent_scale"), 160, 480)?,
+        // C: linear_init(&model->sig_net_gru1_glu_gate, ..., int8+scale, 160, 160)
+        sig_net_gru1_glu_gate: linear_init(arrays, Some("sig_net_gru1_glu_gate_bias"), Some("sig_net_gru1_glu_gate_weights"), Some("sig_net_gru1_glu_gate_weights"), None, None, Some("sig_net_gru1_glu_gate_scale"), 160, 160)?,
+        // C: linear_init(&model->sig_net_gru2_input, ..., bias=NULL, int8+scale, 240, 384)
+        sig_net_gru2_input: linear_init(arrays, None, Some("sig_net_gru2_input_weights"), Some("sig_net_gru2_input_weights"), None, None, Some("sig_net_gru2_input_scale"), 240, 384)?,
+        // C: linear_init(&model->sig_net_gru2_recurrent, ..., bias=NULL, int8+scale, 128, 384)
+        sig_net_gru2_recurrent: linear_init(arrays, None, Some("sig_net_gru2_recurrent_weights"), Some("sig_net_gru2_recurrent_weights"), None, None, Some("sig_net_gru2_recurrent_scale"), 128, 384)?,
+        // C: linear_init(&model->sig_net_gru2_glu_gate, ..., int8+scale, 128, 128)
+        sig_net_gru2_glu_gate: linear_init(arrays, Some("sig_net_gru2_glu_gate_bias"), Some("sig_net_gru2_glu_gate_weights"), Some("sig_net_gru2_glu_gate_weights"), None, None, Some("sig_net_gru2_glu_gate_scale"), 128, 128)?,
+        // C: linear_init(&model->sig_net_gru3_input, ..., bias=NULL, int8+scale, 208, 384)
+        sig_net_gru3_input: linear_init(arrays, None, Some("sig_net_gru3_input_weights"), Some("sig_net_gru3_input_weights"), None, None, Some("sig_net_gru3_input_scale"), 208, 384)?,
+        // C: linear_init(&model->sig_net_gru3_recurrent, ..., bias=NULL, int8+scale, 128, 384)
+        sig_net_gru3_recurrent: linear_init(arrays, None, Some("sig_net_gru3_recurrent_weights"), Some("sig_net_gru3_recurrent_weights"), None, None, Some("sig_net_gru3_recurrent_scale"), 128, 384)?,
+        // C: linear_init(&model->sig_net_gru3_glu_gate, ..., int8+scale, 128, 128)
+        sig_net_gru3_glu_gate: linear_init(arrays, Some("sig_net_gru3_glu_gate_bias"), Some("sig_net_gru3_glu_gate_weights"), Some("sig_net_gru3_glu_gate_weights"), None, None, Some("sig_net_gru3_glu_gate_scale"), 128, 128)?,
+        // C: linear_init(&model->sig_net_skip_dense, ..., int8+scale, 688, 128)
+        sig_net_skip_dense: linear_init(arrays, Some("sig_net_skip_dense_bias"), Some("sig_net_skip_dense_weights"), Some("sig_net_skip_dense_weights"), None, None, Some("sig_net_skip_dense_scale"), 688, 128)?,
+        // C: linear_init(&model->sig_net_skip_glu_gate, ..., int8+scale, 128, 128)
+        sig_net_skip_glu_gate: linear_init(arrays, Some("sig_net_skip_glu_gate_bias"), Some("sig_net_skip_glu_gate_weights"), Some("sig_net_skip_glu_gate_weights"), None, None, Some("sig_net_skip_glu_gate_scale"), 128, 128)?,
+        // C: linear_init(&model->sig_net_sig_dense_out, ..., int8+scale, 128, 40)
+        sig_net_sig_dense_out: linear_init(arrays, Some("sig_net_sig_dense_out_bias"), Some("sig_net_sig_dense_out_weights"), Some("sig_net_sig_dense_out_weights"), None, None, Some("sig_net_sig_dense_out_scale"), 128, 40)?,
     })
 }
 

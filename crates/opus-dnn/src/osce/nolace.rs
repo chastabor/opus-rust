@@ -101,6 +101,7 @@ impl FeatureNetState for NoLaceState {
 }
 
 /// Initialize NoLACE model from weight arrays.
+/// Dimensions match C `init_nolacelayers` from nolace_data.c.
 pub fn init_nolace(arrays: &[WeightArray]) -> Result<NoLace, WeightError> {
     let dim = |name: &str| weight_output_dim(arrays, name);
     let cond_dim = dim("nolace_fnet_gru_input_bias")? / 3;
@@ -108,14 +109,8 @@ pub fn init_nolace(arrays: &[WeightArray]) -> Result<NoLace, WeightError> {
     let pitch_embed_dim = dim("nolace_pitch_embedding_bias")?;
     let numbits_embed_dim = 8;
     let feat_in = OSCE_FEATURE_DIM + pitch_embed_dim + 2 * numbits_embed_dim;
-    let fnet_conv2_in = 4 * hidden_dim;
-
-    let l = |bias: &str, weights: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
-        linear_init(arrays, Some(bias), None, Some(weights), None, None, None, ni, no)
-    };
-    let lg = |bias: &str, weights: &str, diag: &str, ni: usize, no: usize| -> Result<LinearLayer, WeightError> {
-        linear_init(arrays, Some(bias), Some(weights), None, None, Some(diag), None, ni, no)
-    };
+    let pitch_max = 300;
+    let conv2_out = dim("nolace_fnet_conv2_bias")?;
 
     let cf1_ks = dim("nolace_cf1_kernel_bias")?;
     let cf2_ks = dim("nolace_cf2_kernel_bias")?;
@@ -124,42 +119,77 @@ pub fn init_nolace(arrays: &[WeightArray]) -> Result<NoLace, WeightError> {
     let af3_ks_total = dim("nolace_af3_kernel_bias")?;
     let af4_ks_total = dim("nolace_af4_kernel_bias")?;
     let post_dim = dim("nolace_post_cf1_bias")?;
+    let tdshape_dim = dim("nolace_tdshape1_alpha1_f_bias")?;
 
     let layers = NoLaceLayers {
-        pitch_embedding: l("nolace_pitch_embedding_bias", "nolace_pitch_embedding_weights", 1, pitch_embed_dim)?,
-        fnet_conv1: l("nolace_fnet_conv1_bias", "nolace_fnet_conv1_weights", feat_in, hidden_dim)?,
-        fnet_conv2: l("nolace_fnet_conv2_bias", "nolace_fnet_conv2_weights", fnet_conv2_in, dim("nolace_fnet_conv2_bias")?)?,
-        fnet_tconv: l("nolace_fnet_tconv_bias", "nolace_fnet_tconv_weights", dim("nolace_fnet_conv2_bias")?, 4 * cond_dim)?,
-        fnet_gru_input: l("nolace_fnet_gru_input_bias", "nolace_fnet_gru_input_weights", cond_dim, 3 * cond_dim)?,
-        fnet_gru_recurrent: lg("nolace_fnet_gru_recurrent_bias", "nolace_fnet_gru_recurrent_weights", "nolace_fnet_gru_recurrent_diag", cond_dim, 3 * cond_dim)?,
-        cf1_kernel: l("nolace_cf1_kernel_bias", "nolace_cf1_kernel_weights", cond_dim, cf1_ks)?,
-        cf1_gain: l("nolace_cf1_gain_bias", "nolace_cf1_gain_weights", cond_dim, 1)?,
-        cf1_global_gain: l("nolace_cf1_global_gain_bias", "nolace_cf1_global_gain_weights", cond_dim, 1)?,
-        cf2_kernel: l("nolace_cf2_kernel_bias", "nolace_cf2_kernel_weights", cond_dim, cf2_ks)?,
-        cf2_gain: l("nolace_cf2_gain_bias", "nolace_cf2_gain_weights", cond_dim, 1)?,
-        cf2_global_gain: l("nolace_cf2_global_gain_bias", "nolace_cf2_global_gain_weights", cond_dim, 1)?,
-        af1_kernel: l("nolace_af1_kernel_bias", "nolace_af1_kernel_weights", cond_dim, af1_ks_total)?,
-        af1_gain: l("nolace_af1_gain_bias", "nolace_af1_gain_weights", cond_dim, 2)?,
-        tdshape1_alpha1_f: l("nolace_tdshape1_alpha1_f_bias", "nolace_tdshape1_alpha1_f_weights", cond_dim, dim("nolace_tdshape1_alpha1_f_bias")?)?,
-        tdshape1_alpha1_t: l("nolace_tdshape1_alpha1_t_bias", "nolace_tdshape1_alpha1_t_weights", 21, dim("nolace_tdshape1_alpha1_t_bias")?)?,
-        tdshape1_alpha2: l("nolace_tdshape1_alpha2_bias", "nolace_tdshape1_alpha2_weights", dim("nolace_tdshape1_alpha2_bias")?, dim("nolace_tdshape1_alpha2_bias")?)?,
-        tdshape2_alpha1_f: l("nolace_tdshape2_alpha1_f_bias", "nolace_tdshape2_alpha1_f_weights", cond_dim, dim("nolace_tdshape2_alpha1_f_bias")?)?,
-        tdshape2_alpha1_t: l("nolace_tdshape2_alpha1_t_bias", "nolace_tdshape2_alpha1_t_weights", 21, dim("nolace_tdshape2_alpha1_t_bias")?)?,
-        tdshape2_alpha2: l("nolace_tdshape2_alpha2_bias", "nolace_tdshape2_alpha2_weights", dim("nolace_tdshape2_alpha2_bias")?, dim("nolace_tdshape2_alpha2_bias")?)?,
-        tdshape3_alpha1_f: l("nolace_tdshape3_alpha1_f_bias", "nolace_tdshape3_alpha1_f_weights", cond_dim, dim("nolace_tdshape3_alpha1_f_bias")?)?,
-        tdshape3_alpha1_t: l("nolace_tdshape3_alpha1_t_bias", "nolace_tdshape3_alpha1_t_weights", 21, dim("nolace_tdshape3_alpha1_t_bias")?)?,
-        tdshape3_alpha2: l("nolace_tdshape3_alpha2_bias", "nolace_tdshape3_alpha2_weights", dim("nolace_tdshape3_alpha2_bias")?, dim("nolace_tdshape3_alpha2_bias")?)?,
-        af2_kernel: l("nolace_af2_kernel_bias", "nolace_af2_kernel_weights", cond_dim, af2_ks_total)?,
-        af2_gain: l("nolace_af2_gain_bias", "nolace_af2_gain_weights", cond_dim, 2)?,
-        af3_kernel: l("nolace_af3_kernel_bias", "nolace_af3_kernel_weights", cond_dim, af3_ks_total)?,
-        af3_gain: l("nolace_af3_gain_bias", "nolace_af3_gain_weights", cond_dim, 2)?,
-        af4_kernel: l("nolace_af4_kernel_bias", "nolace_af4_kernel_weights", cond_dim, af4_ks_total)?,
-        af4_gain: l("nolace_af4_gain_bias", "nolace_af4_gain_weights", cond_dim, 1)?,
-        post_cf1: l("nolace_post_cf1_bias", "nolace_post_cf1_weights", cond_dim, post_dim)?,
-        post_cf2: l("nolace_post_cf2_bias", "nolace_post_cf2_weights", cond_dim, post_dim)?,
-        post_af1: l("nolace_post_af1_bias", "nolace_post_af1_weights", cond_dim, post_dim)?,
-        post_af2: l("nolace_post_af2_bias", "nolace_post_af2_weights", cond_dim, post_dim)?,
-        post_af3: l("nolace_post_af3_bias", "nolace_post_af3_weights", cond_dim, post_dim)?,
+        // C: linear_init(pitch_embedding, bias, NULL, NULL, float, NULL, NULL, NULL, 301, 64)
+        pitch_embedding: linear_init(arrays, Some("nolace_pitch_embedding_bias"), None, Some("nolace_pitch_embedding_weights"), None, None, None, pitch_max + 1, pitch_embed_dim)?,
+        // C: linear_init(fnet_conv1, bias, NULL, NULL, float, NULL, NULL, NULL, 173, 96)
+        fnet_conv1: linear_init(arrays, Some("nolace_fnet_conv1_bias"), None, Some("nolace_fnet_conv1_weights"), None, None, None, feat_in, hidden_dim)?,
+        // C: linear_init(fnet_conv2, bias, subias, int8, float, NULL, NULL, scale, 768, 160)
+        fnet_conv2: linear_init(arrays, Some("nolace_fnet_conv2_bias"), Some("nolace_fnet_conv2_weights"), Some("nolace_fnet_conv2_weights"), None, None, Some("nolace_fnet_conv2_scale"), 2 * 4 * hidden_dim, conv2_out)?,
+        // C: linear_init(fnet_tconv, bias, subias, int8, float, NULL, NULL, scale, 160, 640)
+        fnet_tconv: linear_init(arrays, Some("nolace_fnet_tconv_bias"), Some("nolace_fnet_tconv_weights"), Some("nolace_fnet_tconv_weights"), None, None, Some("nolace_fnet_tconv_scale"), conv2_out, 4 * cond_dim)?,
+        // C: linear_init(fnet_gru_input, bias, subias, int8, float, NULL, NULL, scale, 160, 480)
+        fnet_gru_input: linear_init(arrays, Some("nolace_fnet_gru_input_bias"), Some("nolace_fnet_gru_input_weights"), Some("nolace_fnet_gru_input_weights"), None, None, Some("nolace_fnet_gru_input_scale"), cond_dim, 3 * cond_dim)?,
+        // C: linear_init(fnet_gru_recurrent, bias, subias, int8, float, NULL, NULL, scale, 160, 480)
+        fnet_gru_recurrent: linear_init(arrays, Some("nolace_fnet_gru_recurrent_bias"), Some("nolace_fnet_gru_recurrent_weights"), Some("nolace_fnet_gru_recurrent_weights"), None, None, Some("nolace_fnet_gru_recurrent_scale"), cond_dim, 3 * cond_dim)?,
+        // C: linear_init(cf1_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 16)
+        cf1_kernel: linear_init(arrays, Some("nolace_cf1_kernel_bias"), Some("nolace_cf1_kernel_weights"), Some("nolace_cf1_kernel_weights"), None, None, Some("nolace_cf1_kernel_scale"), cond_dim, cf1_ks)?,
+        // C: linear_init(cf1_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 1)
+        cf1_gain: linear_init(arrays, Some("nolace_cf1_gain_bias"), None, Some("nolace_cf1_gain_weights"), None, None, None, cond_dim, 1)?,
+        // C: linear_init(cf1_global_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 1)
+        cf1_global_gain: linear_init(arrays, Some("nolace_cf1_global_gain_bias"), None, Some("nolace_cf1_global_gain_weights"), None, None, None, cond_dim, 1)?,
+        // C: linear_init(cf2_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 16)
+        cf2_kernel: linear_init(arrays, Some("nolace_cf2_kernel_bias"), Some("nolace_cf2_kernel_weights"), Some("nolace_cf2_kernel_weights"), None, None, Some("nolace_cf2_kernel_scale"), cond_dim, cf2_ks)?,
+        // C: linear_init(cf2_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 1)
+        cf2_gain: linear_init(arrays, Some("nolace_cf2_gain_bias"), None, Some("nolace_cf2_gain_weights"), None, None, None, cond_dim, 1)?,
+        // C: linear_init(cf2_global_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 1)
+        cf2_global_gain: linear_init(arrays, Some("nolace_cf2_global_gain_bias"), None, Some("nolace_cf2_global_gain_weights"), None, None, None, cond_dim, 1)?,
+        // C: linear_init(af1_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 32)
+        af1_kernel: linear_init(arrays, Some("nolace_af1_kernel_bias"), Some("nolace_af1_kernel_weights"), Some("nolace_af1_kernel_weights"), None, None, Some("nolace_af1_kernel_scale"), cond_dim, af1_ks_total)?,
+        // C: linear_init(af1_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 2)
+        af1_gain: linear_init(arrays, Some("nolace_af1_gain_bias"), None, Some("nolace_af1_gain_weights"), None, None, None, cond_dim, 2)?,
+        // C: linear_init(tdshape1_alpha1_f, bias, subias, int8, float, NULL, NULL, scale, 320, 80)
+        tdshape1_alpha1_f: linear_init(arrays, Some("nolace_tdshape1_alpha1_f_bias"), Some("nolace_tdshape1_alpha1_f_weights"), Some("nolace_tdshape1_alpha1_f_weights"), None, None, Some("nolace_tdshape1_alpha1_f_scale"), 2 * cond_dim, tdshape_dim)?,
+        // C: linear_init(tdshape1_alpha1_t, bias, NULL, NULL, float, NULL, NULL, NULL, 42, 80)
+        tdshape1_alpha1_t: linear_init(arrays, Some("nolace_tdshape1_alpha1_t_bias"), None, Some("nolace_tdshape1_alpha1_t_weights"), None, None, None, 42, tdshape_dim)?,
+        // C: linear_init(tdshape1_alpha2, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 80)
+        tdshape1_alpha2: linear_init(arrays, Some("nolace_tdshape1_alpha2_bias"), None, Some("nolace_tdshape1_alpha2_weights"), None, None, None, cond_dim, tdshape_dim)?,
+        // C: linear_init(tdshape2_alpha1_f, bias, subias, int8, float, NULL, NULL, scale, 320, 80)
+        tdshape2_alpha1_f: linear_init(arrays, Some("nolace_tdshape2_alpha1_f_bias"), Some("nolace_tdshape2_alpha1_f_weights"), Some("nolace_tdshape2_alpha1_f_weights"), None, None, Some("nolace_tdshape2_alpha1_f_scale"), 2 * cond_dim, tdshape_dim)?,
+        // C: linear_init(tdshape2_alpha1_t, bias, NULL, NULL, float, NULL, NULL, NULL, 42, 80)
+        tdshape2_alpha1_t: linear_init(arrays, Some("nolace_tdshape2_alpha1_t_bias"), None, Some("nolace_tdshape2_alpha1_t_weights"), None, None, None, 42, tdshape_dim)?,
+        // C: linear_init(tdshape2_alpha2, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 80)
+        tdshape2_alpha2: linear_init(arrays, Some("nolace_tdshape2_alpha2_bias"), None, Some("nolace_tdshape2_alpha2_weights"), None, None, None, cond_dim, tdshape_dim)?,
+        // C: linear_init(tdshape3_alpha1_f, bias, subias, int8, float, NULL, NULL, scale, 320, 80)
+        tdshape3_alpha1_f: linear_init(arrays, Some("nolace_tdshape3_alpha1_f_bias"), Some("nolace_tdshape3_alpha1_f_weights"), Some("nolace_tdshape3_alpha1_f_weights"), None, None, Some("nolace_tdshape3_alpha1_f_scale"), 2 * cond_dim, tdshape_dim)?,
+        // C: linear_init(tdshape3_alpha1_t, bias, NULL, NULL, float, NULL, NULL, NULL, 42, 80)
+        tdshape3_alpha1_t: linear_init(arrays, Some("nolace_tdshape3_alpha1_t_bias"), None, Some("nolace_tdshape3_alpha1_t_weights"), None, None, None, 42, tdshape_dim)?,
+        // C: linear_init(tdshape3_alpha2, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 80)
+        tdshape3_alpha2: linear_init(arrays, Some("nolace_tdshape3_alpha2_bias"), None, Some("nolace_tdshape3_alpha2_weights"), None, None, None, cond_dim, tdshape_dim)?,
+        // C: linear_init(af2_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 64)
+        af2_kernel: linear_init(arrays, Some("nolace_af2_kernel_bias"), Some("nolace_af2_kernel_weights"), Some("nolace_af2_kernel_weights"), None, None, Some("nolace_af2_kernel_scale"), cond_dim, af2_ks_total)?,
+        // C: linear_init(af2_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 2)
+        af2_gain: linear_init(arrays, Some("nolace_af2_gain_bias"), None, Some("nolace_af2_gain_weights"), None, None, None, cond_dim, 2)?,
+        // C: linear_init(af3_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 64)
+        af3_kernel: linear_init(arrays, Some("nolace_af3_kernel_bias"), Some("nolace_af3_kernel_weights"), Some("nolace_af3_kernel_weights"), None, None, Some("nolace_af3_kernel_scale"), cond_dim, af3_ks_total)?,
+        // C: linear_init(af3_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 2)
+        af3_gain: linear_init(arrays, Some("nolace_af3_gain_bias"), None, Some("nolace_af3_gain_weights"), None, None, None, cond_dim, 2)?,
+        // C: linear_init(af4_kernel, bias, subias, int8, float, NULL, NULL, scale, 160, 32)
+        af4_kernel: linear_init(arrays, Some("nolace_af4_kernel_bias"), Some("nolace_af4_kernel_weights"), Some("nolace_af4_kernel_weights"), None, None, Some("nolace_af4_kernel_scale"), cond_dim, af4_ks_total)?,
+        // C: linear_init(af4_gain, bias, NULL, NULL, float, NULL, NULL, NULL, 160, 1)
+        af4_gain: linear_init(arrays, Some("nolace_af4_gain_bias"), None, Some("nolace_af4_gain_weights"), None, None, None, cond_dim, 1)?,
+        // C: linear_init(post_cf1, bias, subias, int8, float, NULL, NULL, scale, 320, 160)
+        post_cf1: linear_init(arrays, Some("nolace_post_cf1_bias"), Some("nolace_post_cf1_weights"), Some("nolace_post_cf1_weights"), None, None, Some("nolace_post_cf1_scale"), 2 * cond_dim, post_dim)?,
+        // C: linear_init(post_cf2, bias, subias, int8, float, NULL, NULL, scale, 320, 160)
+        post_cf2: linear_init(arrays, Some("nolace_post_cf2_bias"), Some("nolace_post_cf2_weights"), Some("nolace_post_cf2_weights"), None, None, Some("nolace_post_cf2_scale"), 2 * cond_dim, post_dim)?,
+        // C: linear_init(post_af1, bias, subias, int8, float, NULL, NULL, scale, 320, 160)
+        post_af1: linear_init(arrays, Some("nolace_post_af1_bias"), Some("nolace_post_af1_weights"), Some("nolace_post_af1_weights"), None, None, Some("nolace_post_af1_scale"), 2 * cond_dim, post_dim)?,
+        // C: linear_init(post_af2, bias, subias, int8, float, NULL, NULL, scale, 320, 160)
+        post_af2: linear_init(arrays, Some("nolace_post_af2_bias"), Some("nolace_post_af2_weights"), Some("nolace_post_af2_weights"), None, None, Some("nolace_post_af2_scale"), 2 * cond_dim, post_dim)?,
+        // C: linear_init(post_af3, bias, subias, int8, float, NULL, NULL, scale, 320, 160)
+        post_af3: linear_init(arrays, Some("nolace_post_af3_bias"), Some("nolace_post_af3_weights"), Some("nolace_post_af3_weights"), None, None, Some("nolace_post_af3_scale"), 2 * cond_dim, post_dim)?,
     };
 
     let mut window = [0.0f32; NOLACE_OVERLAP_SIZE];
@@ -173,7 +203,7 @@ pub fn init_nolace(arrays: &[WeightArray]) -> Result<NoLace, WeightError> {
             hidden_dim,
             pitch_embed_dim,
             numbits_embed_dim,
-            pitch_max: 299,
+            pitch_max,
             numbits_range_low: 50.0,
             numbits_range_high: 650.0,
             numbits_scales: [
