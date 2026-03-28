@@ -138,21 +138,23 @@ fn sparse_sgemv8x4(out: &mut [f32], w: &[f32], idx: &[i32], rows: usize, x: &[f3
 /// Maximum input vector size for quantized operations. Matches C `MAX_INPUTS`.
 const MAX_INPUTS: usize = 2048;
 
-/// Quantize float input to signed int8: round(127 * x).
-/// Matches C quantization in `cgemv8x4`/`sparse_cgemv8x4` (non-USE_SU_BIAS path).
-fn quantize_input(xq: &mut [i8], x: &[f32], cols: usize) {
+/// Quantize float input to unsigned byte: 127 + round(127 * x).
+/// Matches C `vec_avx.h` / `vector_ps_to_epi8` used on x86 (USE_SU_BIAS path).
+/// The unsigned quantization maps [-1, 1] to [0, 254] with 127 as the zero point.
+fn quantize_input_unsigned(xq: &mut [u8], x: &[f32], cols: usize) {
     for i in 0..cols {
-        xq[i] = (0.5 + 127.0 * x[i]).floor() as i8;
+        xq[i] = (127.0 + (0.5 + 127.0 * x[i]).floor()).clamp(0.0, 255.0) as u8;
     }
 }
 
 /// Quantized int8 dense matrix-vector multiply with 8x4 blocking.
-/// Matches C `cgemv8x4` from vec.h (non-USE_SU_BIAS path).
-/// Accumulates in i32 arithmetic for integer SIMD compatibility.
+/// Matches C `cgemv8x4` from vec_avx.h (USE_SU_BIAS / unsigned input path).
+/// Input is quantized to unsigned (127 + round(127*x)), weights are signed int8.
+/// Accumulates unsigned × signed in i32, matching the `dpbusds` (VNNI) semantics.
 fn cgemv8x4(out: &mut [f32], w: &[i8], scale: &[f32], rows: usize, cols: usize, x: &[f32]) {
     debug_assert!(cols <= MAX_INPUTS);
-    let mut xq = [0i8; MAX_INPUTS];
-    quantize_input(&mut xq, x, cols);
+    let mut xq = [0u8; MAX_INPUTS];
+    quantize_input_unsigned(&mut xq, x, cols);
 
     for v in out[..rows].iter_mut() {
         *v = 0.0;
@@ -163,6 +165,7 @@ fn cgemv8x4(out: &mut [f32], w: &[i8], scale: &[f32], rows: usize, cols: usize, 
     while i < rows {
         let mut j = 0;
         while j < cols {
+            // Unsigned input × signed weight → signed i32 accumulation.
             let xj0 = xq[j] as i32;
             let xj1 = xq[j + 1] as i32;
             let xj2 = xq[j + 2] as i32;
@@ -188,11 +191,11 @@ fn cgemv8x4(out: &mut [f32], w: &[i8], scale: &[f32], rows: usize, cols: usize, 
 }
 
 /// Sparse quantized int8 matrix-vector multiply with 8x4 blocking.
-/// Matches C `sparse_cgemv8x4` from vec.h (non-USE_SU_BIAS path).
+/// Matches C `sparse_cgemv8x4` from vec_avx.h (USE_SU_BIAS / unsigned input path).
 fn sparse_cgemv8x4(out: &mut [f32], w: &[i8], idx: &[i32], scale: &[f32], rows: usize, cols: usize, x: &[f32]) {
     debug_assert!(cols <= MAX_INPUTS);
-    let mut xq = [0i8; MAX_INPUTS];
-    quantize_input(&mut xq, x, cols);
+    let mut xq = [0u8; MAX_INPUTS];
+    quantize_input_unsigned(&mut xq, x, cols);
 
     for v in out[..rows].iter_mut() {
         *v = 0.0;
@@ -259,20 +262,24 @@ pub fn compute_linear(layer: &LinearLayer, out: &mut [f32], input: &[f32]) {
             cgemv8x4(out, weights, scale, n, m, input);
         }
     } else {
-        // No weights — clear output.
         for v in out[..n].iter_mut() {
             *v = 0.0;
         }
     }
 
-    // Add bias.
-    if let Some(ref bias) = layer.bias {
+    // Select bias: use subias for int8 unsigned quantization path (matching C USE_SU_BIAS),
+    // otherwise use regular bias. This mirrors the C pattern of pointer reassignment.
+    let effective_bias = if layer.weights.is_some() {
+        layer.subias.as_deref().or(layer.bias.as_deref())
+    } else {
+        layer.bias.as_deref()
+    };
+    if let Some(bias) = effective_bias {
         for i in 0..n {
             out[i] += bias[i];
         }
     }
 
-    // Diagonal term (used for GRU recurrent weights).
     if let Some(ref diag) = layer.diag {
         debug_assert_eq!(3 * m, n);
         for i in 0..m {
@@ -311,6 +318,7 @@ mod tests {
         let bias = vec![0.5f32; 8];
         let layer = LinearLayer {
             bias: Some(bias),
+            subias: None,
             weights: None,
             float_weights: Some(weights),
             weights_idx: None,

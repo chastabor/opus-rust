@@ -194,6 +194,7 @@ mod tests {
         }
         LinearLayer {
             bias: None,
+            subias: None,
             weights: None,
             float_weights: Some(weights),
             weights_idx: None,

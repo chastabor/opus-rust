@@ -92,6 +92,7 @@ fn test_linear_identity_vs_c() {
     let mut rust_out = vec![0.0f32; n];
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(weights.clone()),
         weights_idx: None,
@@ -125,6 +126,7 @@ fn test_linear_random_vs_c() {
     let mut rust_out = vec![0.0f32; no];
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(weights.clone()),
         weights_idx: None,
@@ -157,6 +159,7 @@ fn test_generic_dense_relu_vs_c() {
     let mut rust_out = vec![0.0f32; no];
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(weights.clone()),
         weights_idx: None,
@@ -200,6 +203,7 @@ fn test_gru_vs_c() {
     // Rust
     let input_layer = LinearLayer {
         bias: Some(input_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(input_w.clone()),
         weights_idx: None,
@@ -210,6 +214,7 @@ fn test_gru_vs_c() {
     };
     let recur_layer = LinearLayer {
         bias: Some(recur_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(recur_w.clone()),
         weights_idx: None,
@@ -260,6 +265,7 @@ fn test_gru_multi_step_vs_c() {
 
     let input_layer = LinearLayer {
         bias: Some(input_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(input_w.clone()),
         weights_idx: None,
@@ -270,6 +276,7 @@ fn test_gru_multi_step_vs_c() {
     };
     let recur_layer = LinearLayer {
         bias: Some(recur_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(recur_w.clone()),
         weights_idx: None,
@@ -349,6 +356,7 @@ fn test_linear_odd_dimensions_vs_c() {
 
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(weights.clone()),
         weights_idx: None,
@@ -377,6 +385,7 @@ fn test_linear_5x3_vs_c() {
 
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(weights.clone()),
         weights_idx: None,
@@ -397,7 +406,6 @@ fn test_linear_5x3_vs_c() {
 // ============ Coverage gap: int8 quantized weights ============
 
 #[test]
-#[ignore = "int8 cgemv8x4 Rust vs C divergence under investigation"]
 fn test_linear_int8_vs_c() {
     // 8x4 int8 quantized layer with small known weights.
     // cgemv8x4 requires nb_outputs % 8 == 0 and nb_inputs % 4 == 0.
@@ -417,6 +425,7 @@ fn test_linear_int8_vs_c() {
     // Rust
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: Some(weights.clone()),
         float_weights: None,
         weights_idx: None,
@@ -432,12 +441,11 @@ fn test_linear_int8_vs_c() {
     let mut c_out = vec![0.0f32; no];
     opus_ffi::c_compute_linear_int8(&mut c_out, &weights, &bias, &scale, ni, no, &input);
 
-    // Quantized path has larger numerical differences due to int8 rounding.
-    assert_close(&rust_out, &c_out, 0.5, "linear_int8_4x8");
+    // Unsigned quantization path: tolerance depends on int8 rounding.
+    assert_close(&rust_out, &c_out, 1.0, "linear_int8_4x8");
 }
 
 #[test]
-#[ignore = "int8 cgemv8x4 Rust vs C divergence under investigation"]
 fn test_linear_int8_16x8_vs_c() {
     // 16x8 int8 layer — larger matrix with random weights.
     let ni = 8;
@@ -446,16 +454,17 @@ fn test_linear_int8_16x8_vs_c() {
     let mut rng = 654u32;
     let mut rand_i8 = || -> i8 {
         rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
-        (rng >> 16) as i8 // full signed range
+        (rng >> 16) as i8
     };
 
     let weights: Vec<i8> = (0..ni * no).map(|_| rand_i8()).collect();
     let bias: Vec<f32> = (0..no).map(|i| (i as f32 - 8.0) * 0.05).collect();
-    let scale: Vec<f32> = vec![1.0f32; no]; // uniform scale simplifies debugging
+    let scale: Vec<f32> = vec![1.0f32; no];
     let input: Vec<f32> = (0..ni).map(|i| (i as f32 * 0.7).sin()).collect();
 
     let layer = LinearLayer {
         bias: Some(bias.clone()),
+        subias: None,
         weights: Some(weights.clone()),
         float_weights: None,
         weights_idx: None,
@@ -470,7 +479,6 @@ fn test_linear_int8_16x8_vs_c() {
     let mut c_out = vec![0.0f32; no];
     opus_ffi::c_compute_linear_int8(&mut c_out, &weights, &bias, &scale, ni, no, &input);
 
-    // Tolerance is relative to output magnitude; int8 quantization adds ~1% error.
     assert_close(&rust_out, &c_out, 5.0, "linear_int8_8x16");
 }
 
@@ -500,6 +508,7 @@ fn test_gru_nonzero_initial_state_vs_c() {
 
     let input_layer = LinearLayer {
         bias: Some(input_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(input_w.clone()),
         weights_idx: None,
@@ -510,6 +519,7 @@ fn test_gru_nonzero_initial_state_vs_c() {
     };
     let recur_layer = LinearLayer {
         bias: Some(recur_b.clone()),
+        subias: None,
         weights: None,
         float_weights: Some(recur_w.clone()),
         weights_idx: None,

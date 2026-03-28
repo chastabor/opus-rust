@@ -228,6 +228,17 @@ pub fn linear_init(
         layer.bias = Some(bytes_to_f32_vec(data));
     }
 
+    // Auto-load subias for int8 layers (USE_SU_BIAS path).
+    // The subias name follows the convention: replace "_bias" suffix with "_subias".
+    if let Some(bias_name) = bias {
+        if weights.is_some() {
+            let subias_name = bias_name.replace("_bias", "_subias");
+            if let Some(data) = opt_array_check(arrays, &subias_name, nb_outputs * 4).unwrap_or(None) {
+                layer.subias = Some(bytes_to_f32_vec(data));
+            }
+        }
+    }
+
     if let Some(idx_name) = weights_idx {
         let (idx_data, total_blocks) = find_idx_check(arrays, idx_name, nb_inputs, nb_outputs).ok_or(WeightError)?;
         layer.weights_idx = Some(idx_data);

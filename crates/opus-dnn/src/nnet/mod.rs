@@ -37,6 +37,9 @@ impl Activation {
 #[derive(Debug, Clone)]
 pub struct LinearLayer {
     pub bias: Option<Vec<f32>>,
+    /// SU-bias: used with unsigned quantization path (x86 USE_SU_BIAS).
+    /// Compensates for the 127 offset in the unsigned input quantization.
+    pub subias: Option<Vec<f32>>,
     pub weights: Option<Vec<i8>>,
     pub float_weights: Option<Vec<f32>>,
     pub weights_idx: Option<Vec<i32>>,
@@ -50,6 +53,7 @@ impl LinearLayer {
     pub fn new(nb_inputs: usize, nb_outputs: usize) -> Self {
         LinearLayer {
             bias: None,
+            subias: None,
             weights: None,
             float_weights: None,
             weights_idx: None,
