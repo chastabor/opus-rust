@@ -21,6 +21,8 @@ pub struct DnnDecoderState {
     pub(crate) loaded: bool,
     /// DRED decoded state (latents, features, offsets).
     pub(crate) dred: opus_dnn::dred::decoder::OpusDred,
+    /// DRED quantization statistics (from model weight data).
+    pub(crate) dred_stats: opus_dnn::dred::decoder::DredStats,
     /// DRED RDOVAE decoder model.
     pub(crate) rdovae_dec: opus_dnn::dred::rdovae_dec::RdovaeDec,
     /// RDOVAE decoder state (reusable across calls).

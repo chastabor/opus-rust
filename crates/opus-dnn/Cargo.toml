@@ -12,6 +12,7 @@ osce = []
 
 [dependencies]
 opus-celt = { path = "../opus-celt" }
+opus-range-coder = { path = "../opus-range-coder" }
 
 [lints.rust]
 unsafe-code = "forbid"

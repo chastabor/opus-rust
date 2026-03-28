@@ -1,4 +1,20 @@
+use opus_range_coder::EcCtx;
+
 use super::*;
+use super::coding::compute_quantizer;
+
+/// DRED quantization statistics (loaded from dred_rdovae_stats_data).
+/// These tables are indexed by `q_level * dim` for per-element decoding.
+pub struct DredStats {
+    pub state_quant_scales: Vec<u8>,
+    pub state_r: Vec<u8>,
+    pub state_p0: Vec<u8>,
+    pub latent_quant_scales: Vec<u8>,
+    pub latent_r: Vec<u8>,
+    pub latent_p0: Vec<u8>,
+    pub state_dim: usize,
+    pub latent_dim: usize,
+}
 
 /// DRED decoded state. Matches C `OpusDRED` from dred_decoder.h.
 pub struct OpusDred {
@@ -27,68 +43,110 @@ impl OpusDred {
     }
 }
 
-/// Decode DRED latents from entropy-coded bytes.
-/// Matches C `dred_ec_decode` from dred_decoder.c.
-///
-/// This function requires the range coder (ec_dec) and laplace decoder
-/// from opus-range-coder, plus the quantization statistics tables
-/// (quant_scales, r_q8, p0_q8) from the model weight data.
-///
-/// Returns the number of decoded latent pairs, or 0 on failure.
-///
-/// NOTE: Full implementation requires integration with the opus-range-coder
-/// crate for entropy decoding (ec_dec_init, ec_dec_uint, ec_decode,
-/// ec_laplace_decode_p0). This will be completed in Phase 7 (integration).
-/// For now, the structure and state management are in place.
-pub fn dred_ec_decode(
-    dec: &mut OpusDred,
-    _bytes: &[u8],
-    _num_bytes: usize,
-    _min_feature_frames: usize,
-    _dred_frame_offset: i32,
-    _state_quant_scales: &[u8],
-    _state_r: &[u8],
-    _state_p0: &[u8],
-    _latent_quant_scales: &[u8],
-    _latent_r: &[u8],
-    _latent_p0: &[u8],
-) -> usize {
-    // TODO: Implement entropy decoding using opus-range-coder.
-    // The C implementation uses:
-    //   ec_dec_init(&ec, bytes, num_bytes)
-    //   q0 = ec_dec_uint(&ec, 16)
-    //   dQ = ec_dec_uint(&ec, 8)
-    //   ... then loops decoding latents via ec_laplace_decode_p0
-    //
-    // This requires:
-    //   1. opus-range-coder dependency
-    //   2. Laplace decoder (ec_laplace_decode_p0)
-    //   3. Stats data from dred_rdovae_stats_data.h (quant_scales, r, p0)
-    //
-    // For now, set state to indicate no latents decoded.
-    dec.nb_latents = 0;
-    dec.process_stage = 0;
-    0
-}
-
-/// Decode latent vector from range coder using quantization stats.
+/// Decode a latent vector from the range coder using quantization stats.
 /// Matches C `dred_decode_latents` from dred_decoder.c.
-///
-/// NOTE: Requires ec_laplace_decode_p0 from opus-range-coder.
-/// Stub implementation for now.
-pub fn dred_decode_latents(
+fn dred_decode_latents(
+    ec: &mut EcCtx,
     x: &mut [f32],
-    _scale: &[u8],
-    _r: &[u8],
-    _p0: &[u8],
+    scale: &[u8],
+    r: &[u8],
+    p0: &[u8],
     dim: usize,
 ) {
-    // TODO: Implement using ec_laplace_decode_p0.
-    // For each element:
-    //   if r[i]==0 || p0[i]==255: q = 0
-    //   else: q = ec_laplace_decode_p0(dec, p0[i]<<7, r[i]<<7)
-    //   x[i] = q * 256.0 / max(1, scale[i])
     for i in 0..dim {
-        x[i] = 0.0;
+        let q = if r[i] == 0 || p0[i] == 255 {
+            0
+        } else {
+            ec.laplace_decode_p0((p0[i] as u16) << 7, (r[i] as u16) << 7)
+        };
+        let s = if scale[i] == 0 { 1 } else { scale[i] as i32 };
+        x[i] = q as f32 * 256.0 / s as f32;
     }
+}
+
+
+/// Decode DRED extension payload from entropy-coded bytes.
+/// Matches C `dred_ec_decode` from dred_decoder.c.
+///
+/// `stats` provides the quantization statistics tables.
+/// Returns the number of decoded latent pairs.
+pub fn dred_ec_decode(
+    dec: &mut OpusDred,
+    bytes: &[u8],
+    num_bytes: usize,
+    min_feature_frames: usize,
+    dred_frame_offset: i32,
+    stats: &DredStats,
+) -> usize {
+    if num_bytes == 0 || stats.state_dim == 0 || stats.latent_dim == 0 {
+        dec.nb_latents = 0;
+        dec.process_stage = 0;
+        return 0;
+    }
+
+    let state_dim = stats.state_dim;
+    let latent_dim = stats.latent_dim;
+    let mut ec = EcCtx::dec_init(&bytes[..num_bytes]);
+
+    let q0 = ec.dec_uint(16) as i32;
+    let dq = ec.dec_uint(8) as i32;
+    let extra_offset = if ec.dec_uint(2) != 0 {
+        32 * ec.dec_uint(256) as i32
+    } else {
+        0
+    };
+    dec.dred_offset = 16 - ec.dec_uint(32) as i32 - extra_offset + dred_frame_offset;
+
+    let mut qmax = 15i32;
+    if q0 < 14 && dq > 0 {
+        let nvals = 15 - (q0 + 1);
+        let ft = (2 * nvals) as u32;
+        let s = ec.decode(ft) as i32;
+        if s >= nvals {
+            qmax = q0 + (s - nvals) + 1;
+            ec.dec_update(s as u32, (s + 1) as u32, ft);
+        } else {
+            ec.dec_update(0, nvals as u32, ft);
+        }
+    }
+
+    // Decode initial state
+    let state_qoffset = (q0 as usize) * state_dim;
+    if state_qoffset + state_dim <= stats.state_quant_scales.len() {
+        dred_decode_latents(
+            &mut ec,
+            &mut dec.state[..state_dim],
+            &stats.state_quant_scales[state_qoffset..state_qoffset + state_dim],
+            &stats.state_r[state_qoffset..state_qoffset + state_dim],
+            &stats.state_p0[state_qoffset..state_qoffset + state_dim],
+            state_dim,
+        );
+    }
+
+    // Decode latent pairs (newest to oldest)
+    let max_i = DRED_NUM_REDUNDANCY_FRAMES.min(min_feature_frames.div_ceil(2));
+    let mut i = 0;
+    while i < max_i {
+        if (8 * num_bytes as i32) - ec.tell() <= 7 {
+            break;
+        }
+        let q_level = compute_quantizer(q0, dq, qmax, (i / 2) as i32);
+        let offset = (q_level as usize) * latent_dim;
+        if offset + latent_dim <= stats.latent_quant_scales.len() {
+            let lat_start = (i / 2) * (latent_dim + 1);
+            dred_decode_latents(
+                &mut ec,
+                &mut dec.latents[lat_start..lat_start + latent_dim],
+                &stats.latent_quant_scales[offset..offset + latent_dim],
+                &stats.latent_r[offset..offset + latent_dim],
+                &stats.latent_p0[offset..offset + latent_dim],
+                latent_dim,
+            );
+            dec.latents[lat_start + latent_dim] = q_level as f32 * 0.125 - 1.0;
+        }
+        i += 2;
+    }
+    dec.process_stage = 1;
+    dec.nb_latents = i / 2;
+    i / 2
 }

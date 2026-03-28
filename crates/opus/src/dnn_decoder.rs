@@ -35,8 +35,7 @@ pub fn decoder_process_dred_extension(
         extension.data.len(),
         opus_dnn::dred::DRED_NUM_REDUNDANCY_FRAMES,
         dred_frame_offset,
-        &[], &[], &[], // TODO: stats data from model weights (quant_scales, r, p0)
-        &[], &[], &[],
+        &dnn.dred_stats,
     );
 
     if dnn.dred.nb_latents > 0 && dnn.dred.process_stage == DRED_STAGE_DECODED {

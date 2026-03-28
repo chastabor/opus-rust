@@ -39,31 +39,6 @@ impl Default for OsceBweFeatureState {
     }
 }
 
-/// LACE processing state. Matches C `LACEState`.
-pub struct LaceState {
-    pub feature_net_conv2_state: Vec<f32>,
-    pub feature_net_gru_state: Vec<f32>,
-    pub cf1_state: AdaCombState,
-    pub cf2_state: AdaCombState,
-    pub af1_state: AdaConvState,
-    pub preemph_mem: f32,
-    pub deemph_mem: f32,
-}
-
-impl LaceState {
-    pub fn new(conv2_state_size: usize, cond_dim: usize) -> Self {
-        LaceState {
-            feature_net_conv2_state: vec![0.0; conv2_state_size],
-            feature_net_gru_state: vec![0.0; cond_dim],
-            cf1_state: AdaCombState::default(),
-            cf2_state: AdaCombState::default(),
-            af1_state: AdaConvState::default(),
-            preemph_mem: 0.0,
-            deemph_mem: 0.0,
-        }
-    }
-}
-
 /// NoLACE processing state. Matches C `NoLACEState`.
 pub struct NoLaceState {
     pub feature_net_conv2_state: Vec<f32>,
@@ -112,11 +87,10 @@ impl NoLaceState {
 }
 
 /// OSCE model container. Matches C `OSCEModel`.
-/// Model layer definitions (LACE/NoLACE/BBWENet layers) are loaded from weight data.
-/// The actual layer structs are auto-generated — here we store them as opaque loaded state.
 pub struct OsceModel {
     pub loaded: bool,
     pub method: i32,
+    pub lace: Option<super::lace::Lace>,
 }
 
 impl Default for OsceModel {
@@ -124,6 +98,7 @@ impl Default for OsceModel {
         OsceModel {
             loaded: false,
             method: OSCE_METHOD_NONE,
+            lace: None,
         }
     }
 }
