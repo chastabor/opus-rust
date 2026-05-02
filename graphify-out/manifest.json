@@ -1,0 +1,694 @@
+{
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/build.rs": {
+    "mtime": 1774688214.6587183,
+    "hash": "0086a9aff9629eeb044338e0fd1477be"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/benches/dnn_bench.rs": {
+    "mtime": 1774666012.8784919,
+    "hash": "206eea5db6e8aa5ac9dcf9554ab0caf1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/lossgen_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "d737e95a2893dfbe38e903d7327c70c2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/nolace_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "8977eb254e45baaf2ee0e33caf061e9e"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_stats_data.c": {
+    "mtime": 1762139926.0,
+    "hash": "f0e118c8d6ffa132ac0ea3dd3a8ed0b1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_enc_data.h": {
+    "mtime": 1762139926.0,
+    "hash": "4f18cd64fdd5d901ce2095b0516ab821"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/plc_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "2b6c073abdddc99b37e959be6ffd83ad"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/lace_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "7d23ef76b75959367b379cf592e7f0cb"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/bbwenet_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "0c1788642d494cb26376e95d26c2d019"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/pitchdnn_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "64a2ed5ce86c5c278581fd5cb88f92f7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/fargan_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "58efad5991abb811e643bf4c479dd043"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_dec_data.c": {
+    "mtime": 1762139926.0,
+    "hash": "8eea68f15e8ae24f7096caabe8973f66"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/bbwenet_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "2517c7855cddab1da506538fccbdc24c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/pitchdnn_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "4f7b0bfdfaec2f33d882a6f440071446"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/plc_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "38dd28b6a5da32bbec04f8de25cf4d52"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/lace_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "37a8d1e93be55c6473e37df417073793"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_enc_data.c": {
+    "mtime": 1762139926.0,
+    "hash": "d96b8f6c0fc57be22a2549202db94798"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/lossgen_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "86afd32aef36fa62e594025a19af6b41"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_constants.h": {
+    "mtime": 1762139926.0,
+    "hash": "abd535169cbfa539bbeffada6cca94fd"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/nolace_data.h": {
+    "mtime": 1760722367.0,
+    "hash": "4544e3b67ef450de34dbd6171559a6ef"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_stats_data.h": {
+    "mtime": 1762139926.0,
+    "hash": "887df884382d88e982e4e622ccc22d4c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/dred_rdovae_dec_data.h": {
+    "mtime": 1762139926.0,
+    "hash": "85e74c53a6289ad206ccb71577d8e821"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/model-data/dnn/fargan_data.c": {
+    "mtime": 1760722367.0,
+    "hash": "4f879bfa3f668c359c31eeb7ad7d1c65"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/tools/dump_weights.c": {
+    "mtime": 1774664219.9349744,
+    "hash": "b538a340278f3aace3f34977452c97be"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/tools/parse_c_weights.rs": {
+    "mtime": 1774672855.3747337,
+    "hash": "29de67808d80865a6bdbbc97f432449d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/tests/blob_loading.rs": {
+    "mtime": 1774666490.568341,
+    "hash": "60962c269bb4171ad752bd31080dd722"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/lib.rs": {
+    "mtime": 1774680499.8158383,
+    "hash": "330260ff4ad642f7fb37cb1cb2413064"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/burg.rs": {
+    "mtime": 1774641976.9490411,
+    "hash": "0dbc141be2956afadbde3e8bbb6b85e7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/pitchdnn.rs": {
+    "mtime": 1774666643.3779292,
+    "hash": "23b92c49ea123810c0ebfc380dadae71"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/freq.rs": {
+    "mtime": 1774641962.713337,
+    "hash": "ba8dcdddbb4901d3622155efa5a8be9f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/load.rs": {
+    "mtime": 1774685048.0037315,
+    "hash": "72df3423198371693670277cfa5d6e78"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/fargan/mod.rs": {
+    "mtime": 1774672861.992631,
+    "hash": "e75ccce5e29074451f318e2ef348766f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/data/mod.rs": {
+    "mtime": 1774656144.937815,
+    "hash": "b17b80fc4b3d20ed6b793016fe230727"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/mod.rs": {
+    "mtime": 1774685078.027081,
+    "hash": "bb4efc86356f39c1da1134499ef8678c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/features.rs": {
+    "mtime": 1774672954.5821972,
+    "hash": "58e7934b1e9f44b6d5da6a4bffb3a757"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/lace.rs": {
+    "mtime": 1774672849.0588317,
+    "hash": "9c343467db7dbc30c3359247af637a8f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/structs.rs": {
+    "mtime": 1774658303.6707656,
+    "hash": "7f647aedeb95abed3b90bf47f53ceab7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/bbwenet.rs": {
+    "mtime": 1774666739.0396004,
+    "hash": "162988c6dd183d7c4ebc12cf59feaff9"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/common.rs": {
+    "mtime": 1774657831.4912314,
+    "hash": "62cc7ad33ad6f3271ef906c38eb43ec2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/nolace.rs": {
+    "mtime": 1774666765.6616805,
+    "hash": "91cba48ce4e7c329a856faa55027165c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/osce/config.rs": {
+    "mtime": 1774645537.3101454,
+    "hash": "355d141bf743c98cfe95949cfcdf779b"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/rdovae_enc.rs": {
+    "mtime": 1774666731.882848,
+    "hash": "8acabffe7a0d649e675320deb5f9ccbe"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/stats.rs": {
+    "mtime": 1774680465.3634171,
+    "hash": "d36695031b8a88d311b540e92ccecc14"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/mod.rs": {
+    "mtime": 1774680471.739311,
+    "hash": "4bd824bbae82e949dc650ce0770ef8a1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/decoder.rs": {
+    "mtime": 1774652770.9597228,
+    "hash": "3b8caa35306361ecb58230e6b42c1ffb"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/encoder.rs": {
+    "mtime": 1774655607.3352664,
+    "hash": "afbd6580f5a00c03fc59e9d9c1e00606"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/coding.rs": {
+    "mtime": 1774644452.6369042,
+    "hash": "994ffd0d36761ccf8d664f897d74ebde"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/dred/rdovae_dec.rs": {
+    "mtime": 1774666808.7731967,
+    "hash": "5c83f2ddd3477a46b4c74aa5b0bb00af"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nndsp/adacomb.rs": {
+    "mtime": 1774672865.1715817,
+    "hash": "4b1f95042eee1e66a12bb1854376d9bb"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nndsp/adaconv.rs": {
+    "mtime": 1774672986.4177055,
+    "hash": "ad44183a2e7a09300cf2d10a302dd7bc"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nndsp/mod.rs": {
+    "mtime": 1774672869.077521,
+    "hash": "806c2ed6d4bdf391949d59cee11fb743"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nndsp/adashape.rs": {
+    "mtime": 1774672866.900555,
+    "hash": "ee7322addc3e0b96fff90af36062637e"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/lpcnet/enc.rs": {
+    "mtime": 1774672977.2998464,
+    "hash": "309d9163be422b69b60d92cab657182b"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/lpcnet/mod.rs": {
+    "mtime": 1774643575.8269134,
+    "hash": "6a7d90ee65716deea2ae6703921b67f9"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/lpcnet/plc.rs": {
+    "mtime": 1774672983.025758,
+    "hash": "dd006fd2bfe96b19bdcbaffa281dd285"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/linear.rs": {
+    "mtime": 1774672850.4988093,
+    "hash": "089c6c02cea3d4edd37e16195a8580fc"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/weights.rs": {
+    "mtime": 1774666868.892138,
+    "hash": "e0961846a6e06b42de444fa6829d6689"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/conv2d.rs": {
+    "mtime": 1774639936.1714385,
+    "hash": "4a9b257dc8d5cdb650a4940af46f415e"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/activations.rs": {
+    "mtime": 1774672847.0908623,
+    "hash": "268913cb74ec2ba4dd89a8c03e57d187"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/ops.rs": {
+    "mtime": 1774672851.5957923,
+    "hash": "de487bd70c35ba5ad7729562c95ecf0c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/src/nnet/mod.rs": {
+    "mtime": 1774661553.7003853,
+    "hash": "245219857852666de7d2e3ad50e0f899"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/encoder.rs": {
+    "mtime": 1774686206.3852587,
+    "hash": "d7ce98e3bb58abfb3b8c5bf1ef5fe459"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/dnn_decoder.rs": {
+    "mtime": 1774687757.6988442,
+    "hash": "5f6a8a92da16fafbd426a640f4f4ee67"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/dnn_silk_bridge.rs": {
+    "mtime": 1774653079.9095204,
+    "hash": "86b2123d257fd52bfd5cd47f376c3b00"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/extensions.rs": {
+    "mtime": 1774473681.1488106,
+    "hash": "66dba8679ce49fca5e3e3d144c030a31"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/error.rs": {
+    "mtime": 1774420498.0690587,
+    "hash": "78c38bb8349a6fded3ff07a41e9b9f47"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/repacketizer.rs": {
+    "mtime": 1774473681.1588104,
+    "hash": "e2298045fd82b940575bd22cb27b4498"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/packet.rs": {
+    "mtime": 1774685998.700963,
+    "hash": "10da6d6dd193cbf59938c3c6dec283b1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/multistream_encoder.rs": {
+    "mtime": 1774478957.9749894,
+    "hash": "8576e8efc147e8413d36b759caaad097"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/multistream.rs": {
+    "mtime": 1774478957.9739892,
+    "hash": "16f25925d7322b7a5e461aeae689bf56"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/lib.rs": {
+    "mtime": 1774653022.892818,
+    "hash": "e81f718ffe39d96cdaffe04d8b761bbf"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/types.rs": {
+    "mtime": 1774473681.1598103,
+    "hash": "51368087a3f428ece7a97c74227b3636"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/dnn_types.rs": {
+    "mtime": 1774687455.822163,
+    "hash": "69ba50a875859879a31b33597c5bfa75"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/projection.rs": {
+    "mtime": 1774584848.3876572,
+    "hash": "f55b4939264ffa412314b86316d99935"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/src/decoder.rs": {
+    "mtime": 1774687508.746761,
+    "hash": "e5ca0bd0632ac48846176d13c5fb9d27"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/benches/celt_internal.rs": {
+    "mtime": 1774473681.126811,
+    "hash": "8f85cac5c0ab42fef9407e1d825dd14d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/benches/encode_decode.rs": {
+    "mtime": 1774473681.128811,
+    "hash": "b4222432a4755c8f31dea44b96015355"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/benches/common.rs": {
+    "mtime": 1774473681.1258109,
+    "hash": "0db705b88b98390e3149a4412bd17c80"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/benches/c_reference.rs": {
+    "mtime": 1774473681.124811,
+    "hash": "4e930f01fa65c87c87c8bf98173b7ac1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_fft_tests.rs": {
+    "mtime": 1774473681.1658103,
+    "hash": "b0e3e3f9f1a9d9a63fa7df57148874e2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/dnn_nnet_tests.rs": {
+    "mtime": 1774661831.7633035,
+    "hash": "c3d8c2bf32ee1375773e96a4c560afcc"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/silk_gain_test.rs": {
+    "mtime": 1774473681.19181,
+    "hash": "ee2701d9820ec08266e3e27adbed83e1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_lpc_tests.rs": {
+    "mtime": 1774454396.5517657,
+    "hash": "4a3928fbf13879ff08b0d2d7ce858663"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/flp_analysis_tests.rs": {
+    "mtime": 1774473681.18381,
+    "hash": "4797461d820c1032e8aeaadd79713e27"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/cross_validate.rs": {
+    "mtime": 1774473681.17981,
+    "hash": "824c9700db795e3c28a1bf1b855a4852"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/dnn_sparse_linear.rs": {
+    "mtime": 1774685065.2283576,
+    "hash": "51d52f709936c36df79c8204576daff3"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/flp_dsp_tests.rs": {
+    "mtime": 1774473681.1858099,
+    "hash": "ec35dae9009556fe8beb7c6bef9fbb1d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_pitch_tests.rs": {
+    "mtime": 1774473681.1718102,
+    "hash": "7b32f56485ebf08680dba7dabf1b14d4"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/c_reference_encode.rs": {
+    "mtime": 1774473681.1628103,
+    "hash": "595a863b9d0852820e36a738cb8f7e69"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_mdct_tests.rs": {
+    "mtime": 1774473681.1698103,
+    "hash": "13b3fabc4eb6a7c299989eb9dc08ef70"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_rate_tests.rs": {
+    "mtime": 1774473681.1748102,
+    "hash": "e7c628fadeb9c131ab81c9f748e51695"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/dnn_model_tests.rs": {
+    "mtime": 1774671838.607338,
+    "hash": "2e9099b9fd8c04952bc7878f3f923014"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/silk_pitch_tests.rs": {
+    "mtime": 1774634830.9304178,
+    "hash": "9e0cd4d206c2447471f64ff3d0bdfa70"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_bands_tests.rs": {
+    "mtime": 1774473681.1638103,
+    "hash": "b7c8b3673d2772402f7dd1e3fc8d798f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/gain_match_test.rs": {
+    "mtime": 1774473681.1898098,
+    "hash": "d6ff8272f98d2ca4d7d79fb45dda6e69"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/ffi_layer1_tests.rs": {
+    "mtime": 1774473681.18281,
+    "hash": "2ee2ddc26e44f13e7de5464f438371e0"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/silk_lbrr_tests.rs": {
+    "mtime": 1774473681.1958098,
+    "hash": "2747a41e1df4be146cb068b219c2e9df"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/dnn_pitchdnn_layers.rs": {
+    "mtime": 1774671888.4694533,
+    "hash": "83a62b8c1a2b73d468c8155ee5e7d24f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/flp_wrapper_tests.rs": {
+    "mtime": 1774474220.0460823,
+    "hash": "56f2ea0cc766f0861233053099e780a4"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/silk_nsq_deldec_tests.rs": {
+    "mtime": 1774473681.1968098,
+    "hash": "af86326f6cba8f16ff0fd97d014815d1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/a2nlsf_comparison.rs": {
+    "mtime": 1774462910.0020435,
+    "hash": "68bd23c61976a5fd7fc540ef99fa177a"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_quant_energy_tests.rs": {
+    "mtime": 1774473681.1738102,
+    "hash": "d22945bdb36991435c699141614cb5cd"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/correctness_vs_c.rs": {
+    "mtime": 1774635490.3916016,
+    "hash": "2a53be4b253dbe9baac49eabeb6c5c96"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/celt_mathops_tests.rs": {
+    "mtime": 1774473681.1688101,
+    "hash": "7a7a79ee8c8de7da0b4d43cbcbd11f4d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/flp_frame_tests.rs": {
+    "mtime": 1774634567.8372004,
+    "hash": "2a9a770631768609de8e245ca71de8e1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/silk_stereo_tests.rs": {
+    "mtime": 1774635490.4146016,
+    "hash": "dbf2cf41a56f54cf5d98cc915328e701"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus/tests/common/mod.rs": {
+    "mtime": 1774671807.9008894,
+    "hash": "c4e8c3ad1cca9723b68721cf19e8a0d9"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/tables.rs": {
+    "mtime": 1774473681.2708085,
+    "hash": "e4dd7d8e6acc0e35335a110d3009a8f7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/encoder.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "7454ea26e78a5d1601f52469ddaa4f77"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/lib.rs": {
+    "mtime": 1774473681.2708085,
+    "hash": "7b9fd2ab51c145cb2965da277d4ed402"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/ctx.rs": {
+    "mtime": 1774655863.6443608,
+    "hash": "29c3b5e3ac9e2dc55d369424f392c8cc"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/cwrs.rs": {
+    "mtime": 1774473681.2668085,
+    "hash": "2605d7fe581f511636f6e0aab30d5de4"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/decoder.rs": {
+    "mtime": 1774478957.9679894,
+    "hash": "63f3ede643cdecc5860b41c179a67b7e"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/src/laplace.rs": {
+    "mtime": 1774473681.2708085,
+    "hash": "c8a65969e087f7b0e357c893db4b5fca"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-range-coder/tests/roundtrip.rs": {
+    "mtime": 1774061326.7739882,
+    "hash": "3418cafdd2c6fc68108a9e3b1426bd15"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/tests/encoder_roundtrip.rs": {
+    "mtime": 1774473681.2558088,
+    "hash": "e8ce5f2a8079836b6d3814fcda1fb419"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/encoder.rs": {
+    "mtime": 1774584916.4090188,
+    "hash": "6c42784856db3a846729605c9d4576ab"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/lib.rs": {
+    "mtime": 1774477565.1194274,
+    "hash": "750cfe2c19e1e6eefb215831e190e4af"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/mode.rs": {
+    "mtime": 1774061620.637772,
+    "hash": "a19f7f6289f318a5efa0cabe85b65e3d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/bands.rs": {
+    "mtime": 1774584957.8346303,
+    "hash": "0c5fa228ca4e0c3e3724d8c974a006af"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/pitch.rs": {
+    "mtime": 1774584985.3853724,
+    "hash": "938e2616916540c420d7dc1f333f73f1"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/tables.rs": {
+    "mtime": 1774478957.9679894,
+    "hash": "34898df52eb9d026bacbe4b7390c1d58"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/quant_energy.rs": {
+    "mtime": 1774585012.2481208,
+    "hash": "d73cd3e60d96d48a68d2558b734e49d9"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/lpc.rs": {
+    "mtime": 1774478957.9669893,
+    "hash": "055dcd916def5241f7895b865948fa97"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/mdct.rs": {
+    "mtime": 1774473681.243809,
+    "hash": "34bdb8b950369c719b1183800cf2ae08"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/fft.rs": {
+    "mtime": 1774478957.9669893,
+    "hash": "db7db53f7d49b67ed33aeb90ca45c676"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/mathops.rs": {
+    "mtime": 1774642692.1207533,
+    "hash": "e7f7e0dcd08574f8d2797e7702f88542"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/decoder.rs": {
+    "mtime": 1774585034.0959165,
+    "hash": "255fc3132c7e61ceb2cf48496c4a6f1c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/src/rate.rs": {
+    "mtime": 1774585241.1839836,
+    "hash": "c437b96bf742992596360afd36c0c92c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/tables.rs": {
+    "mtime": 1774473681.351807,
+    "hash": "c5fc2eb43523a2aba5691c02824fae17"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/stereo.rs": {
+    "mtime": 1774478957.9729893,
+    "hash": "acc5c2ebcf45027c0fc9dc0d1fc4f48c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/decoder.rs": {
+    "mtime": 1774687404.4297013,
+    "hash": "761ac3b549c3d1e545941dff3068eb91"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/decode_core.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "c98a2c539c8bff9ae37269a7e063a7d0"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/lib.rs": {
+    "mtime": 1774478957.9719894,
+    "hash": "2902e90767a3df2ae163881bbe7cd6e2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/pitch_analysis.rs": {
+    "mtime": 1774585948.943915,
+    "hash": "4894880e4507ab76a9b297b5f26465d7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/gain_quant.rs": {
+    "mtime": 1774478957.9709895,
+    "hash": "4bc69bd9c4d72a751ce2b739074af3ed"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/lpc_analysis.rs": {
+    "mtime": 1774585962.7774303,
+    "hash": "4a85a28c88b8199011918e4897bf63e7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/decode_params.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "52275b7a009cbb57624fa49ab70bc85f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/resampler.rs": {
+    "mtime": 1774478957.9729893,
+    "hash": "b221447e9088347992f5a4d6b7950ad5"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/stereo_encode.rs": {
+    "mtime": 1774585979.7430983,
+    "hash": "8ff28bb9e9628d9f08cda2464b73d92a"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/nlsf.rs": {
+    "mtime": 1774478957.9719894,
+    "hash": "fb340a2f4ac674995eb051a80290b0fb"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/vad.rs": {
+    "mtime": 1774585993.6153383,
+    "hash": "3c04db8ede61c5bf8e4ed7e4951f8038"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/decode_pulses.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "e671e5634463c54e820cfe915dfd1f2f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encode_pulses.rs": {
+    "mtime": 1774478957.9699893,
+    "hash": "d5d20f83c533ecf768ac83f33538da2f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/noise_shape_analysis.rs": {
+    "mtime": 1774586009.753672,
+    "hash": "c582ac4e30725b8d07846595a176283c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/nsq_del_dec.rs": {
+    "mtime": 1774586024.4878082,
+    "hash": "b3c41874cb0f4c88f3e211a4f8e13945"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encode_indices.rs": {
+    "mtime": 1774586039.493903,
+    "hash": "a5485faa4caf31662c20655ab676a97c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/signal_processing.rs": {
+    "mtime": 1774478957.9729893,
+    "hash": "9190adf1767264419a60937f8e433d93"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/cng.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "92be34dbe931065e6599a3b9d8bc1f47"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/nsq.rs": {
+    "mtime": 1774586054.2119281,
+    "hash": "1e15c0dc9f4f68699ede9194c247b8f8"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/nlsf_encode.rs": {
+    "mtime": 1774586065.9897206,
+    "hash": "8c1b7c7995dab8eb161addaa3ccc8ed0"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder.rs": {
+    "mtime": 1774687413.2214577,
+    "hash": "d89c6f29c233ca5702e73b945c474ff6"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/plc.rs": {
+    "mtime": 1774478957.9729893,
+    "hash": "9fb96a6e6733cb5ac40a9d39b88dc68d"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/decode_indices.rs": {
+    "mtime": 1774478957.9689894,
+    "hash": "041ed3898d154193533867f4f62fcf0f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/encode_frame.rs": {
+    "mtime": 1774585652.123569,
+    "hash": "8590450112c8703b4a1274ade8b4cf3a"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/ltp_scale_ctrl.rs": {
+    "mtime": 1774473681.3098078,
+    "hash": "b7aec4f7b7fc29b1f7fef82a100f1b8f"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/quant_ltp_gains.rs": {
+    "mtime": 1774585682.4980628,
+    "hash": "86683524896e6e915b3beb2e1bcea936"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/process_gains.rs": {
+    "mtime": 1774585706.9415214,
+    "hash": "7e7388811fb56168399e6aefdce3a2a5"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/find_ltp.rs": {
+    "mtime": 1774585729.4810154,
+    "hash": "e2eca6f33aebc118a49e2ab944472ad3"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/noise_shape.rs": {
+    "mtime": 1774585759.7545233,
+    "hash": "a37667a2c7f9ac4e912af004f082caf2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/state.rs": {
+    "mtime": 1774478957.9709895,
+    "hash": "0f2c12b3362c43ab538a75b514041815"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/mod.rs": {
+    "mtime": 1774473681.3098078,
+    "hash": "d65de83014525d465e57cc58bb447ede"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/find_pred_coefs.rs": {
+    "mtime": 1774585777.8929477,
+    "hash": "d59baeb0f95a0e834aa049f41fb0fdce"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/lbrr.rs": {
+    "mtime": 1774585795.5227077,
+    "hash": "ee1e4278e19c8be96fe2fa471da95f6c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/residual_energy.rs": {
+    "mtime": 1774473681.3128078,
+    "hash": "1a910c6d0d12cfa90c4cdb8ce6a23ca2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/wrappers.rs": {
+    "mtime": 1774585812.5956466,
+    "hash": "afabf6c111975183939461f288947360"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/find_pitch_lags.rs": {
+    "mtime": 1774585844.0713089,
+    "hash": "d5245eddd75cb32bd45ef5c1c1247ac9"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/dsp.rs": {
+    "mtime": 1774478957.9699893,
+    "hash": "2600e72c972b4a88d0ecf5f74c299fd7"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/src/encoder_flp/find_lpc.rs": {
+    "mtime": 1774585892.3323493,
+    "hash": "d764dd78ec6202f613c72e8529b8702c"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/PLAN.md": {
+    "mtime": 1774638960.3446999,
+    "hash": "dcc85a5b5b91a77d81cfca16c2afb1e2"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-dnn/CompletionPlan.md": {
+    "mtime": 1774652608.4987326,
+    "hash": "ee7099223fa446f81e565eb8eb7eb7ec"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-celt/CELT_TESTING_PLAN.md": {
+    "mtime": 1774456939.5005326,
+    "hash": "a1ec0ae1bf1f4cfc51dae2af750f1b77"
+  },
+  "/home/ct37/projects/opus-rust/crates/opus-silk/SILK_ENCODER_REDESIGN.md": {
+    "mtime": 1774374886.9797254,
+    "hash": "d3ac05992cafecaf48b07e60163fdbeb"
+  }
+}

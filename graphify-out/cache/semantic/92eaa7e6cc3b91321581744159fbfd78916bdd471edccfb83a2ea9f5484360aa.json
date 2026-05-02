@@ -1,0 +1,1 @@
+{"nodes": [{"id": "bbwenet_data_c_weights_blob", "label": "bbwenet_v2.pth-derived weights data", "file_type": "code", "source_file": "crates/opus-dnn/model-data/dnn/bbwenet_data.c", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
