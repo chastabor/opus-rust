@@ -155,7 +155,7 @@ static int run_test_case(
 }
 
 int main(int argc, char **argv) {
-    const char *outdir = "tests/vectors";
+    const char *outdir = "crates/opus-ffi/tests/vectors";
     if (argc > 1) outdir = argv[1];
 
     char cmd[512];

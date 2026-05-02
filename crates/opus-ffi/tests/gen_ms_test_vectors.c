@@ -123,7 +123,7 @@ static int run_ms_test_case(
 }
 
 int main(int argc, char **argv) {
-    const char *outdir = "tests/vectors";
+    const char *outdir = "crates/opus-ffi/tests/vectors";
     if (argc > 1) outdir = argv[1];
 
     printf("=== Multistream test cases ===\n");

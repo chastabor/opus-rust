@@ -4,7 +4,49 @@ members = [
     "crates/opus-celt",
     "crates/opus-silk",
     "crates/opus-dnn",
-    "crates/opus",
     "crates/opus-ffi",
 ]
 resolver = "3"
+
+[package]
+name = "opus"
+version = "2.2.2"
+edition = "2024"
+description = "Opus audio codec decoder in pure Rust"
+keywords = ["audio", "codec", "VoIP", "streaming"]
+categories = ["multimedia::encoding", "multimedia::audio"]
+repository = "https://github.com/chastabor/opus-rust"
+readme = "README.md"
+
+[features]
+default = []
+dnn = ["dep:opus-dnn"]
+
+[dependencies]
+opus-range-coder = { version = "2.2.2", path = "crates/opus-range-coder" }
+opus-celt = { version = "2.2.2", path = "crates/opus-celt" }
+opus-silk = { version = "2.2.2", path = "crates/opus-silk" }
+opus-dnn = { version = "2.2.2", path = "crates/opus-dnn", optional = true }
+
+[dev-dependencies]
+opus-ffi = { version = "2.2.2", path = "crates/opus-ffi" }
+opus-dnn = { version = "2.2.2", path = "crates/opus-dnn" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[lints.rust]
+unsafe-code = "forbid"
+
+[lints.clippy]
+too-many-arguments = "allow"
+
+[[bench]]
+name = "encode_decode"
+harness = false
+
+[[bench]]
+name = "c_reference"
+harness = false
+
+[[bench]]
+name = "celt_internal"
+harness = false

@@ -59,10 +59,10 @@ cargo test --package opus silk_pitch.*10ms -- --nocapture
 
 ### Test vectors
 
-Pre-generated test vectors are in `tests/vectors/`. The C generators are:
+Pre-generated test vectors are in `crates/opus-ffi/tests/vectors/`. The C generators are:
 
-- `tests/gen_test_vectors.c` — CELT, SILK, and hybrid packets with reference PCM
-- `tests/gen_ms_test_vectors.c` — multistream surround test vectors
+- `crates/opus-ffi/tests/gen_test_vectors.c` — CELT, SILK, and hybrid packets with reference PCM
+- `crates/opus-ffi/tests/gen_ms_test_vectors.c` — multistream surround test vectors
 
 To regenerate, compile the C generators against the vendored libopus and run them.
 

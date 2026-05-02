@@ -4,7 +4,7 @@
 use opus::{Channels, OpusDecoder, OpusMSDecoder, SampleRate};
 use std::path::Path;
 
-const VECTORS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors");
+const VECTORS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/crates/opus-ffi/tests/vectors");
 const FRAME_SIZE: usize = 960;
 
 /// Parse an .info file and return channels count.
@@ -100,7 +100,7 @@ fn run_test_case(name: &str, max_allowed_error: f64) {
 
     if !packets_path.exists() {
         panic!(
-            "Test vector not found: {}\nRun `tests/gen_test_vectors` first to generate vectors.",
+            "Test vector not found: {}\nRun `crates/opus-ffi/tests/gen_test_vectors` first to generate vectors.",
             packets_path.display()
         );
     }
@@ -341,7 +341,7 @@ fn run_ms_test_case(name: &str, max_allowed_error: f64) {
 
     if !packets_path.exists() {
         panic!(
-            "Test vector not found: {}\nRun `tests/gen_ms_test_vectors` first.",
+            "Test vector not found: {}\nRun `crates/opus-ffi/tests/gen_ms_test_vectors` first.",
             packets_path.display()
         );
     }

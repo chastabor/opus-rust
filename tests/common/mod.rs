@@ -137,7 +137,7 @@ pub fn gen_random_vec(n: usize, seed: &mut u32) -> Vec<f32> {
 /// Returns None if the file doesn't exist (e.g., weights not downloaded).
 pub fn load_dnn_blob(name: &str) -> Option<Vec<u8>> {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../opus-dnn/model-data/blobs")
+        .join("crates/opus-dnn/model-data/blobs")
         .join(name);
     std::fs::read(&path).ok()
 }
