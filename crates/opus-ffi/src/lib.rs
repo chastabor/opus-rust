@@ -838,6 +838,8 @@ unsafe extern "C" {
 
     fn celt_fir_c(x: *const f32, num: *const f32, y: *mut f32, n: i32, ord: i32, arch: i32);
 
+    fn wrap_celt_fir5(x: *mut f32, num: *const f32, n: i32);
+
     fn celt_iir(
         x: *const f32,
         den: *const f32,
@@ -1129,9 +1131,14 @@ pub fn c_celt_lpc(lpc: &mut [f32], ac: &[f32], p: usize) {
 
 pub fn c_celt_fir(x: &[f32], num: &[f32], y: &mut [f32], n: usize, ord: usize) {
     assert!(x.len() >= n && num.len() >= ord && y.len() >= n);
+    // C celt_fir reads ord samples of history before x[0] (i.e. x[-ord..-1]).
+    // The Rust port treats that history as zero. Build a padded buffer so the
+    // C call sees the same zero history and the two implementations match.
+    let mut padded = vec![0.0f32; ord + n];
+    padded[ord..].copy_from_slice(&x[..n]);
     unsafe {
         celt_fir_c(
-            x.as_ptr(),
+            padded.as_ptr().add(ord),
             num.as_ptr(),
             y.as_mut_ptr(),
             n as i32,
@@ -1139,6 +1146,11 @@ pub fn c_celt_fir(x: &[f32], num: &[f32], y: &mut [f32], n: usize, ord: usize) {
             0,
         )
     }
+}
+
+pub fn c_celt_fir5(x: &mut [f32], num: &[f32; 5], n: usize) {
+    assert!(x.len() >= n);
+    unsafe { wrap_celt_fir5(x.as_mut_ptr(), num.as_ptr(), n as i32) }
 }
 
 pub fn c_celt_iir(x: &[f32], den: &[f32], y: &mut [f32], n: usize, ord: usize, mem: &mut [f32]) {

@@ -5,10 +5,10 @@
 mod common;
 
 use opus_ffi::*;
-use opus_silk::encoder_flp::find_ltp::silk_ltp_analysis_filter_flp;
-use opus_silk::gain_quant;
-use opus_silk::nlsf;
-use opus_silk::*;
+use opus::silk::encoder_flp::find_ltp::silk_ltp_analysis_filter_flp;
+use opus::silk::gain_quant;
+use opus::silk::nlsf;
+use opus::silk::*;
 
 fn gen_sine_f32(len: usize, freq: f32, fs: f32, amp: f32) -> Vec<f32> {
     (0..len)

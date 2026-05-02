@@ -365,3 +365,25 @@ void wrap_anti_collapse(
                   logE, prev1logE, prev2logE,
                   pulses, seed, encode, 0);
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * celt_fir5: 5-tap FIR filter, applied in-place. Static in pitch.c so we
+ * replicate it here verbatim. Keep in sync with opus-c/celt/pitch.c.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+void wrap_celt_fir5(opus_val16 *x, const opus_val16 *num, int N) {
+    opus_val16 num0, num1, num2, num3, num4;
+    opus_val32 mem0, mem1, mem2, mem3, mem4;
+    num0 = num[0]; num1 = num[1]; num2 = num[2]; num3 = num[3]; num4 = num[4];
+    mem0 = mem1 = mem2 = mem3 = mem4 = 0;
+    for (int i = 0; i < N; i++) {
+        opus_val32 sum = SHL32(EXTEND32(x[i]), SIG_SHIFT);
+        sum = MAC16_16(sum, num0, mem0);
+        sum = MAC16_16(sum, num1, mem1);
+        sum = MAC16_16(sum, num2, mem2);
+        sum = MAC16_16(sum, num3, mem3);
+        sum = MAC16_16(sum, num4, mem4);
+        mem4 = mem3; mem3 = mem2; mem2 = mem1; mem1 = mem0; mem0 = x[i];
+        x[i] = ROUND16(sum, SIG_SHIFT);
+    }
+}

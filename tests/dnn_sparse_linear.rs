@@ -1,3 +1,5 @@
+#![cfg(any(feature = "dnn-dred", feature = "dnn-osce", feature = "dnn-deep-plc"))]
+
 //! RDOVAE sparse linear divergence investigation.
 //!
 //! Tests sparse_sgemv8x4 and the first sparse dense layer of RDOVAE encoder
@@ -16,8 +18,8 @@ fn test_rdovae_gdense1_sparse_vs_c() {
         return;
     };
 
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
 
     let gdense1 = &model.gdense1;
     let nb_inputs = gdense1.nb_inputs;
@@ -72,7 +74,7 @@ fn test_rdovae_gdense1_sparse_vs_c() {
     let idx = gdense1.weights_idx.as_ref().unwrap();
 
     let mut rust_sgemv = vec![0.0f32; nb_outputs];
-    opus_dnn::nnet::linear::compute_linear(gdense1, &mut rust_sgemv, &input);
+    opus::dnn::nnet::linear::compute_linear(gdense1, &mut rust_sgemv, &input);
     // Subtract bias to get raw sgemv output (float path uses regular bias)
     if let Some(ref bias) = gdense1.bias {
         for i in 0..nb_outputs {
@@ -108,8 +110,8 @@ fn test_rdovae_enc_dense1_via_c_model_init() {
         return;
     };
 
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
     let nb_inputs = model.enc_dense1.nb_inputs;
     let nb_outputs = model.enc_dense1.nb_outputs;
 
@@ -117,11 +119,11 @@ fn test_rdovae_enc_dense1_via_c_model_init() {
 
     // Rust: using Rust-loaded model
     let mut rust_out = vec![0.0f32; nb_outputs];
-    opus_dnn::nnet::ops::compute_generic_dense(
+    opus::dnn::nnet::ops::compute_generic_dense(
         &model.enc_dense1,
         &mut rust_out,
         &input,
-        opus_dnn::nnet::Activation::Tanh,
+        opus::dnn::nnet::Activation::Tanh,
     );
 
     // C: using C-loaded model (via wrap_rdovae_enc_dense1_only which calls C init_rdovaeenc)
@@ -152,8 +154,8 @@ fn test_rdovae_encode_special_inputs_vs_c() {
         return;
     };
 
-    let arrays = opus_dnn::nnet::weights::parse_weights(&enc_blob).unwrap();
-    let model = opus_dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&enc_blob).unwrap();
+    let model = opus::dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
     let input_dim = model.enc_dense1.nb_inputs;
 
     // Zero input
@@ -165,17 +167,17 @@ fn test_rdovae_encode_special_inputs_vs_c() {
 
 fn rdovae_encode_vs_c_helper(
     enc_blob: &[u8],
-    model: &opus_dnn::dred::rdovae_enc::RdovaeEnc,
+    model: &opus::dnn::dred::rdovae_enc::RdovaeEnc,
     input: &[f32],
     label: &str,
 ) {
     let latent_dim = model.latent_dim;
     let state_dim = model.state_dim;
-    let mut enc_state = opus_dnn::dred::rdovae_enc::rdovae_enc_state_init(model);
+    let mut enc_state = opus::dnn::dred::rdovae_enc::rdovae_enc_state_init(model);
 
     let mut rust_latents = vec![0.0f32; latent_dim];
     let mut rust_state = vec![0.0f32; state_dim];
-    opus_dnn::dred::rdovae_enc::dred_rdovae_encode_dframe(
+    opus::dnn::dred::rdovae_enc::dred_rdovae_encode_dframe(
         &mut enc_state,
         model,
         &mut rust_latents,
@@ -217,8 +219,8 @@ fn test_rdovae_enc_dense1_vs_c() {
         return;
     };
 
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
 
     let layer = &model.enc_dense1;
     let nb_inputs = layer.nb_inputs;
@@ -231,7 +233,7 @@ fn test_rdovae_enc_dense1_vs_c() {
 
     // Rust
     let mut rust_out = vec![0.0f32; nb_outputs];
-    opus_dnn::nnet::linear::compute_linear(layer, &mut rust_out, &input);
+    opus::dnn::nnet::linear::compute_linear(layer, &mut rust_out, &input);
 
     // C (using same weights — enc_dense1 uses float_weights, no int8 path)
     let fw = layer.float_weights.as_ref().unwrap();
@@ -256,8 +258,8 @@ fn test_rdovae_gdense1_sparse_sanity() {
         return;
     };
 
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::dred::rdovae_enc::init_rdovae_enc(&arrays).unwrap();
 
     // gdense1 is public and has weights_idx (sparse)
     let layer = &model.gdense1;
@@ -272,7 +274,7 @@ fn test_rdovae_gdense1_sparse_sanity() {
     let input = common::gen_random_vec(nb_inputs, &mut seed);
 
     let mut rust_out = vec![0.0f32; nb_outputs];
-    opus_dnn::nnet::linear::compute_linear(layer, &mut rust_out, &input);
+    opus::dnn::nnet::linear::compute_linear(layer, &mut rust_out, &input);
 
     let has_nan = rust_out.iter().any(|v| v.is_nan() || v.is_infinite());
     let all_zero = rust_out.iter().all(|&v| v == 0.0);

@@ -1,3 +1,10 @@
+pub mod celt;
+pub mod range_coder;
+pub mod silk;
+
+#[cfg(any(feature = "dnn-dred", feature = "dnn-osce", feature = "dnn-deep-plc"))]
+pub mod dnn;
+
 pub mod decoder;
 #[cfg(feature = "dnn")]
 pub mod dnn_decoder;

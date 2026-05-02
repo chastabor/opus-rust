@@ -1,9 +1,5 @@
 [workspace]
 members = [
-    "crates/opus-range-coder",
-    "crates/opus-celt",
-    "crates/opus-silk",
-    "crates/opus-dnn",
     "crates/opus-ffi",
 ]
 resolver = "3"
@@ -20,17 +16,15 @@ readme = "README.md"
 
 [features]
 default = []
-dnn = ["dep:opus-dnn"]
+dnn          = ["dnn-dred", "dnn-osce", "dnn-deep-plc"]
+dnn-deep-plc = []
+dnn-dred     = ["dnn-deep-plc"]
+dnn-osce     = []
 
 [dependencies]
-opus-range-coder = { version = "2.2.2", path = "crates/opus-range-coder" }
-opus-celt = { version = "2.2.2", path = "crates/opus-celt" }
-opus-silk = { version = "2.2.2", path = "crates/opus-silk" }
-opus-dnn = { version = "2.2.2", path = "crates/opus-dnn", optional = true }
 
 [dev-dependencies]
 opus-ffi = { version = "2.2.2", path = "crates/opus-ffi" }
-opus-dnn = { version = "2.2.2", path = "crates/opus-dnn" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [lints.rust]
@@ -50,3 +44,8 @@ harness = false
 [[bench]]
 name = "celt_internal"
 harness = false
+
+[[bench]]
+name = "dnn_bench"
+harness = false
+required-features = ["dnn"]

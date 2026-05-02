@@ -1,3 +1,5 @@
+#![cfg(any(feature = "dnn-dred", feature = "dnn-osce", feature = "dnn-deep-plc"))]
+
 //! DNN NN primitive comparison tests: Rust opus-dnn vs C libopus.
 //!
 //! Tests Layer 0 (activations), Layer 1 (linear), and Layer 2 (GRU)
@@ -5,11 +7,11 @@
 
 mod common;
 
-use opus_dnn::nnet::Activation;
-use opus_dnn::nnet::LinearLayer;
-use opus_dnn::nnet::activations::compute_activation;
-use opus_dnn::nnet::linear::compute_linear;
-use opus_dnn::nnet::ops::{compute_generic_dense, compute_generic_gru};
+use opus::dnn::nnet::Activation;
+use opus::dnn::nnet::LinearLayer;
+use opus::dnn::nnet::activations::compute_activation;
+use opus::dnn::nnet::linear::compute_linear;
+use opus::dnn::nnet::ops::{compute_generic_dense, compute_generic_gru};
 
 use common::assert_f32_slice_close as assert_close;
 

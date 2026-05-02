@@ -3,11 +3,11 @@
 use crate::decoder::OpusDecoder;
 use crate::extensions::OpusExtensionData;
 
-use opus_dnn::osce::config::OSCE_FEATURE_DIM;
-use opus_dnn::osce::features::{OsceInput, osce_calculate_features};
-use opus_dnn::osce::structs::{OsceFeatureState, OsceModel};
-use opus_silk::decoder::SilkPostFilter;
-use opus_silk::{ChannelState, DecoderControl};
+use crate::dnn::osce::config::OSCE_FEATURE_DIM;
+use crate::dnn::osce::features::{OsceInput, osce_calculate_features};
+use crate::dnn::osce::structs::{OsceFeatureState, OsceModel};
+use crate::silk::decoder::SilkPostFilter;
+use crate::silk::{ChannelState, DecoderControl};
 
 /// DRED process_stage value indicating latents have been decoded.
 const DRED_STAGE_DECODED: i32 = 1;
@@ -21,7 +21,7 @@ pub fn decoder_process_dred_extension(
     extension: &OpusExtensionData,
     dred_frame_offset: i32,
 ) {
-    let dred_ext_id = opus_dnn::dred::DRED_EXTENSION_ID as i32;
+    let dred_ext_id = crate::dnn::dred::DRED_EXTENSION_ID as i32;
     if extension.id != dred_ext_id {
         return;
     }
@@ -32,17 +32,17 @@ pub fn decoder_process_dred_extension(
         return;
     }
 
-    let _nb_latents = opus_dnn::dred::decoder::dred_ec_decode(
+    let _nb_latents = crate::dnn::dred::decoder::dred_ec_decode(
         &mut dnn.dred,
         &extension.data,
         extension.data.len(),
-        opus_dnn::dred::DRED_NUM_REDUNDANCY_FRAMES,
+        crate::dnn::dred::DRED_NUM_REDUNDANCY_FRAMES,
         dred_frame_offset,
         &dnn.dred_stats,
     );
 
     if dnn.dred.nb_latents > 0 && dnn.dred.process_stage == DRED_STAGE_DECODED {
-        opus_dnn::dred::rdovae_dec::dred_rdovae_decode_all(
+        crate::dnn::dred::rdovae_dec::dred_rdovae_decode_all(
             &mut dnn.rdovae_dec_state,
             &dnn.rdovae_dec,
             &mut dnn.dred.fec_features,
@@ -53,10 +53,10 @@ pub fn decoder_process_dred_extension(
         );
 
         for i in 0..dnn.dred.nb_latents * 2 {
-            let feature_start = i * opus_dnn::dred::DRED_NUM_FEATURES;
-            let feature_end = feature_start + opus_dnn::fargan::NB_FEATURES;
+            let feature_start = i * crate::dnn::dred::DRED_NUM_FEATURES;
+            let feature_end = feature_start + crate::dnn::fargan::NB_FEATURES;
             if feature_end <= dnn.dred.fec_features.len() {
-                opus_dnn::lpcnet::plc::lpcnet_plc_fec_add(
+                crate::dnn::lpcnet::plc::lpcnet_plc_fec_add(
                     &mut dnn.plc,
                     Some(&dnn.dred.fec_features[feature_start..feature_end]),
                 );
@@ -73,8 +73,8 @@ pub fn decoder_plc_update(decoder: &mut OpusDecoder, pcm: &[i16]) {
     if !dnn.loaded {
         return;
     }
-    opus_dnn::lpcnet::plc::lpcnet_plc_update(&mut dnn.plc, pcm);
-    opus_dnn::lpcnet::plc::lpcnet_plc_fec_clear(&mut dnn.plc);
+    crate::dnn::lpcnet::plc::lpcnet_plc_update(&mut dnn.plc, pcm);
+    crate::dnn::lpcnet::plc::lpcnet_plc_fec_clear(&mut dnn.plc);
 }
 
 /// Conceal a lost packet using DNN-based PLC.
@@ -86,7 +86,7 @@ pub fn decoder_plc_conceal(decoder: &mut OpusDecoder, pcm: &mut [i16]) -> bool {
     if !dnn.loaded {
         return false;
     }
-    opus_dnn::lpcnet::plc::lpcnet_plc_conceal(&mut dnn.plc, pcm);
+    crate::dnn::lpcnet::plc::lpcnet_plc_conceal(&mut dnn.plc, pcm);
     true
 }
 
@@ -97,8 +97,8 @@ pub fn decoder_plc_conceal(decoder: &mut OpusDecoder, pcm: &mut [i16]) -> bool {
 pub(crate) struct OscePostFilter<'a> {
     pub(crate) model: &'a OsceModel,
     pub(crate) feature_state: &'a mut OsceFeatureState,
-    pub(crate) lace_state: &'a mut Option<opus_dnn::osce::lace::LaceState>,
-    pub(crate) nolace_state: &'a mut Option<opus_dnn::osce::nolace::NoLaceState>,
+    pub(crate) lace_state: &'a mut Option<crate::dnn::osce::lace::LaceState>,
+    pub(crate) nolace_state: &'a mut Option<crate::dnn::osce::nolace::NoLaceState>,
 }
 
 impl SilkPostFilter for OscePostFilter<'_> {
@@ -150,7 +150,7 @@ impl SilkPostFilter for OscePostFilter<'_> {
         }
 
         // Run OSCE enhancement
-        opus_dnn::osce::osce_enhance_frame(
+        crate::dnn::osce::osce_enhance_frame(
             self.model,
             self.lace_state,
             self.nolace_state,

@@ -2,9 +2,9 @@ target/
 Cargo.lock
 
 # Compiled test vector generators (rebuild from .c sources against C libopus)
-tests/gen_test_vectors
-tests/gen_ms_test_vectors
-tests/cwrs_validate
+crates/opus-ffi/tests/gen_test_vectors
+crates/opus-ffi/tests/gen_ms_test_vectors
+crates/opus-ffi/tests/cwrs_validate
 
 # DNN model weights (downloaded at build time, not checked in)
-crates/opus-dnn/model-data/
+model-data/

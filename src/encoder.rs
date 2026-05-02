@@ -1,6 +1,6 @@
-use opus_celt::CeltEncoder;
-use opus_range_coder::EcCtx;
-use opus_silk::{SilkEncoder, encoder::SilkEncControl};
+use crate::celt::CeltEncoder;
+use crate::range_coder::EcCtx;
+use crate::silk::{SilkEncoder, encoder::SilkEncControl};
 
 use crate::error::OpusError;
 use crate::types::*;
@@ -50,7 +50,7 @@ pub struct OpusEncoder {
     /// SILK encoder state (old fixed-point, used for stereo).
     silk_enc: SilkEncoder,
     /// Float SILK encoder state (new, used for mono SILK).
-    silk_flp: opus_silk::encoder_flp::state::SilkEncoderStateFlp,
+    silk_flp: crate::silk::encoder_flp::state::SilkEncoderStateFlp,
     /// CELT encoder state.
     celt_enc: CeltEncoder,
     /// Current encoding mode (MODE_SILK_ONLY / MODE_HYBRID / MODE_CELT_ONLY).
@@ -109,7 +109,7 @@ impl OpusEncoder {
         let application = i32::from(application);
 
         let silk_enc = SilkEncoder::new();
-        let silk_flp = opus_silk::encoder_flp::state::SilkEncoderStateFlp::new();
+        let silk_flp = crate::silk::encoder_flp::state::SilkEncoderStateFlp::new();
         let celt_enc =
             CeltEncoder::new(48000, channels as usize).map_err(|_| OpusError::InternalError)?;
 
@@ -158,7 +158,7 @@ impl OpusEncoder {
     /// Uses Direct Form II Transposed with split A coefficients for precision.
     /// State S[0], S[1] are in Q12.
     fn hp_filter_i16(&mut self, samples: &mut [i16], cutoff_hz: i32) {
-        use opus_silk::{silk_rshift_round, silk_smlawb, silk_smulwb};
+        use crate::silk::{silk_rshift_round, silk_smlawb, silk_smulwb};
 
         // Design HP biquad: b = r*[1, -2, 1], a = [1, -2r(1-0.5*Fc^2), r^2]
         // C: Fc_Q19 = silk_DIV32_16(silk_SMULBB(SILK_FIX_CONST(1.5*pi/1000, 19), cutoff_Hz), Fs/1000)
@@ -473,7 +473,7 @@ impl OpusEncoder {
                 pcm[..frame_size as usize].to_vec()
             };
 
-            opus_dnn::dred::encoder::dred_compute_latents(
+            crate::dnn::dred::encoder::dred_compute_latents(
                 &mut dnn.dred_enc,
                 &mono_pcm,
                 frame_size as usize,
@@ -654,7 +654,7 @@ impl OpusEncoder {
                 }
 
                 // Run VAD
-                opus_silk::vad::silk_vad_get_sa_q8(
+                crate::silk::vad::silk_vad_get_sa_q8(
                     &mut self.silk_flp.vad_state,
                     &mut self.silk_flp.speech_activity_q8,
                     &mut self.silk_flp.snr_db_q7,
@@ -665,7 +665,7 @@ impl OpusEncoder {
                 );
 
                 // Compute SNR from target bitrate
-                let snr_db_q7 = opus_silk::encoder::silk_control_snr(
+                let snr_db_q7 = crate::silk::encoder::silk_control_snr(
                     fs_khz,
                     self.silk_flp.nb_subfr,
                     silk_bitrate,
@@ -673,7 +673,7 @@ impl OpusEncoder {
 
                 // Apply HP filter in-place (VOIP mode) — pcm_i16 is already a clone
                 if self.application == Application::Voip as i32 {
-                    let cutoff_hz = opus_silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
+                    let cutoff_hz = crate::silk::silk_log2lin(self.variable_hp_smth2_q15 >> 8);
                     self.hp_filter_i16(&mut pcm_i16[..silk_samples], cutoff_hz);
                 }
 
@@ -681,14 +681,14 @@ impl OpusEncoder {
                 enc.enc_bit_logp(true, 1);
                 enc.enc_bit_logp(false, 1);
 
-                let nlsf_cb = opus_silk::get_nlsf_cb(self.silk_flp.nlsf_cb_sel);
+                let nlsf_cb = crate::silk::get_nlsf_cb(self.silk_flp.nlsf_cb_sel);
                 let sf = &mut self.silk_flp;
 
                 // Reset frame-within-packet counter (single-frame packets)
                 sf.n_frames_encoded = 0;
 
                 // Call float frame encoder
-                let bytes = opus_silk::encoder_flp::encode_frame::silk_encode_frame_flp(
+                let bytes = crate::silk::encoder_flp::encode_frame::silk_encode_frame_flp(
                     &mut sf.x_buf,
                     &mut sf.nsq_state,
                     &mut sf.indices,
@@ -875,17 +875,17 @@ impl OpusEncoder {
             // Compute quantization parameters from bitrate (matching C: opus_encoder.c:707-727)
             let bitrate_offset = if self.use_inband_fec { 20000 } else { 12000 };
             let effective_br = (self.bitrate_bps - bitrate_offset).max(1);
-            let q0 = 15.min(4.max(51 - 3 * opus_celt::mathops::ec_ilog(effective_br as u32)));
+            let q0 = 15.min(4.max(51 - 3 * crate::celt::mathops::ec_ilog(effective_br as u32)));
             let dq = if effective_br > 36000 { 3 } else { 5 };
             let qmax = 15;
 
             let max_chunks = dnn.dred_duration as usize;
             let dred_space = (max_data_bytes as usize).saturating_sub(ret as usize);
-            let max_dred_bytes = dred_space.min(opus_dnn::dred::DRED_MAX_DATA_SIZE);
+            let max_dred_bytes = dred_space.min(crate::dnn::dred::DRED_MAX_DATA_SIZE);
 
-            if max_dred_bytes >= opus_dnn::dred::DRED_MIN_BYTES {
+            if max_dred_bytes >= crate::dnn::dred::DRED_MIN_BYTES {
                 let mut dred_buf = vec![0u8; max_dred_bytes];
-                let dred_bytes = opus_dnn::dred::encoder::dred_encode_silk_frame(
+                let dred_bytes = crate::dnn::dred::encoder::dred_encode_silk_frame(
                     &mut dnn.dred_enc,
                     &mut dred_buf,
                     max_chunks,
@@ -899,7 +899,7 @@ impl OpusEncoder {
 
                 if dred_bytes > 0 {
                     let ext = crate::extensions::OpusExtensionData {
-                        id: opus_dnn::dred::DRED_EXTENSION_ID as i32,
+                        id: crate::dnn::dred::DRED_EXTENSION_ID as i32,
                         frame: 0,
                         data: dred_buf[..dred_bytes].to_vec(),
                     };

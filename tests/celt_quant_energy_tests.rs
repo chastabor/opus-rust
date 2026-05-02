@@ -5,11 +5,11 @@
 mod common;
 
 use common::assert_f32_slice_close;
-use opus_celt::mode::CeltMode;
-use opus_celt::quant_energy;
-use opus_celt::tables::E_MEANS;
+use opus::celt::mode::CeltMode;
+use opus::celt::quant_energy;
+use opus::celt::tables::E_MEANS;
 use opus_ffi::*;
-use opus_range_coder::EcCtx;
+use opus::range_coder::EcCtx;
 
 const NB_EBANDS: usize = 21;
 

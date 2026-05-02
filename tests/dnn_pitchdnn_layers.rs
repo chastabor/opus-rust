@@ -1,3 +1,5 @@
+#![cfg(any(feature = "dnn-dred", feature = "dnn-osce", feature = "dnn-deep-plc"))]
+
 //! PitchDNN divergence investigation: proves the root cause is _mm_rcp_ps
 //! in the C SSE2 tanh/sigmoid implementation.
 //!
@@ -23,9 +25,9 @@ fn test_tanh_rcp_ps_divergence() {
 
     // Rust tanh
     let mut rust_out = input.clone();
-    opus_dnn::nnet::activations::compute_activation(
+    opus::dnn::nnet::activations::compute_activation(
         &mut rust_out,
-        opus_dnn::nnet::Activation::Tanh,
+        opus::dnn::nnet::Activation::Tanh,
     );
 
     // C tanh (uses _mm_rcp_ps on SSE2)
@@ -67,9 +69,9 @@ fn test_sigmoid_rcp_ps_divergence() {
     let input = common::gen_random_vec(n, &mut seed);
 
     let mut rust_out = input.clone();
-    opus_dnn::nnet::activations::compute_activation(
+    opus::dnn::nnet::activations::compute_activation(
         &mut rust_out,
-        opus_dnn::nnet::Activation::Sigmoid,
+        opus::dnn::nnet::Activation::Sigmoid,
     );
 
     let mut c_out = vec![0.0f32; n];
@@ -103,8 +105,8 @@ fn test_pitchdnn_first_layer_vs_c() {
     };
 
     // Init Rust model
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::pitchdnn::init_pitchdnn(&arrays).unwrap();
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::pitchdnn::init_pitchdnn(&arrays).unwrap();
     let nb_inputs = model.dense_if_upsampler_1.nb_inputs;
     let nb_outputs = model.dense_if_upsampler_1.nb_outputs;
 
@@ -114,11 +116,11 @@ fn test_pitchdnn_first_layer_vs_c() {
 
     // Rust: dense + tanh
     let mut rust_out = vec![0.0f32; nb_outputs];
-    opus_dnn::nnet::ops::compute_generic_dense(
+    opus::dnn::nnet::ops::compute_generic_dense(
         &model.dense_if_upsampler_1,
         &mut rust_out,
         &input,
-        opus_dnn::nnet::Activation::Tanh,
+        opus::dnn::nnet::Activation::Tanh,
     );
 
     // C: same dense + tanh from blob
@@ -165,7 +167,7 @@ fn test_pitchdnn_first_layer_vs_c() {
     let mut rust_linear = vec![0.0f32; nb_outputs];
     let mut c_linear = vec![0.0f32; nb_outputs];
 
-    opus_dnn::nnet::linear::compute_linear(&model.dense_if_upsampler_1, &mut rust_linear, &input);
+    opus::dnn::nnet::linear::compute_linear(&model.dense_if_upsampler_1, &mut rust_linear, &input);
     opus_ffi::c_compute_linear(
         &mut c_linear,
         fw,
@@ -206,15 +208,15 @@ fn test_pitchdnn_error_accumulation_estimate() {
     };
 
     let mut seed = 42u32;
-    let if_features = common::gen_random_vec(opus_dnn::pitchdnn::NB_IF_FEATURES, &mut seed);
-    let xcorr_features = common::gen_random_vec(opus_dnn::pitchdnn::NB_XCORR_FEATURES, &mut seed);
+    let if_features = common::gen_random_vec(opus::dnn::pitchdnn::NB_IF_FEATURES, &mut seed);
+    let xcorr_features = common::gen_random_vec(opus::dnn::pitchdnn::NB_XCORR_FEATURES, &mut seed);
 
     // Full Rust PitchDNN
-    let arrays = opus_dnn::nnet::weights::parse_weights(&blob).unwrap();
-    let model = opus_dnn::pitchdnn::init_pitchdnn(&arrays).unwrap();
-    let mut state = opus_dnn::pitchdnn::pitchdnn_state_init(model);
+    let arrays = opus::dnn::nnet::weights::parse_weights(&blob).unwrap();
+    let model = opus::dnn::pitchdnn::init_pitchdnn(&arrays).unwrap();
+    let mut state = opus::dnn::pitchdnn::pitchdnn_state_init(model);
     let rust_result =
-        opus_dnn::pitchdnn::compute_pitchdnn(&mut state, &if_features, &xcorr_features);
+        opus::dnn::pitchdnn::compute_pitchdnn(&mut state, &if_features, &xcorr_features);
 
     // Full C PitchDNN
     let c_result = opus_ffi::c_pitchdnn_compute(&blob, &if_features, &xcorr_features);

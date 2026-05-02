@@ -3,7 +3,7 @@
 mod common;
 
 use common::{assert_f32_slice_close, gen_noise, gen_sine_vec};
-use opus_celt::lpc;
+use opus::celt::lpc;
 use opus_ffi::*;
 
 /// Compute autocorrelation of a signal for testing.
@@ -74,6 +74,31 @@ fn celt_fir_noise_order8() {
     lpc::celt_fir(&x, &coeffs, &mut rust_y, 320, 8);
     c_celt_fir(&x, &coeffs, &mut c_y, 320, 8);
     assert_f32_slice_close(&rust_y, &c_y, 1e-4, "celt_fir(noise, ord=8)");
+}
+
+// ── celt_fir5 ──
+// celt_fir5 is the only FIR filter actually used in the Rust codec
+// (src/celt/pitch.rs::pitch_downsample). Both impls start with zero memory
+// state and apply the filter in-place.
+
+#[test]
+fn celt_fir5_sine() {
+    let mut rust_x = gen_sine_vec(256, 440.0, 48000.0, 0.3);
+    let mut c_x = rust_x.clone();
+    let coeffs = [0.5f32, -0.3, 0.1, -0.05, 0.02];
+    opus::celt::pitch::celt_fir5(&mut rust_x, &coeffs, 256);
+    c_celt_fir5(&mut c_x, &coeffs, 256);
+    assert_f32_slice_close(&rust_x, &c_x, 1e-5, "celt_fir5(sine)");
+}
+
+#[test]
+fn celt_fir5_noise() {
+    let mut rust_x = gen_noise(320, 77);
+    let mut c_x = rust_x.clone();
+    let coeffs = [0.2f32, -0.15, 0.08, -0.04, 0.02];
+    opus::celt::pitch::celt_fir5(&mut rust_x, &coeffs, 320);
+    c_celt_fir5(&mut c_x, &coeffs, 320);
+    assert_f32_slice_close(&rust_x, &c_x, 1e-4, "celt_fir5(noise)");
 }
 
 // ── celt_iir ──

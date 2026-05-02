@@ -3,8 +3,8 @@
 mod common;
 
 use common::{assert_f32_slice_close, gen_noise, gen_sine_vec};
-use opus_celt::pitch;
-use opus_celt::tables::WINDOW_120;
+use opus::celt::pitch;
+use opus::celt::tables::WINDOW_120;
 use opus_ffi::*;
 
 // ── celt_pitch_xcorr ──

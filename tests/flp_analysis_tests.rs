@@ -3,13 +3,13 @@
 //! and process_gains against the C reference.
 
 use opus_ffi::*;
-use opus_silk::MAX_LPC_ORDER;
-use opus_silk::MAX_NB_SUBFR;
-use opus_silk::encoder_flp::dsp::*;
-use opus_silk::encoder_flp::find_lpc::silk_find_lpc_flp;
-use opus_silk::encoder_flp::residual_energy::silk_residual_energy_flp;
-use opus_silk::encoder_flp::wrappers::*;
-use opus_silk::lpc_analysis::silk_burg_modified_flp;
+use opus::silk::MAX_LPC_ORDER;
+use opus::silk::MAX_NB_SUBFR;
+use opus::silk::encoder_flp::dsp::*;
+use opus::silk::encoder_flp::find_lpc::silk_find_lpc_flp;
+use opus::silk::encoder_flp::residual_energy::silk_residual_energy_flp;
+use opus::silk::encoder_flp::wrappers::*;
+use opus::silk::lpc_analysis::silk_burg_modified_flp;
 
 const ORDER: usize = 16;
 const SUBFR_LEN: usize = 80;

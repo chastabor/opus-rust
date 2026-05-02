@@ -1,6 +1,6 @@
-use opus_celt::CeltDecoder;
-use opus_range_coder::EcCtx;
-use opus_silk::decoder::{SilkDecControl, SilkDecoder};
+use crate::celt::CeltDecoder;
+use crate::range_coder::EcCtx;
+use crate::silk::decoder::{SilkDecControl, SilkDecoder};
 
 use crate::error::OpusError;
 use crate::packet::*;
@@ -321,7 +321,7 @@ impl OpusDecoder {
                                 $ec,
                                 &mut silk_out_i16,
                                 &mut silk_frame_size,
-                                &mut opus_silk::decoder::NoPostFilter,
+                                &mut crate::silk::decoder::NoPostFilter,
                             )
                         }
                     }
@@ -334,7 +334,7 @@ impl OpusDecoder {
                             $ec,
                             &mut silk_out_i16,
                             &mut silk_frame_size,
-                            &mut opus_silk::decoder::NoPostFilter,
+                            &mut crate::silk::decoder::NoPostFilter,
                         )
                     }
                 }};
@@ -539,7 +539,7 @@ impl OpusDecoder {
                 {
                     let frame_offset = 0i32; // DRED offset relative to current packet
                     for ext in &extensions {
-                        if ext.id == opus_dnn::dred::DRED_EXTENSION_ID as i32 {
+                        if ext.id == crate::dnn::dred::DRED_EXTENSION_ID as i32 {
                             crate::dnn_decoder::decoder_process_dred_extension(
                                 self,
                                 ext,
