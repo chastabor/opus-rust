@@ -25,7 +25,7 @@ dnn-osce     = []
 [dependencies]
 
 [dev-dependencies]
-opus-ffi = { version = "3.0.0", path = "crates/opus-ffi" }
+opus-ffi = { path = "crates/opus-ffi" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [lints.rust]
