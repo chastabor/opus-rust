@@ -55,7 +55,7 @@ Enable the `dnn` feature to access DRED, deep PLC, and OSCE:
 
 ```toml
 [dependencies]
-opus-rust = { version = "3", features = ["dnn"] }
+opus-wave = { version = "3.0.1", features = ["dnn"] }
 ```
 
 The `dnn` feature is an umbrella that enables three sub-features which can also
